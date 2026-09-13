@@ -30,9 +30,7 @@ services:
     depends_on:
       haru-db:
         condition: service_healthy
-    # 임시: M3에서 haru-web(nginx)이 추가되면 이 포트 바인딩을 haru-web으로 옮기고 여기서 제거한다
-    ports:
-      - "127.0.0.1:18080:8080"
+    # 호스트 포트 없음 — haru-web(nginx)만 외부에 노출한다(docs/server/deploy.md 3절)
     env_file: .env
     environment:
       SPRING_DATASOURCE_URL: jdbc:mariadb://haru-db:3306/haru_paper
@@ -43,6 +41,19 @@ services:
       - haru-files:/data/haru-files
     mem_limit: 1.5g
     shm_size: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  haru-web:
+    build: ../app/web
+    restart: unless-stopped
+    depends_on:
+      - haru-api
+    ports:
+      - "${HARU_WEB_BIND}:8080"
     logging:
       driver: json-file
       options:
