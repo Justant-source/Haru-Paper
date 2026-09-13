@@ -1,0 +1,443 @@
+# 아키텍처
+
+> 하루종이(Haru-Paper)의 전체 구조, 구성요소 경계, 도메인 모델, **API 규약 원본**, 동기화 흐름.
+> 서버·Pi·앱 문서는 이 문서의 규약을 링크해서 쓰고, 다르게 정의하지 않는다. 규약을 바꾸면 이 문서를 먼저 고친다.
+> 최초 결정 근거는 [`init_plan.md`](init_plan.md) (2·6·7절).
+>
+> 표기: **[확인됨]** 실물 확인 / **[미검증]** 확인 전 / **[추정]** 자료 기반 추론 / **[기본값]** 따로 묻지 않고 정한 값(바꿔도 됨)
+
+---
+
+## 1. 전체 구조
+
+```
+폰 웹앱(PWA, s21) ─HTTPS(tailscale serve)─ 서버(justant-server2, Docker) ─30초 폴링─ Pi(Orange Pi Zero 2W) ─BT 또는 USB─ M832
+                              (전 구간 Tailscale 내부망)
+```
+
+| 구성 | 디렉터리 | 하는 일 | 모르는 것 | 담당 세션 |
+|---|---|---|---|---|
+| 앱 | `/app` | 포맷 편집·미리보기, 예약, 지금 인쇄, 이력·기기 상태 | 프린터 | 서버 |
+| 서버 | `/server` | 포맷·예약 저장, 프린터 프로필 폭으로 PNG 렌더, 날씨, Pi 동기화 API | m832 프로토콜 | 서버 |
+| Pi | `/pi` | 폴링 동기화, 예약 로컬 계산, PNG 캐시, 디더링·정렬보정·래스터, 결과 대기열 | 레이아웃·콘텐츠 | 노트북 |
+
+### 1.1 경계 규칙
+
+- **m832를 아는 코드는 `/pi/printer/m832`뿐이다.** 서버와 앱은 Pi가 보고한 [프린터 프로필](#35-프린터-프로필printer-profile)만 안다
+- **서버가 그레이스케일 PNG를 렌더**한다. 흑백 변환(디더링), 좌우 정렬 보정, 헤드 폭 패딩, 비트 패킹, 전송은 Pi 드라이버 몫이다
+- **스케줄 원본은 서버, 실행은 Pi**다. Pi는 예약 규칙과 렌더 PNG를 캐시해 두고 **인터넷이 끊겨도 스스로 인쇄**한다
+- **포맷은 JSON 블록 + 화이트리스트 스타일 속성뿐**이다. 임의 HTML/CSS/JS는 받지 않는다(서버 Chromium의 SSRF·JS 실행 방지)
+
+### 1.2 네트워크·배치
+
+| 항목 | 값 |
+|---|---|
+| 서버 | `justant-server2` — Tailscale `100.81.189.92`, `justant-server2.tail2b65d1.ts.net` |
+| 앱·Pi → 서버 | `https://justant-server2.tail2b65d1.ts.net` (`tailscale serve`로 HTTPS 종단). 포트·적용은 M2에서 사용자 승인 후 결정 |
+| origin | 같은 origin. `/` = 웹앱 정적 파일, `/api` = Spring Boot |
+| 인증 | 앱: 없음(tailnet이 인증). Pi: `Authorization: Bearer <HARU_DEVICE_TOKEN>` |
+| 시간대 | `Asia/Seoul` 고정 |
+| DB | MariaDB, 프로젝트 전용 컨테이너. 호스트 포트 노출 안 함 |
+
+---
+
+## 2. 구성요소 한눈에 보기
+
+| 구성 | 스택 | 상세 문서 |
+|---|---|---|
+| Pi 에이전트 | Python 3.11 + venv, systemd `haru-paper-agent`, SQLite, pyusb / BT | [`pi/`](pi/README.md) |
+| 서버 | Spring Boot 3 + Java 21 + Gradle(Groovy), MariaDB + Flyway, Playwright for Java + Chromium [기본값], Docker compose(prod) | [`server/`](server/README.md) |
+| 웹앱 | React + TypeScript + Vite + PWA | [`app/`](app/README.md) |
+
+---
+
+## 3. 도메인 모델
+
+### 3.1 포맷(Format) — 카드와 같은 것
+
+- 인쇄물 한 장. 블록을 위에서 아래로 쌓아 만든다. 저장해 두고 여러 예약에서 재사용한다
+- **가져오기(import)** 하면 내 라이브러리에 새 포맷이 생기고 `meta.forkedFrom`에 출처를 남긴다(fork). 이후 자유롭게 수정
+- 단위는 **mm/pt** — 프린터 dpi와 무관하게 정의하고 렌더 시 프로필 dpi로 환산
+- 전체 `style`과 블록별 `blocks[].style`을 분리 — 나중에 "내 스타일 입히기"를 스타일 덮어쓰기로 구현
+- 첫 블록 타입: `text`, `image`, `dateHeader`, `weather`
+- 텍스트 변수: `{{date}}`, `{{weekday}}` — 값은 렌더 대상 날짜(`targetDate`) 기준
+- 이미지는 서버 내부에서 업로드 파일(`assetId`)로 저장하고, **내보내기 파일에만** `assets`에 data URI로 내장
+
+요약 예시(스키마 v1 초안):
+
+```json
+{
+  "schemaVersion": 1,
+  "meta": { "name": "아침 브리핑", "author": "justant", "description": "", "forkedFrom": null },
+  "style": { "fontFamily": "Pretendard", "baseFontSizePt": 11, "lineHeight": 1.4,
+             "marginMm": { "top": 3, "right": 3, "bottom": 8, "left": 3 }, "blockGapMm": 3, "divider": "none" },
+  "blocks": [
+    { "type": "dateHeader", "props": { "pattern": "YYYY년 M월 D일 dddd" }, "style": { "align": "center", "fontSizePt": 16, "bold": true } },
+    { "type": "text", "props": { "text": "{{date}} {{weekday}}\n오늘의 할 일" }, "style": { "align": "left" } },
+    { "type": "image", "props": { "assetId": "a1b2", "widthPercent": 100 } },
+    { "type": "weather", "props": { "location": "default", "fields": ["tempMin", "tempMax", "precipProb", "sky"] } }
+  ]
+}
+```
+
+> **스키마 상세(블록별 props, 스타일 화이트리스트, 검증 규칙, 가져오기/내보내기 형식)의 원본은
+> [`server/format-schema.md`](server/format-schema.md)다.** 이 절은 요약이다.
+
+### 3.2 예약(Schedule)
+
+```json
+{ "id": "s1", "formatId": "f1", "type": "recurring", "daysOfWeek": ["MON","TUE","WED","THU","FRI"], "time": "07:00", "enabled": true }
+{ "id": "s2", "formatId": "f2", "type": "once", "date": "2026-09-15", "time": "08:30", "enabled": true }
+```
+
+| 필드 | 설명 |
+|---|---|
+| `type` | `recurring`(요일 반복) 또는 `once`(일회성) |
+| `daysOfWeek` | `recurring`일 때. `MON`~`SUN` |
+| `date` | `once`일 때. `YYYY-MM-DD` (KST) |
+| `time` | `HH:mm` (KST) |
+| `enabled` | 켜기/끄기(휴가 중 일시정지) |
+
+- 시간대는 `Asia/Seoul` 고정이라 필드로 두지 않는다
+- 예약 1개 = 포맷 1개. 한 시각에 여러 장이 필요하면 예약을 여러 개 만든다
+- 같은 규칙으로 서버(다음 실행 시각 표시·렌더 준비)와 Pi(실제 실행)가 **각자 occurrence를 계산**한다
+
+### 3.3 occurrence와 명령(Command)
+
+- **occurrence**: 예약 규칙이 만들어 내는 "한 번의 실행 시점"
+- **occurrence key** = `{scheduleId}@{YYYY-MM-DD}T{HH:mm}` (예: `s1@2026-09-14T07:00`) — Pi가 계산.
+  **같은 key는 두 번 인쇄하지 않는다**(재시작·재동기화 중복 방지)
+- **명령(command)**: "지금 인쇄"는 예약이 아니라 명령이다. `{commandId, type: "print_now", formatId, renderId, sha256, paperConfirmed, createdAt}`.
+  - 상태 [기본값]: `pending`(생성) → `delivered`(poll 응답에 처음 실림) → `done`(Pi 결과 수신). **생성 후 10분 안에 `done`이 안 되면 `expired`**
+  - `done`/`expired`가 아닌 명령은 **매 poll 응답에 다시 실린다**(at-least-once). Pi는 **`commandId`로 중복을 거른다**
+  - 만료 이유: Pi가 오프라인이었다가 몇 시간 뒤 접속했을 때 뜬금없이 인쇄되지 않게 하기 위해서다
+
+### 3.4 렌더(Render)
+
+```json
+{ "renderId": "r9", "formatId": "f1", "targetDate": "2026-09-14", "profileKey": "m832-300-110-1300",
+  "widthPx": 1300, "sha256": "…", "renderedAt": "2026-09-14T06:00:12+09:00" }
+```
+
+- PNG 파일 1개(그레이스케일, 폭 = 프로필 `printableWidthPx`, 높이는 내용에 따라 가변 — 110mm **연속 롤**)
+- `profileKey` = `{model}-{dpi}-{paperWidthMm}-{printableWidthPx}` [기본값] — 프로필이 바뀌면 다시 렌더
+- 서버는 **앞으로 36시간 안의 occurrence마다** `(formatId, targetDate)` 렌더를 준비한다
+- 날씨처럼 바뀌는 블록이 있는 포맷은 occurrence **약 60분 전에 다시 렌더**한다
+- "지금 인쇄" 명령을 만들 때 서버는 `targetDate = 오늘`로 즉시 렌더하고 그 `renderId`를 명령에 넣는다 [기본값]
+- Pi는 실행 시 `(formatId, 오늘 날짜)` 렌더를 쓰고, 없으면 그 포맷의 **가장 최근 렌더**를 쓴다
+- **알려진 한계(PoC 수용)**: 오프라인이 길어지면 날짜·날씨가 마지막으로 받은 렌더 값으로 인쇄된다
+
+### 3.5 프린터 프로필(Printer Profile)
+
+Pi가 매 poll마다 보고하고, 서버는 이 값으로만 렌더 폭을 정한다.
+
+```json
+{ "model": "m832", "dpi": 300, "paperWidthMm": 110, "printableWidthPx": 1300 }
+```
+
+| 필드 | 설명 |
+|---|---|
+| `model` | 표시용 모델명. 서버는 이 값으로 분기하지 않는다 |
+| `dpi` | mm/pt → px 환산에 사용 |
+| `paperWidthMm` | 용지 폭. PoC는 110 고정 |
+| `printableWidthPx` | 서버 PNG 폭. **잠정 1300** — M1에서 detox-printer `07_print_image.py`(WIDTH_DOTS=1304, h-offset 2mm) 기준으로 확정, 근거는 [`pi/printer-m832.md`](pi/printer-m832.md) |
+
+- Pi가 아직 한 번도 보고하지 않았으면 서버는 위 값을 기본 프로필로 쓴다 [기본값]
+- PoC는 Pi 1대 = 프린터 1대 = 프로필 1개. 다른 프린터를 붙이면 `/pi/printer/<model>` 드라이버만 추가하고 서버·앱은 그대로
+
+### 3.6 실행 결과(Result)
+
+```json
+{ "resultId": "3f0c…(uuid)", "occurrenceKey": "s1@2026-09-14T07:00", "commandId": null, "formatId": "f1", "renderId": "r9",
+  "status": "printed", "detail": "", "scheduledAt": "2026-09-14T07:00:00+09:00", "executedAt": "2026-09-14T07:00:03+09:00" }
+```
+
+- `resultId`는 **Pi가 발급**(UUID). 업로드는 `resultId`로 멱등
+- `occurrenceKey`와 `commandId` 중 정확히 하나가 값을 가진다
+- `scheduledAt`은 명령일 때 명령 생성 시각 [기본값]
+
+| `status` | 의미 |
+|---|---|
+| `printed` | 프린터로 전송 완료 |
+| `dry_run` | 용지 정책 `unverified`라 전송하지 않고 기록만 |
+| `missed` | 유예 시간(30분) 안에 실행하지 못함 |
+| `failed` | 전송 중 오류(detail에 예외 원문) |
+| `skipped_no_paper` | 용지 없음(상태 조회 또는 수동 상태가 꺼짐) |
+| `skipped_clock_unsynced` | 시계 미동기(오프라인 재부팅 등)로 보류 |
+| `skipped_printer_offline` | 프린터 연결 안 됨 |
+
+### 3.7 용지 정책(Paper Policy)
+
+Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
+
+| 정책 | 언제 | 예약 실행 | 지금 인쇄 |
+|---|---|---|---|
+| `unverified` (기본) | 용지 감지(H4) 확정 전 | `dry_run` 기록만 | `paperConfirmed=true`일 때만 전송 |
+| `status_query` | H4 통과 후 | 인쇄 직전 상태 조회로 용지 확인 | 동일 |
+| `manual_flag` | H4 실패 시 폴백 | 서버의 수동 "용지 장착됨"이 켜져 있을 때만 | 동일 |
+
+- **최종 판단은 Pi가 한다.** 서버·앱의 체크박스와 수동 상태는 Pi에 전달되는 입력일 뿐이다
+- `manual_flag`에서 프린터 오류(`failed`, `skipped_printer_offline`) 결과가 올라오면 서버가 수동 상태를 자동으로 끈다 [기본값]
+
+---
+
+## 4. API 규약 v0 (원본)
+
+### 4.1 공통
+
+| 항목 | 규칙 |
+|---|---|
+| 경로 | 모두 `/api` 아래 |
+| 본문 | `application/json; charset=utf-8` (업로드·PNG 제외) |
+| 시각 | ISO-8601 오프셋 포함 `2026-09-14T07:00:00+09:00`. 날짜 `YYYY-MM-DD`, 시:분 `HH:mm`은 KST |
+| ID | 서버 리소스 ID는 서버 발급 문자열. `resultId`만 Pi 발급 UUID |
+| 오류 | `application/problem+json` (Spring `ProblemDetail`, RFC 9457/7807): `{type, title, status, detail, instance}` + 확장 `errors: [{path, message}]` (검증 오류일 때). HTTP 400/401/404/409/413/415/422/500 [기본값]. 상태별 의미·예시는 [`server/api.md`](server/api.md) 4절 |
+| 인증 | 앱용 경로는 없음. **Pi용 4개 경로**(`poll`, `snapshot`, `renders`, `results`)만 Bearer 필수 — `/api/device`, `/api/device/paper-state`는 앱용이므로 경로 접두사가 아니라 **경로별로** 판단한다 |
+
+### 4.2 앱용 (인증 없음 — tailnet이 인증)
+
+| 메서드 | 경로 | 용도 |
+|---|---|---|
+| GET/POST | `/api/formats` | 목록 / 생성 |
+| GET/PUT/DELETE | `/api/formats/{id}` | 조회 / 수정 / 삭제 |
+| POST | `/api/formats/import` | 내보낸 JSON 가져오기(fork) |
+| GET | `/api/formats/{id}/export` | `assets` 내장 JSON 내보내기 |
+| GET | `/api/formats/{id}/preview.png` | 저장된 포맷을 현재 프린터 프로필로 미리보기 렌더(목록 썸네일 등) |
+| POST | `/api/formats/preview` | **저장하지 않은 편집본** 미리보기 렌더 [기본값] |
+| POST | `/api/assets` | 이미지 업로드(최대 10MB) → `assetId` |
+| GET | `/api/assets/{assetId}` | 업로드 원본 이미지(편집기 썸네일용) [기본값] |
+| GET/POST | `/api/schedules` | 목록 / 생성 |
+| PUT/DELETE | `/api/schedules/{id}` | 수정(켜기/끄기 포함) / 삭제 |
+| POST | `/api/print-now` | `{formatId, paperConfirmed}` → 명령 생성 |
+| GET | `/api/history` | 실행 결과 목록 |
+| GET | `/api/device` | Pi 마지막 폴링 시각, 프린터 프로필·상태, 용지 정책, 수동 용지 상태 |
+| PUT | `/api/device/paper-state` | `{loaded}` — H4 실패 시 폴백용 수동 상태 |
+| GET/PUT | `/api/settings` | 날씨 기본 위치 등 |
+| GET | `/api/health` | 헬스체크 |
+
+#### 요청·응답 필드
+
+**포맷**
+
+| 요청 | 본문 | 응답 |
+|---|---|---|
+| `GET /api/formats` | — | `200 [{id, name, author, forkedFrom, hasDynamicBlocks, updatedAt}]` |
+| `POST /api/formats` | 포맷 문서 `{schemaVersion, meta, style, blocks}` (`assets` 없음) | `201 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
+| `GET /api/formats/{id}` | — | `200 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
+| `PUT /api/formats/{id}` | 포맷 문서 | `200` 위와 같음 |
+| `DELETE /api/formats/{id}` | — | `204`. 예약이 참조 중이면 `409` [기본값] |
+| `POST /api/formats/import` | 내보내기 JSON(`assets` 포함) | `201 {id, document, …}` — `meta.forkedFrom = {name, author, schemaVersion, importedAt}`, `assets`는 업로드 파일로 풀어 `assetId` 재발급 |
+| `GET /api/formats/{id}/export` | — | `200` 포맷 문서 + `assets: {assetId: "data:image/…;base64,…"}` |
+| `GET /api/formats/{id}/preview.png?date=YYYY-MM-DD` | `date` 생략 시 오늘 | `200 image/png` (폭 = 현재 프로필 `printableWidthPx`) |
+| `POST /api/formats/preview?date=YYYY-MM-DD` | 포맷 문서(저장 안 된 편집본, `assets` 없음) | `200 image/png` (폭 = 현재 프로필). **포맷·렌더 행을 만들지 않는다.** 검증 실패 `422` [기본값] |
+
+- `hasDynamicBlocks`: 날씨처럼 렌더 시점에 따라 바뀌는 블록 포함 여부(서버 계산)
+- 문서 검증 실패는 `422`, 규칙은 [`server/format-schema.md`](server/format-schema.md)
+
+**에셋**
+
+| 요청 | 본문 | 응답 |
+|---|---|---|
+| `POST /api/assets` | `multipart/form-data`, 필드 `file` (PNG/JPEG만 [기본값], 최대 10MB) | `201 {assetId, contentType, widthPx, heightPx, sizeBytes}`. 초과 시 `413`, 그 밖의 형식 `415` |
+| `GET /api/assets/{assetId}` | — | `200 image/png` 또는 `image/jpeg` (업로드 원본). 없으면 `404` [기본값] |
+
+**예약**
+
+| 요청 | 본문 | 응답 |
+|---|---|---|
+| `GET /api/schedules` | — | `200 [{…Schedule, nextOccurrenceAt}]` |
+| `POST /api/schedules` | `{formatId, type, daysOfWeek?, date?, time, enabled}` | `201 {…Schedule, nextOccurrenceAt}` |
+| `PUT /api/schedules/{id}` | 위와 같음 | `200 {…Schedule, nextOccurrenceAt}` |
+| `DELETE /api/schedules/{id}` | — | `204` |
+
+- `nextOccurrenceAt`: 다음 실행 시각(없으면 `null` — 끝난 일회성, 꺼진 예약)
+
+**지금 인쇄·이력**
+
+| 요청 | 본문 | 응답 |
+|---|---|---|
+| `POST /api/print-now` | `{formatId, paperConfirmed}` | `202 {commandId, formatId, renderId, paperConfirmed, status: "pending", createdAt}` |
+| `GET /api/history?limit=50&before=<executedAt>` | — | `200 [{…Result, formatName, source: "schedule" \| "command"}]` (최신순) |
+
+- 명령 `status`: `pending` → `delivered` → `done`, 10분 안에 `done`이 안 되면 `expired` [기본값] ([3.3](#33-occurrence와-명령command))
+- 서버는 `paperConfirmed=false`여도 **거절하지 않고 그대로 Pi에 전달**한다. 전송 여부는 Pi의 용지 정책이 판단한다(`unverified`면 Pi가 `skipped_no_paper`로 기록). 앱 UI는 체크를 요구한다
+
+**기기·설정·헬스**
+
+| 요청 | 본문 | 응답 |
+|---|---|---|
+| `GET /api/device` | — | `200 {deviceId, online, lastPollAt, agentVersion, printerProfile, printerStatus, paperPolicy, paperState}` |
+| `PUT /api/device/paper-state` | `{loaded: true \| false}` | `200 {loaded, updatedAt, updatedBy: "app" \| "server"}` |
+| `GET /api/settings` | — | `200 {weather: {label, lat, lon}}` |
+| `PUT /api/settings` | `{weather: {label, lat, lon}}` | `200` 위와 같음 |
+| `GET /api/health` | — | `200 {status: "ok", time}` |
+
+- `online`: `lastPollAt`이 폴링 주기의 3배(90초) 이내면 `true` [기본값]
+- `printerStatus`는 [4.3 poll 요청](#43-pi용-authorization-bearer-haru_device_token)의 `{state, detail}` 그대로, `paperPolicy`는 poll 요청의 최상위 `paperPolicy` 그대로
+- `paperState`는 어디서나 `{loaded, updatedAt}` (PUT 응답만 `updatedBy` 추가)
+- `weather` 기본값: `{label: "서울시청", lat: 37.5663, lon: 126.9779}`
+
+### 4.3 Pi용 (`Authorization: Bearer <HARU_DEVICE_TOKEN>`)
+
+| 메서드 | 경로 | 용도 |
+|---|---|---|
+| POST | `/api/device/poll` | 30초마다. 요청: `{agentVersion, printerProfile, printerStatus, paperPolicy, snapshotHash}` / 응답: `{serverTime, snapshotHash, snapshotChanged, commands[], paperState, pollIntervalSec}` |
+| GET | `/api/device/snapshot` | `snapshotChanged`일 때만. 응답: `{snapshotHash, schedules[], renders[{renderId, formatId, targetDate, sha256, url}]}` |
+| GET | `/api/device/renders/{renderId}.png` | PNG 다운로드(sha256 검증) |
+| POST | `/api/device/results` | 결과 묶음 업로드. `resultId`로 멱등. 명령 처리 완료도 여기서 보고 |
+
+#### 요청·응답 필드
+
+**`POST /api/device/poll`**
+
+요청:
+
+```json
+{
+  "agentVersion": "0.1.0",
+  "printerProfile": { "model": "m832", "dpi": 300, "paperWidthMm": 110, "printableWidthPx": 1300 },
+  "printerStatus": { "state": "ok", "detail": "" },
+  "paperPolicy": "unverified",
+  "snapshotHash": "9f2c…"
+}
+```
+
+- `printerStatus`: `{state, detail}`. `state`: `ok` | `offline` | `error` | `unknown` [기본값]. `detail`은 사람이 읽는 설명(없으면 빈 문자열)
+  - H4(용지 감지) 통과 후 `no_paper`, `cover_open`을 추가할 예정이다
+- `paperPolicy`: Pi의 `HARU_PAPER_POLICY` 값(`unverified` | `status_query` | `manual_flag`). **poll 요청의 최상위 필드**(`printerStatus` 안이 아님). 앱의 기기 화면 표시용 [기본값 — init_plan 7절 필드에 추가]
+- `snapshotHash`: Pi가 마지막으로 받은 스냅샷 해시(서버가 준 문자열 그대로, 소문자 hex — 계산식은 [`server/api.md`](server/api.md) 6.1). 처음이면 `null`
+
+응답:
+
+```json
+{
+  "serverTime": "2026-09-14T06:59:30+09:00",
+  "snapshotHash": "9f2c…",
+  "snapshotChanged": false,
+  "commands": [ { "commandId": "c7", "type": "print_now", "formatId": "f1", "renderId": "r12", "sha256": "…",
+                  "paperConfirmed": true, "createdAt": "…" } ],
+  "paperState": { "loaded": false, "updatedAt": "…" },
+  "pollIntervalSec": 30
+}
+```
+
+- `serverTime`: Pi 시계 이상 감지용. **시계 동기화 자체는 NTP**가 한다
+- `commands`: `done`/`expired`가 아닌 명령 전부(at-least-once). Pi는 `commandId`로 중복 제거. **생성 후 10분이 지나 `expired`된 명령은 더 이상 싣지 않는다** [기본값]
+  - 명령 렌더는 스냅샷 `renders`에 없을 수 있으므로, Pi는 명령의 `renderId`로 `GET /api/device/renders/{renderId}.png`를 받아 명령의 `sha256`으로 검증한다 [기본값]
+- `pollIntervalSec`: 서버 `.env`의 `HARU_POLL_INTERVAL_SEC`(기본 30) 값 [기본값]. Pi는 응답에 값이 있으면 따르고, 응답이 없거나 오프라인이면 자기 `pi/.env`의 `HARU_POLL_INTERVAL_SEC`를 쓴다
+
+**`GET /api/device/snapshot`**
+
+```json
+{
+  "snapshotHash": "9f2c…",
+  "generatedAt": "…",
+  "schedules": [ { "id": "s1", "formatId": "f1", "type": "recurring", "daysOfWeek": ["MON"], "time": "07:00", "enabled": true } ],
+  "renders": [ { "renderId": "r9", "formatId": "f1", "targetDate": "2026-09-14", "sha256": "…", "widthPx": 1300, "renderedAt": "…",
+                 "url": "/api/device/renders/r9.png" } ]
+}
+```
+
+- `schedules`: 꺼진 예약 포함 전체(`enabled`로 구분)
+- `renders`: 예약이 참조하는 포맷마다 36시간 안 `targetDate` 렌더 + 포맷별 최신 렌더
+- `snapshotHash`는 `schedules`와 `renders` 목록 내용의 해시
+
+**`GET /api/device/renders/{renderId}.png`** — `200 image/png`. Pi는 snapshot의 `sha256`과 대조해 다르면 버리고 재시도
+
+**`POST /api/device/results`**
+
+```json
+{ "results": [ { "resultId": "…", "occurrenceKey": "s1@2026-09-14T07:00", "commandId": null, "formatId": "f1", "renderId": "r9",
+                 "status": "printed", "detail": "", "scheduledAt": "…", "executedAt": "…" } ] }
+```
+
+응답: `200 {"accepted": ["…"], "duplicates": ["…"]}` — 이미 받은 `resultId`는 `duplicates`로 돌려주고 성공 처리
+
+---
+
+## 5. 동기화 흐름
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as 폰 웹앱
+    participant Srv as 서버
+    participant Pi as Pi 에이전트
+    participant Prn as M832
+
+    App->>Srv: POST /api/schedules (포맷 f1, 평일 07:00)
+    Srv->>Srv: 렌더 스케줄러 — 36h 안 occurrence 렌더 준비<br/>(날씨 포함 포맷은 약 60분 전 재렌더)
+
+    loop 30초마다
+        Pi->>Srv: POST /api/device/poll {printerProfile, printerStatus, paperPolicy, snapshotHash}
+        Srv-->>Pi: {snapshotChanged, commands[], paperState}
+        opt snapshotChanged = true
+            Pi->>Srv: GET /api/device/snapshot
+            Srv-->>Pi: {schedules[], renders[]}
+            Pi->>Srv: GET /api/device/renders/{renderId}.png
+            Srv-->>Pi: PNG (sha256 검증 후 캐시)
+        end
+    end
+
+    Note over Pi: 인터넷이 끊겨도 아래는 캐시로 진행
+    Pi->>Pi: 07:00 occurrence 도래 (key = s1@날짜T07:00, 중복 검사)
+    Pi->>Pi: 용지 정책 확인 (unverified → dry_run)
+    Pi->>Prn: 디더링·정렬보정·래스터 전송 (정책이 허용할 때만)
+    Pi->>Pi: 결과를 SQLite 대기열에 저장
+
+    Pi->>Srv: POST /api/device/results (온라인이 되면)
+    Srv-->>Pi: {accepted, duplicates}
+    App->>Srv: GET /api/history
+    Srv-->>App: 결과 목록
+```
+
+**지금 인쇄**: 앱 `POST /api/print-now` → 서버가 오늘 날짜로 렌더·명령 생성 → 다음 poll 응답 `commands[]`에 포함(최대 30초 지연) →
+Pi가 명령의 `renderId` PNG를 받아 `sha256` 검증·정책 확인 후 인쇄 → `results`로 `commandId` 보고(서버는 명령을 `done`으로). 10분 안에 `done`이 안 되면 `expired`.
+
+---
+
+## 6. 오프라인 동작과 알려진 한계
+
+| 상황 | 동작 |
+|---|---|
+| 예약 시각에 인터넷·서버 끊김 | Pi가 캐시된 규칙·PNG로 인쇄, 결과는 대기열 → 복구 후 업로드 |
+| 오프라인이 길어짐 | 날짜·날씨가 마지막으로 받은 렌더 값으로 인쇄됨(PoC 수용) |
+| 오프라인 + 재부팅(정전) | RTC가 없어 시각을 모름 → NTP 동기 전까지 인쇄 보류(`skipped_clock_unsynced`). RTC(DS3231)는 선택 부품 |
+| 예약 시각에 Pi 꺼짐·프린터 무응답 | 유예 30분 안에 60초 간격 재시도, 넘기면 `missed` |
+| "지금 인쇄" 중 Pi 오프라인 | 명령은 서버에 남아 있다가 Pi가 다시 poll하면 받음. **단 생성 후 10분 안에 처리되지 않으면 `expired`**되어 인쇄되지 않음 |
+
+정책 현재값의 원본은 [`pi/policy.md`](pi/policy.md).
+
+---
+
+## 7. 용어집
+
+| 용어 | 뜻 |
+|---|---|
+| 포맷(Format) | 인쇄물 한 장의 정의. JSON 블록 + 스타일. 카드와 같은 말 |
+| 블록(Block) | 포맷을 이루는 단위: `text`, `image`, `dateHeader`, `weather` |
+| 가져오기/내보내기 | 포맷을 `assets` 내장 JSON 파일로 주고받기. 가져오면 fork(출처 기록) |
+| 예약(Schedule) | 포맷을 언제 인쇄할지: `recurring`(요일+시각) / `once`(날짜+시각) |
+| occurrence | 예약이 만들어 내는 한 번의 실행 시점. key = `{scheduleId}@{날짜}T{시각}` |
+| 명령(Command) | "지금 인쇄" 요청. `commandId`로 식별 |
+| 렌더(Render) | 포맷을 특정 `targetDate`·프로필로 그린 그레이스케일 PNG |
+| 프린터 프로필 | Pi가 보고하는 `{model, dpi, paperWidthMm, printableWidthPx}`. 서버가 아는 프린터 정보의 전부 |
+| 스냅샷(Snapshot) | Pi가 받아 캐시하는 예약 전체 + 렌더 목록. `snapshotHash`로 변경 감지 |
+| 결과(Result) | 한 occurrence 또는 명령의 실행 결과. Pi 발급 `resultId`로 멱등 |
+| 용지 정책 | 래스터 전송 전 용지 확인 방식: `unverified` / `status_query` / `manual_flag` |
+| transport | Pi ↔ 프린터 전송 계층: `usb` / `bt` |
+
+---
+
+## 8. 향후 확장 (PoC 범위 밖)
+
+| 확장 | 방향 |
+|---|---|
+| 다른 프린터 | `/pi/printer/<model>` 드라이버 추가 + 프로필 보고. 서버·앱·포맷(mm/pt 단위)은 그대로 |
+| 실시간 동기화 | 상용화 시 poll을 WebSocket으로. Pi 에이전트는 "동기화 채널"을 인터페이스로 둔다 |
+| 네이티브 앱 | `/app/android`, `/app/ios` 예약. 기술 미정(React Native/Expo, Kotlin+Swift, Flutter) — [`app/native.md`](app/native.md) |
+| HTML 템플릿 포맷 | JS·네트워크를 완전히 차단한 샌드박스 렌더러가 생긴 뒤에만 재검토 |
+| 여러 사용자·기기 | 데이터 모델의 `device_id`를 기준으로 계정·기기 등록 추가, 앱 로그인, 공개 도메인(Cloudflare Tunnel 등) |
+| 포맷 공유 갤러리 | 지금은 JSON 파일 주고받기. 나중에 갤러리 |
+| 날씨 출처 | Open-Meteo → 기상청 단기예보로 교체 가능(출처 인터페이스 분리) |
+| 푸시 알림 | 인쇄 실패·용지 없음 알림 |

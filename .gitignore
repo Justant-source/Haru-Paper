@@ -1,0 +1,50 @@
+# ── 비밀값 (공개 저장소: 절대 커밋 금지) ─────────────────────────
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# ── Claude Code 로컬 설정 (머신마다 파일로 복사) ──────────────────
+.claude/settings.local.json
+
+# ── Python (/pi) ─────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Pi 로컬 개발 데이터 (노트북에서 에이전트 실행 시 SQLite·PNG 캐시·보낸 바이트) ─
+pi/data/
+
+# ── Java / Gradle (/server) ──────────────────────────────────────
+build/
+.gradle/
+out/
+*.class
+
+# ── Node (/app/web) ──────────────────────────────────────────────
+node_modules/
+dist/
+
+# ── 서버 로컬 볼륨·백업 (compose 볼륨을 바인드 마운트로 바꿨을 때 대비) ─
+server/data/
+server/volumes/
+server/backups/
+*.sql.gz
+
+# ── IDE / OS ─────────────────────────────────────────────────────
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ── 로그 ─────────────────────────────────────────────────────────
+*.log
+logs/
+
+# .gitkeep은 위 어떤 패턴에도 걸리지 않는다 (빈 폴더 유지용)
