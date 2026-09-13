@@ -19,7 +19,7 @@
 | 구성 | 디렉터리 | 하는 일 |
 |---|---|---|
 | 앱 | [`app/`](app/) | 포맷 편집·미리보기, 예약, 지금 인쇄, 이력·기기 상태 (React + TypeScript + Vite PWA) |
-| 서버 | [`server/`](server/) | 포맷·예약 저장, 프린터 폭에 맞춘 PNG 렌더, 날씨, Pi 동기화 API (Spring Boot 3 + Java 21 + MariaDB) |
+| 서버 | [`server/`](server/) | 포맷·예약 저장, 프린터 폭에 맞춘 PNG 렌더, 날씨, Pi 동기화 API (Spring Boot 4 + Java 21 + MariaDB) |
 | Pi | [`pi/`](pi/) | 서버 폴링, 예약 로컬 계산, PNG 캐시, 프린터 드라이버·전송, 결과 업로드 (Python) |
 
 - 프린터 프로토콜을 아는 코드는 `pi/printer/<모델>`뿐이다. 서버와 앱은 "폭 N px, dpi D의 종이"만 안다

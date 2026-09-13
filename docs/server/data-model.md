@@ -63,7 +63,7 @@
 | `id` | CHAR(36) PK | |
 | `format_id` | CHAR(36) NOT NULL | FK → `formats.id` **ON DELETE RESTRICT** |
 | `type` | ENUM('recurring','once') NOT NULL | |
-| `days_of_week` | SET('MON','TUE','WED','THU','FRI','SAT','SUN') NULL | `recurring`만. 비어 있으면 안 됨 |
+| `days_of_week` | VARCHAR(50) NULL | `recurring`만. 비어 있으면 안 됨. 콤마 구분 값 (예: `"MON,TUE,WED"`) - MariaDB SET 타입 대신 JPA 호환성 위해 VARCHAR 사용 |
 | `time` | TIME NOT NULL | KST 벽시계 `HH:mm:00` |
 | `date` | DATE NULL | `once`만, KST |
 | `enabled` | BOOLEAN NOT NULL DEFAULT TRUE | 켜기/끄기 |

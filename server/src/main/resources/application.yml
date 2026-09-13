@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: haru-paper-server
+  datasource:
+    url: jdbc:mariadb://${HARU_DB_HOST:localhost}:${HARU_DB_PORT:3306}/${HARU_DB_NAME:haru_paper}
+    username: ${HARU_DB_USER:haru}
+    password: ${HARU_DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: ${HARU_UPLOAD_MAX_MB:10}MB
+      max-request-size: 30MB
+  thymeleaf:
+    cache: true
+
+haru:
+  device-token: ${HARU_DEVICE_TOKEN:}
+  poll-interval-sec: ${HARU_POLL_INTERVAL_SEC:30}
+  upload-max-mb: ${HARU_UPLOAD_MAX_MB:10}
+  backup-retention-days: ${HARU_BACKUP_RETENTION_DAYS:7}
+  files-dir: /data/haru-files
+  weather:
+    lat: ${HARU_WEATHER_LAT:37.5663}
+    lon: ${HARU_WEATHER_LON:126.9779}
+
+logging:
+  level:
+    root: INFO
+    com.harupaper: DEBUG

@@ -46,7 +46,7 @@
 | 구성 | 스택 | 상세 문서 |
 |---|---|---|
 | Pi 에이전트 | Python 3.11 + venv, systemd `haru-paper-agent`, SQLite, pyusb / BT | [`pi/`](pi/README.md) |
-| 서버 | Spring Boot 3 + Java 21 + Gradle(Groovy), MariaDB + Flyway, Playwright for Java + Chromium [기본값], Docker compose(prod) | [`server/`](server/README.md) |
+| 서버 | Spring Boot 4 + Java 21 + Gradle(Groovy), MariaDB + Flyway, Playwright for Java + Chromium [기본값], Docker compose(prod) | [`server/`](server/README.md) |
 | 웹앱 | React + TypeScript + Vite + PWA | [`app/`](app/README.md) |
 
 ---
