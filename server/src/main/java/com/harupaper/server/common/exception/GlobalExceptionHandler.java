@@ -1,5 +1,6 @@
 package com.harupaper.server.common.exception;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import java.util.List;
  * 일부러 ResponseEntityExceptionHandler를 상속하지 않는다 — 상속하면 부모의
  * MethodArgumentNotValidException 처리기와 이 클래스의 처리기가 충돌한다(Ambiguous @ExceptionHandler).
  */
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -69,6 +71,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(pd);
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ProblemDetail> handleMaxUploadSizeExceeded(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex, WebRequest request) {
+        // multipart 파서가 spring.servlet.multipart.max-file-size를 넘는 순간 컨트롤러 진입 전에
+        // 던진다 — AssetService의 자체 크기 검증(413)보다 먼저 발생하므로 여기서도 413으로 잡는다.
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE, "upload exceeds size limit");
+        pd.setInstance(URI.create(request.getDescription(false).replace("uri=", "")));
+        pd.setTitle("Payload Too Large");
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(pd);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ProblemDetail> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
                                                                       WebRequest request) {
@@ -92,6 +105,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleGeneral(Exception ex, WebRequest request) {
+        // 500은 원인을 반드시 로그에 남긴다 — 무반응/무로그로 삼키지 않는다(CLAUDE.md 기록 규칙).
+        log.error("Unhandled exception at {}: {}", request.getDescription(false), ex.getMessage(), ex);
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
                 "An unexpected error occurred");
         pd.setInstance(URI.create(request.getDescription(false).replace("uri=", "")));

@@ -54,11 +54,17 @@ services:
     restart: unless-stopped
     profiles:
       - backup
+    command: /scripts/backup-loop.sh
+    depends_on:
+      haru-db:
+        condition: service_healthy
     env_file: .env
     environment:
       MARIADB_ROOT_PASSWORD: ${HARU_DB_ROOT_PASSWORD}
       TZ: Asia/Seoul
     volumes:
+      - ./scripts:/scripts:ro
+      - haru-files:/data/haru-files:ro
       - haru-backups:/backups
     logging:
       driver: json-file

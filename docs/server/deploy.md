@@ -101,12 +101,19 @@ curl -fsS http://127.0.0.1:<포트>/api/health
 
 ### 백업
 
-- `haru-db-backup`이 매일 **03:00 KST**에 실행:
-  - `mariadb-dump --single-transaction haru_paper | gzip > /backups/db-YYYYMMDD-HHMM.sql.gz`
-  - `haru-files`의 `uploads/`를 `tar.gz`로 `/backups/uploads-YYYYMMDD.tar.gz`(`haru-files`를 읽기 전용으로 마운트)
-  - 7일(`HARU_BACKUP_RETENTION_DAYS`) 지난 파일 삭제
-- 수동 1회 실행 방법도 제공한다(M2 통과 조건: 백업 파일 1회 생성).
+- `haru-db-backup` 서비스가 `backup-loop.sh`로 매일 **03:00 KST**에 자동 실행:
+  - DB 덤프: `mariadb-dump --single-transaction haru_paper | gzip > /backups/db-YYYYMMDD-HHMM.sql.gz`
+  - 파일 백업: `haru-files`의 `uploads/`를 `tar.gz`로 `/backups/uploads-YYYYMMDD.tar.gz` (읽기 전용 마운트)
+  - 7일(`HARU_BACKUP_RETENTION_DAYS`) 이상 지난 파일 자동 삭제
+- 수동 1회 실행 (M2 통과 조건: 백업 파일 생성 확인):
+  ```bash
+  cd ~/Data/Haru-Paper/server
+  docker compose --profile backup run --rm haru-db-backup /scripts/backup.sh
+  # 완료 후 백업 파일 확인
+  docker run --rm -v haru-paper_haru-backups:/backups busybox ls -lh /backups/
+  ```
 - `renders/`는 백업하지 않는다(다시 렌더 가능).
+- 스크립트: `/server/scripts/backup.sh` (백업 로직), `/server/scripts/backup-loop.sh` (03:00 루프)
 
 ### 복구
 
