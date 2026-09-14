@@ -6,8 +6,9 @@
 **/.env.*
 !**/.env.example
 
-# ── Claude Code 로컬 설정 (머신마다 파일로 복사) ──────────────────
+# ── Claude Code / Cursor 로컬 설정 (머신마다 파일로 복사) ─────────
 .claude/settings.local.json
+.cursor/*.local.json
 
 # ── Python (/pi) ─────────────────────────────────────────────────
 __pycache__/

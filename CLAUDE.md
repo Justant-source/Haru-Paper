@@ -29,7 +29,7 @@
 |---|---|
 | 노트북 세션 (프린터가 USB로 붙어 있음) | `/pi`, `/docs/pi` |
 | 서버 세션 (`justant-server2`) | `/server`, `/app`, `/docs/server`, `/docs/app` |
-| 공통 (수정 직전 반드시 `git pull --ff-only`) | `CLAUDE.md`, `README.md`, `docs/architecture.md`, `.gitignore` |
+| 공통 (수정 직전 반드시 `git pull --ff-only`) | `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/architecture.md`, `.gitignore`, `.cursor/` |
 
 - 담당 밖 경로는 **사용자가 요청하지 않으면 수정하지 않는다.** 필요하면 멈추고 사용자에게 말한다
 - `docs/init_plan.md`는 최초 결정 기록이다. 내용이 바뀌어도 이 파일은 고치지 않고, 해당 docs를 고친다
@@ -39,7 +39,8 @@
 - 기본 브랜치 `main`에 직접 커밋한다
 - **작업 시작 전과 push 전에 `git pull --ff-only`**. 공통 파일은 수정 직전에 한 번 더 pull
 - **fast-forward가 실패하면 멈추고 사용자에게 보고한다.** 스스로 합치지 않는다
-  (`.claude/settings.local.json`이 `git merge*`, `git rebase*`, `git reset*` 등을 거부한다)
+  (Claude Code: `.claude/settings.local.json` / Cursor: `.cursor/cli.json`과 `.cursor/hooks.json`이
+  `git merge*`, `git rebase*`, `git reset*` 등을 거부한다)
 - 원격: `https://github.com/Justant-source/Haru-Paper` — **공개 저장소**다
 
 ## 절대 금지

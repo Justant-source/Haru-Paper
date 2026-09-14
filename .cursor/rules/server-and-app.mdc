@@ -1,0 +1,15 @@
+---
+description: 서버 세션 담당 — /server /app 과 그 docs
+globs: server/**,app/**,docs/server/**,docs/app/**
+alwaysApply: false
+---
+
+# 서버·앱 경로
+
+이 파일들은 **서버 세션(`justant-server2`)** 담당이다.
+
+- API 규약 원본: `docs/architecture.md`. 서버 문서는 링크만 하고 다르게 정의하지 않는다.
+- 포맷은 JSON 블록 + 화이트리스트 스타일만. 임의 HTML/CSS/JS 금지 (`docs/server/rendering.md`).
+- 서버·앱에 M832 명령 바이트, WIDTH_BYTES, h-offset 등 프로토콜 상수를 넣지 않는다. 프린터는 프로필(`model`, `dpi`, `paperWidthMm`, `printableWidthPx`)만 안다.
+- `tailscale serve`·포트 바인딩 등 서버 설정 변경은 적용 직전 사용자 승인을 받는다. Docker는 `127.0.0.1`만.
+- 진입: `docs/server/README.md` 또는 `docs/app/README.md`.

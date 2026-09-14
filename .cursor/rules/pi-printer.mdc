@@ -1,0 +1,15 @@
+---
+description: 노트북 세션 담당 — /pi 와 docs/pi, 용지·프로토콜 가드
+globs: pi/**,docs/pi/**
+alwaysApply: false
+---
+
+# Pi · 프린터 경로
+
+이 파일들은 **노트북 세션**(프린터가 USB로 붙은 머신) 담당이다.
+
+- m832를 아는 코드는 `pi/printer/m832`뿐이다. `/pi` 밖에 프로토콜 코드·상수를 두지 않는다.
+- 용지를 확인하기 전에 래스터(인쇄) 명령을 보내지 않는다. 정책 3종: `docs/pi/policy.md`.
+- 눈으로 확인하지 않은 하드웨어 사실을 [확인됨]으로 쓰지 않는다. 새 하드웨어 실험은 `~/Data/detox-printer`에서 한다.
+- 하드코딩 상수 옆에 근거 주석. USB/BT write는 타임아웃을 명시하고 실패를 삼키지 않는다.
+- 시간대 `Asia/Seoul`. 진입: `docs/pi/README.md`.

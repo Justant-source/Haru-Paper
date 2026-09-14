@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(*)",
+      "Read(*)",
+      "Write(*)",
+      "Delete(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "EditNotebook(*)",
+      "AskQuestion(*)",
+      "SwitchMode(*)",
+      "Task(*)",
+      "Await(*)",
+      "TodoWrite(*)"
+    ],
+    "deny": [
+      "Shell(git merge*)",
+      "Shell(git rebase*)",
+      "Shell(git reset*)",
+      "Shell(git revert*)",
+      "Shell(git tag*)",
+      "Shell(git stash drop*)",
+      "Shell(git branch -d*)",
+      "Shell(git branch -D*)",
+      "Shell(git checkout -B*)",
+      "Shell(git push --force*)",
+      "Shell(git push -f*)"
+    ]
+  }
+}

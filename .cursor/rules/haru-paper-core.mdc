@@ -1,0 +1,13 @@
+---
+description: Haru-Paper 코어 — CLAUDE.md 정본, 세션 머신, 문서 라우팅
+alwaysApply: true
+---
+
+# 하루종이 · Cursor 코어
+
+- **정본**: `CLAUDE.md`. `AGENTS.md`는 Cursor 진입점일 뿐 규칙을 다시 쓰지 않는다.
+- 세션 시작: `hostname`으로 노트북(WSL) vs `justant-server2`를 가른 뒤 담당 경로만 수정한다.
+- 담당 밖 경로는 사용자가 요청하기 전에는 수정하지 않고 멈춘다.
+- 설계 원본 기록은 `docs/init_plan.md`(고치지 않음). 현재 설계는 `docs/architecture.md`와 `docs/{pi,server,app}/`.
+- 스킬은 `.claude/skills/`를 쓴다. `.cursor/skills`에 복사하지 않는다.
+- 토큰 최적화·컨텍스트 압축 스킬을 자동 호출하지 않는다. `CLAUDE.md`와 `docs/`는 축약 대상이 아니다.
