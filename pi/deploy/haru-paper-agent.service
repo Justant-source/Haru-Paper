@@ -1,0 +1,22 @@
+[Unit]
+Description=Haru-Paper print agent
+Wants=network-online.target
+# Requires=network-online.target 을 쓰지 않음: 인터넷이 없어도 에이전트는 시작해서 캐시로 인쇄해야 함 (docs/pi/setup.md 6절)
+After=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=haru
+WorkingDirectory=/opt/haru-paper/pi
+EnvironmentFile=/opt/haru-paper/pi/.env
+ExecStart=/opt/haru-paper/pi/.venv/bin/python -m agent
+StateDirectory=haru-paper
+# StateDirectory=haru-paper → /var/lib/haru-paper (docs/pi/agent.md 4절)
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=haru-paper-agent
+
+[Install]
+WantedBy=multi-user.target

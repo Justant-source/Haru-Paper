@@ -20,9 +20,14 @@ Orange Pi Zero 2W에서 실행되는 Python 에이전트다. 서버에서 예약
 | `tests/` | 단위 테스트(바이트 동일성 테스트 포함) | [docs/pi/printer-m832.md](../docs/pi/printer-m832.md) |
 | `.env.example` | 환경변수 예시. 실제 값은 `.env`(gitignore) | [docs/pi/agent.md](../docs/pi/agent.md) |
 
-## 현재 상태
+## 현재 상태 (2026-09-14)
 
-- **M0**: 디렉터리 뼈대와 문서만 있다. **코드 없음.**
-- 다음: **M1** — `printer/m832` + `transport/usb` 이식, detox-printer `07_print_image.py`와 바이트 동일 검증 ([docs/pi/printer-m832.md](../docs/pi/printer-m832.md))
+**예외적으로 서버 세션이 초기 구현을 했다**(사용자 명시 요청 — 노트북을 계속 켜 둘 수 없어서). 하드웨어(M832, detox-printer)가 없는 서버에서 안전하게 할 수 있는 부분까지만 했고, 나머지는 노트북 세션이 `git fetch`로 받아 이어서 검증한다.
+
+- `printer/m832`: `docs/pi/printer-m832.md` 2절에 이미 [확인됨·실물]로 문서화된 상수·알고리즘을 근거 주석과 함께 포팅. **detox-printer 소스가 이 서버에 없어 직접 복사가 아니라 문서 기반 재작성이다.** 순수 알고리즘 단위 테스트(비트 극성, 헤더/꼬리, 길이 공식)는 통과했지만, **detox-printer의 실제 캡처 바이트(`0002.bin` 등)와의 바이트 단위 동일성 비교, 실물 인쇄는 검증되지 않았다** — 노트북 세션의 M1 절차로 확인 필요.
+- `printer/fake`, `transport/usb`(pyusb, 모킹 테스트만 — 장치 없음), `agent/`(폴링·SQLite·스케줄러·실행기): 하드웨어 무관 로직. **실제로 떠 있는 M2 서버(justant-server2)에 붙여 동작 검증함**: 예약 dry_run 기록, 재시작 후 같은 occurrence 중복 실행 안 됨(M4 (a)(d))을 실사로 확인. 오프라인 캐시 실행·복구 후 업로드(M4 (b)(c))는 코드는 있으나 실제 서버 중단 시나리오까지는 검증 못함.
+- 통합 중 실사로 발견해 고친 버그: 스냅샷 렌더 필드 `render_id`→`renderId` 등 camelCase 불일치, occurrence 중복 실행 방지 조회가 정시(00:00 등)만 확인해 정시가 아닌 예약 시각(예: 10:31)에서 무한 재실행되던 버그, 렌더 선택에 "오늘 렌더 없으면 최신 렌더로 폴백" 로직 누락.
+- `deploy/`(install.sh, systemd unit): 문법 검사만 했다. **이 서버에서 실행하지 않았다** — 운영 중인 다른 프로젝트에 영향을 줄 수 있어서다.
+- 다음: **노트북 세션이 M1 절차**(detox-printer 바이트 비교, usbipd 실물 인쇄, printableWidthPx 확정)를 진행한다. [docs/pi/printer-m832.md](../docs/pi/printer-m832.md) 7절.
 
 문서 읽는 순서는 [docs/pi/README.md](../docs/pi/README.md)를 본다.
