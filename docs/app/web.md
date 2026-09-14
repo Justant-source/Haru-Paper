@@ -25,7 +25,7 @@
 | 라우팅 | React Router [기본값] | M3에서 확정 |
 | 서버 상태 | TanStack Query [기본값] | 폴링·캐시·재시도가 필요한 이력/기기 화면에 적합. M3에서 확정 |
 | 로컬 UI 상태 | React 기본(useState/useReducer) [기본값] | 포맷 편집기가 복잡해지면 Zustand 검토. M3에서 확정 |
-| UI 라이브러리 | 없음 또는 가벼운 것 [기본값] | 모바일 우선. 무거운 컴포넌트 킷은 피한다. M3에서 확정 |
+| UI 라이브러리 | 없음(가벼운 CSS) [기본값] | 모바일 우선. 무거운 컴포넌트 킷은 피한다 |
 | 블록 순서 변경 | 드래그 라이브러리 또는 위/아래 버튼 [기본값] | 모바일 터치에서 안정적인 쪽. M3에서 확정 |
 
 ## 3. 접속 경로와 origin
@@ -43,7 +43,7 @@
 | 요건 | 내용 |
 |---|---|
 | Secure context | HTTPS 필수 → `tailscale serve`로 해결. `http://100.x.x.x`로는 service worker가 등록되지 않는다 |
-| manifest | `name: 하루종이`, `short_name: 하루종이`, `lang: ko`, `display: standalone`, 아이콘 192/512px, `start_url: /` [기본값] |
+| manifest | `name: 하루종이`, `short_name: 하루종이`, `lang: ko`, `display: standalone`, 아이콘 192/512px, `start_url: /`, `theme_color`/`background_color`: `#f4ede3` [기본값] |
 | service worker | 앱 셸(정적 파일)만 캐시 [기본값]. **`/api/*` 응답은 캐시하지 않는다**(예약·이력·기기 상태는 항상 최신이어야 함) |
 | 설치 확인 | Android `s21` Chrome에서 "홈 화면에 추가" → 독립 창으로 실행 |
 | 오프라인 | 폰이 tailnet에 못 붙으면 API 오류 화면을 보여줄 뿐, 앱 자체 오프라인 편집은 PoC 범위 밖 |
@@ -133,10 +133,12 @@ app/web/
 - 배포는 prod 하나뿐(Q15, dev 없음).
 - dist를 git에 커밋할지, 이미지 빌드 단계에서 만들지는 M2/M3에서 deploy.md와 함께 정한다 [기본값: 커밋하지 않고 빌드 단계에서 생성].
 
-## 9. 시간·언어
+## 9. 시간·언어·테마
 
 - 모든 시각은 **KST(`Asia/Seoul`) 고정**. 예약에 시간대 선택 UI 없음.
-- UI 언어는 한국어만.
+- UI 문구는 `app/web/src/i18n/` 사전(`ko` 기본, `en` 선택). 설정에서 바꾼다. 폼 도움말·이력 상태 라벨 일부는 아직 한국어 고정.
+- 테마는 밝게(우드톤) / 어둡게 / 기기 설정. `localStorage` `haru-theme`.
+- 사용 기록(`format_create` / `schedule_save` / `print_now`)은 **이 기기 localStorage만**. 서버·외부로 보내지 않는다.
 
 ## 10. M3 통과 조건
 

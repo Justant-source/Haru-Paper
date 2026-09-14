@@ -4,6 +4,12 @@ import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
+import { applyLocale } from './i18n'
+import { applyTheme } from './lib/theme'
+
+applyLocale()
+applyTheme()
+
 
 const queryClient = new QueryClient({
   defaultOptions: {

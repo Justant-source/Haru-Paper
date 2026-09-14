@@ -32,6 +32,7 @@ export function WeatherBlockForm({
 
   return (
     <div className="block-form weather-block-form">
+      <p className="hint">위치: 설정의 기본 위치</p>
       <p>표시할 필드 선택 (최소 1개):</p>
       <div className="weather-checkboxes">
         {WEATHER_FIELDS.map((field) => (

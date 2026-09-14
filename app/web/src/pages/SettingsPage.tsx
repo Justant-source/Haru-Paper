@@ -3,8 +3,18 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { settingsApi, healthApi } from '../api/settings'
 import type { SettingsResponse } from '../types/settings'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { PageHeader } from '../components/PageHeader'
+import { Card } from '../components/Card'
+import { Button } from '../components/Button'
+import { Badge, type BadgeTone } from '../components/Badge'
+import { useI18n, type Locale } from '../i18n'
+import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
+import { clearEvents, listEvents, subscribeEvents } from '../lib/analytics'
 
 export function SettingsPage() {
+  const { t, locale, setLocale } = useI18n()
+  const [themePref, setThemePrefState] = useState<ThemePref>(() => getThemePref())
+  const [events, setEvents] = useState(() => listEvents())
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
   const [label, setLabel] = useState('')
@@ -33,7 +43,10 @@ export function SettingsPage() {
     },
   })
 
-  // 초기값 로드
+  useEffect(() => {
+    return subscribeEvents(() => setEvents(listEvents()))
+  }, [])
+
   useEffect(() => {
     if (settings) {
       setLat(settings.weather.lat.toString())
@@ -42,7 +55,6 @@ export function SettingsPage() {
     }
   }, [settings])
 
-  // 서버 연결 상태 업데이트
   useEffect(() => {
     if (healthQuery.isLoading) {
       setServerStatus('checking')
@@ -53,16 +65,6 @@ export function SettingsPage() {
     }
   }, [healthQuery.isLoading, healthQuery.isSuccess, healthQuery.isError])
 
-  if (isLoading) {
-    return (
-      <div className="page">
-        <h1>설정</h1>
-        <p>로드 중...</p>
-      </div>
-    )
-  }
-
-  // 범위 검증
   const latNum = parseFloat(lat)
   const lonNum = parseFloat(lon)
   const isLatValid = lat === '' || (!isNaN(latNum) && latNum >= -90 && latNum <= 90)
@@ -87,214 +89,179 @@ export function SettingsPage() {
     updateMutation.mutate(updatedSettings)
   }
 
+  const healthTone = ((): BadgeTone => {
+    if (serverStatus === 'connected') return 'ok'
+    if (serverStatus === 'disconnected') return 'danger'
+    return 'neutral'
+  })()
+
+  const healthLabel =
+    serverStatus === 'connected' ? '연결됨' : serverStatus === 'disconnected' ? '연결 안 됨' : '확인 중...'
+
+  if (isLoading) {
+    return (
+      <div className="page page-with-header">
+        <PageHeader title={t('settings')} />
+        <p>{t('loading')}</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="page">
-      <h1>설정</h1>
+    <div className="page page-with-header">
+      <PageHeader title={t('settings')} />
 
       <ErrorBanner error={error} onRetry={() => refetch()} />
+      <ErrorBanner error={localError ? new Error(localError) : null} />
 
-      {localError && (
-        <div
-          style={{
-            background: '#fef2f2',
-            color: '#dc2626',
-            border: '1px solid #fecaca',
-            borderRadius: '8px',
-            padding: '10px 12px',
-            marginBottom: '12px',
-            fontSize: '14px',
-          }}
-        >
-          {localError}
-        </div>
-      )}
-
-      {/* 날씨 기본 위치 */}
-      <div
-        style={{
-          background: '#f3f4f6',
-          border: '1px solid #d1d5db',
-          borderRadius: '8px',
-          padding: '16px',
-          marginBottom: '16px',
-        }}
-      >
-        <h2 style={{ marginTop: 0, marginBottom: '12px', fontSize: '15px', fontWeight: 600 }}>
-          날씨 기본 위치
-        </h2>
-
-        <div style={{ marginBottom: '12px' }}>
-          <label
-            style={{
-              display: 'block',
-              fontSize: '13px',
-              fontWeight: 500,
-              marginBottom: '4px',
-              color: '#111827',
-            }}
-          >
-            위도 (latitude)
-          </label>
-          <input
-            type="number"
-            min="-90"
-            max="90"
-            step="0.0001"
-            value={lat}
-            onChange={(e) => setLat(e.target.value)}
-            placeholder="37.5663"
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              border: `1px solid ${isLatValid ? '#d1d5db' : '#dc2626'}`,
-              borderRadius: '4px',
-              fontSize: '14px',
-              fontFamily: 'inherit',
-              boxSizing: 'border-box',
-            }}
-          />
-          {!isLatValid && (
-            <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '4px' }}>
-              -90 ~ 90 사이의 값을 입력해주세요
-            </div>
-          )}
-        </div>
-
-        <div style={{ marginBottom: '12px' }}>
-          <label
-            style={{
-              display: 'block',
-              fontSize: '13px',
-              fontWeight: 500,
-              marginBottom: '4px',
-              color: '#111827',
-            }}
-          >
-            경도 (longitude)
-          </label>
-          <input
-            type="number"
-            min="-180"
-            max="180"
-            step="0.0001"
-            value={lon}
-            onChange={(e) => setLon(e.target.value)}
-            placeholder="126.9779"
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              border: `1px solid ${isLonValid ? '#d1d5db' : '#dc2626'}`,
-              borderRadius: '4px',
-              fontSize: '14px',
-              fontFamily: 'inherit',
-              boxSizing: 'border-box',
-            }}
-          />
-          {!isLonValid && (
-            <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '4px' }}>
-              -180 ~ 180 사이의 값을 입력해주세요
-            </div>
-          )}
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label
-            style={{
-              display: 'block',
-              fontSize: '13px',
-              fontWeight: 500,
-              marginBottom: '4px',
-              color: '#111827',
-            }}
-          >
-            위치 이름 (표시용)
-          </label>
-          <input
-            type="text"
-            maxLength={50}
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="서울시청"
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              border: `1px solid ${isLabelValid ? '#d1d5db' : '#dc2626'}`,
-              borderRadius: '4px',
-              fontSize: '14px',
-              fontFamily: 'inherit',
-              boxSizing: 'border-box',
-            }}
-          />
-          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-            {label.length}/50자
+      <div className="stack">
+        <Card>
+          <h2 className="sheet-title">{t('appearance')}</h2>
+          <div className="field">
+            <label htmlFor="theme-pref">{t('theme')}</label>
+            <select
+              id="theme-pref"
+              value={themePref}
+              onChange={(e) => {
+                const next = e.target.value as ThemePref
+                setThemePrefState(next)
+                setThemePref(next)
+              }}
+            >
+              <option value="light">{t('themeLight')}</option>
+              <option value="dark">{t('themeDark')}</option>
+              <option value="system">{t('themeSystem')}</option>
+            </select>
           </div>
-          {label.length === 0 && (
-            <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '2px' }}>필수 입력값입니다</div>
+          <div className="field">
+            <label htmlFor="locale-pref">{t('language')}</label>
+            <select
+              id="locale-pref"
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+            >
+              <option value="ko">{t('langKo')}</option>
+              <option value="en">{t('langEn')}</option>
+            </select>
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="sheet-title">{t('analytics')}</h2>
+          <p className="entry-time">{t('analyticsHint')}</p>
+          {events.length === 0 ? (
+            <p className="entry-time">{t('analyticsEmpty')}</p>
+          ) : (
+            <ul className="more-list">
+              {[...events].reverse().slice(0, 8).map((ev) => (
+                <li key={`${ev.at}-${ev.name}`}>
+                  <span className="entry-time">
+                    {ev.name} · {ev.at.slice(11, 19)}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
-          {label.length > 50 && (
-            <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '2px' }}>50자를 초과했습니다</div>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!isFormValid || updateMutation.isPending}
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            background: isFormValid ? '#111827' : '#d1d5db',
-            color: isFormValid ? '#fff' : '#6b7280',
-            border: 'none',
-            borderRadius: '4px',
-            fontSize: '14px',
-            fontWeight: 500,
-            cursor: isFormValid && !updateMutation.isPending ? 'pointer' : 'not-allowed',
-          }}
-        >
-          {updateMutation.isPending ? '저장 중...' : '저장'}
-        </button>
-
-        <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '12px', lineHeight: '1.5' }}>
-          날씨는 인쇄 약 60분 전에 서버가 다시 받아 카드에 반영합니다.
-        </div>
-      </div>
-
-      {/* 앱 정보 */}
-      <div
-        style={{
-          background: '#f3f4f6',
-          border: '1px solid #d1d5db',
-          borderRadius: '8px',
-          padding: '16px',
-        }}
-      >
-        <h2 style={{ marginTop: 0, marginBottom: '12px', fontSize: '15px', fontWeight: 600 }}>앱 정보</h2>
-
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>버전</div>
-          <div style={{ fontSize: '14px', fontWeight: 500 }}>0.1.0</div>
-        </div>
-
-        <div>
-          <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>서버 연결 상태</div>
-          <div
-            style={{
-              fontSize: '14px',
-              fontWeight: 500,
-              color:
-                serverStatus === 'connected'
-                  ? '#16a34a'
-                  : serverStatus === 'disconnected'
-                    ? '#dc2626'
-                    : '#6b7280',
+          <Button
+            variant="secondary"
+            onClick={() => {
+              clearEvents()
+              setEvents([])
             }}
           >
-            {serverStatus === 'connected' && '연결됨'}
-            {serverStatus === 'disconnected' && '연결 안 됨'}
-            {serverStatus === 'checking' && '확인 중...'}
+            {t('analyticsClear')}
+          </Button>
+        </Card>
+
+        <Card>
+          <h2 className="sheet-title">날씨 기본 위치</h2>
+
+          <div className="field form-group">
+            <label htmlFor="weather-lat">위도 (latitude)</label>
+            <input
+              id="weather-lat"
+              type="number"
+              min="-90"
+              max="90"
+              step="0.0001"
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+              placeholder="37.5663"
+              aria-invalid={!isLatValid}
+              aria-describedby={!isLatValid ? 'weather-lat-error' : undefined}
+            />
+            {!isLatValid && (
+              <div id="weather-lat-error" className="field-error">
+                -90 ~ 90 사이의 값을 입력해주세요
+              </div>
+            )}
           </div>
-        </div>
+
+          <div className="field form-group">
+            <label htmlFor="weather-lon">경도 (longitude)</label>
+            <input
+              id="weather-lon"
+              type="number"
+              min="-180"
+              max="180"
+              step="0.0001"
+              value={lon}
+              onChange={(e) => setLon(e.target.value)}
+              placeholder="126.9779"
+              aria-invalid={!isLonValid}
+              aria-describedby={!isLonValid ? 'weather-lon-error' : undefined}
+            />
+            {!isLonValid && (
+              <div id="weather-lon-error" className="field-error">
+                -180 ~ 180 사이의 값을 입력해주세요
+              </div>
+            )}
+          </div>
+
+          <div className="field form-group">
+            <label htmlFor="weather-label">위치 이름 (표시용)</label>
+            <input
+              id="weather-label"
+              type="text"
+              maxLength={50}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="서울시청"
+              aria-invalid={!isLabelValid}
+              aria-describedby="weather-label-hint weather-label-error"
+            />
+            <div id="weather-label-hint">
+              {label.length}/50자
+            </div>
+            {!isLabelValid && (
+              <div id="weather-label-error" className="field-error">
+                {label.length === 0 ? '필수 입력값입니다' : '50자를 초과했습니다'}
+              </div>
+            )}
+          </div>
+
+          <Button
+            variant="primary"
+            onClick={handleSave}
+            disabled={!isFormValid || updateMutation.isPending}
+          >
+            {updateMutation.isPending ? t('saving') : t('save')}
+          </Button>
+
+          <p>날씨는 인쇄 약 60분 전에 서버가 다시 받아 카드에 반영합니다.</p>
+        </Card>
+
+        <Card>
+          <h2 className="sheet-title">앱 정보</h2>
+          <div>
+            <div>버전</div>
+            <div>0.1.0</div>
+          </div>
+          <div>
+            <div>서버 연결 상태</div>
+            <Badge tone={healthTone}>{healthLabel}</Badge>
+          </div>
+        </Card>
       </div>
     </div>
   )

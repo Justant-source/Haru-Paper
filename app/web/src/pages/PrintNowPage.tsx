@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { deviceApi } from '../api/device'
 import { formatsApi } from '../api/formats'
 import { printNowApi } from '../api/printNow'
+import { Button } from '../components/Button'
+import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
+import { PageHeader } from '../components/PageHeader'
 import type { FormatSummary } from '../types/format'
 import type { DeviceResponse, PaperPolicy } from '../types/device'
 import { formatDateTimeKo, timeAgoKo } from '../lib/date'
+import { useI18n } from '../i18n'
+import { track } from '../lib/analytics'
 
 export function PrintNowPage() {
+  const { t } = useI18n()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const initialFormatId = searchParams.get('formatId') || undefined
@@ -23,7 +29,6 @@ export function PrintNowPage() {
   const [sending, setSending] = useState(false)
   const [sendSuccess, setSendSuccess] = useState(false)
 
-  // 포맷 목록과 기기 정보 로드
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -33,11 +38,9 @@ export function PrintNowPage() {
         setFormats(formatsRes)
         setDevice(deviceRes)
 
-        // URL의 formatId가 있으면 설정
         if (initialFormatId && formatsRes.some((f) => f.id === initialFormatId)) {
           setSelectedFormatId(initialFormatId)
         } else if (formatsRes.length > 0) {
-          // 포맷이 있으면 첫 번째 선택
           setSelectedFormatId(formatsRes[0].id)
         }
       } catch (e) {
@@ -60,6 +63,7 @@ export function PrintNowPage() {
         formatId: selectedFormatId,
         paperConfirmed,
       })
+      track('print_now')
       setSendSuccess(true)
       setPaperConfirmed(false)
     } catch (e) {
@@ -71,50 +75,49 @@ export function PrintNowPage() {
 
   if (loading) {
     return (
-      <div className="page">
-        <h1>지금 인쇄</h1>
-        <p>로드 중...</p>
+      <div className="page page-with-header">
+        <PageHeader title={t('tabPrintNow')} />
+        <p>{t('loading')}</p>
       </div>
     )
   }
 
-  // 포맷이 없는 경우
   if (formats.length === 0) {
     return (
-      <div className="page">
-        <h1>지금 인쇄</h1>
-        <EmptyState
-          message="먼저 포맷을 만드세요"
-          actionLabel="포맷 만들기"
-          onAction={() => navigate('/')}
-        />
+      <div className="page page-with-header">
+        <PageHeader title={t('tabPrintNow')} />
+        <ErrorBanner error={error} onRetry={() => window.location.reload()} />
+        {!error && (
+          <EmptyState
+            message={t('needFormatFirst')}
+            actionLabel="포맷 만들기"
+            onAction={() => navigate('/')}
+          />
+        )}
       </div>
     )
   }
 
-  // 전송 성공 후
   if (sendSuccess) {
     return (
-      <div className="page">
-        <h1>지금 인쇄</h1>
-        <div className="success-message">
+      <div className="page page-with-header">
+        <PageHeader title={t('tabPrintNow')} />
+        <div className="banner banner-ok">
           <p>명령을 보냈습니다. Pi가 다음 폴링(최대 약 30초)에 받아 인쇄합니다.</p>
-          <button type="button" className="primary-btn" onClick={() => navigate('/history')}>
-            이력 보기
-          </button>
         </div>
+        <Link to="/history" className="btn btn-primary">
+          이력 보기
+        </Link>
       </div>
     )
   }
 
-  // 기기 정보 (lastPollAt이 null이면 아직 연결 안 됨)
   const lastPollAt = device?.lastPollAt
   const lastPollMinutesAgo = lastPollAt
     ? Math.floor((Date.now() - new Date(lastPollAt).getTime()) / 60000)
     : null
   const isPollOld = lastPollMinutesAgo !== null && lastPollMinutesAgo >= 2
 
-  // 용지 정책별 체크박스/버튼 상태
   const paperPolicy = device?.paperPolicy || null
   const paperState = device?.paperState
 
@@ -140,21 +143,14 @@ export function PrintNowPage() {
     !selectedFormatId || sending || disableReason !== null || (checkboxRequired && !paperConfirmed)
 
   return (
-    <div className="page">
-      <h1>지금 인쇄</h1>
+    <div className="page page-with-header">
+      <PageHeader title={t('tabPrintNow')} />
 
-      <ErrorBanner error={error} onRetry={() => window.location.reload()} />
+      <div className="stack">
+        <ErrorBanner error={error} onRetry={() => window.location.reload()} />
 
-      {isPollOld && (
-        <div className="warn-banner">
-          Pi가 최근에 접속하지 않았습니다. 명령은 10분 안에 Pi가 다시 접속하면 처리되고, 그렇지 않으면 만료되어
-          인쇄되지 않습니다.
-        </div>
-      )}
-
-      {/* 기기 상태 요약 */}
-      {device && (
-        <div className="device-status">
+        {device && (
+        <Card>
           <div className="status-row">
             <span className="label">Pi 마지막 폴링:</span>
             <span className="value">
@@ -171,11 +167,10 @@ export function PrintNowPage() {
             <span className="label">용지 정책:</span>
             <span className="value">{getPaperPolicyLabel(paperPolicy)}</span>
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* 포맷 선택 */}
-      <div className="form-group">
+      <div className="field">
         <label htmlFor="format-select">포맷 선택</label>
         <select
           id="format-select"
@@ -194,35 +189,46 @@ export function PrintNowPage() {
         </select>
       </div>
 
-      {/* 미리보기 */}
       {selectedFormatId && (
-        <div className="preview-section">
+        <div className="paper-frame">
           <img src={formatsApi.previewUrl(selectedFormatId)} alt="Preview" />
         </div>
       )}
 
-      {/* 체크박스 */}
+      {isPollOld && (
+        <div className="banner banner-warn">
+          Pi가 최근에 접속하지 않았습니다. 명령은 10분 안에 Pi가 다시 접속하면 처리되고, 그렇지 않으면 만료되어
+          인쇄되지 않습니다.
+        </div>
+      )}
+
       {(paperPolicy === 'unverified' || paperPolicy === 'status_query' || paperPolicy === 'manual_flag') && (
         <div className="form-group checkbox-group">
-          <label>
-            <input type="checkbox" checked={paperConfirmed} onChange={(e) => setPaperConfirmed(e.target.checked)} />
+          <label htmlFor="paper-confirmed" className="checkbox-label">
+            <input
+              id="paper-confirmed"
+              type="checkbox"
+              checked={paperConfirmed}
+              onChange={(e) => setPaperConfirmed(e.target.checked)}
+            />
             {checkboxLabel}
           </label>
         </div>
       )}
 
-      {/* 비활성 이유 표시 */}
-      {disableReason && <div className="disable-reason">{disableReason}</div>}
+      {disableReason &&
+        (paperPolicy === 'manual_flag' && !paperState?.loaded ? (
+          <div className="disable-reason">
+            <Link to="/device">{disableReason}</Link>
+          </div>
+        ) : (
+          <div className="disable-reason">{disableReason}</div>
+        ))}
 
-      {/* 지금 인쇄 버튼 */}
-      <button
-        type="button"
-        className="primary-btn"
-        disabled={printButtonDisabled}
-        onClick={handlePrintNow}
-      >
+      <Button variant="primary" disabled={printButtonDisabled} onClick={handlePrintNow}>
         {sending ? '전송 중...' : '지금 인쇄'}
-      </button>
+      </Button>
+      </div>
     </div>
   )
 }

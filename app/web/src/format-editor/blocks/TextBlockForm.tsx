@@ -1,4 +1,6 @@
+import { useRef } from 'react'
 import { type TextProps } from '../../types/format'
+import { Button } from '../../components/Button'
 
 export function TextBlockForm({
   props,
@@ -7,11 +9,32 @@ export function TextBlockForm({
   props: TextProps
   onChange: (props: TextProps) => void
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const insertAtCursor = (token: string) => {
+    const el = textareaRef.current
+    const text = props.text || ''
+    if (!el) {
+      onChange({ ...props, text: text + token })
+      return
+    }
+    const start = el.selectionStart ?? text.length
+    const end = el.selectionEnd ?? text.length
+    const next = text.slice(0, start) + token + text.slice(end)
+    onChange({ ...props, text: next })
+    requestAnimationFrame(() => {
+      const pos = start + token.length
+      el.focus()
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
   return (
     <div className="block-form text-block-form">
       <label>
         텍스트
         <textarea
+          ref={textareaRef}
           value={props.text || ''}
           onChange={(e) => onChange({ ...props, text: e.target.value })}
           placeholder="텍스트 입력"
@@ -20,30 +43,12 @@ export function TextBlockForm({
       </label>
 
       <div className="variable-buttons">
-        <button
-          type="button"
-          onClick={() => {
-            onChange({
-              ...props,
-              text: (props.text || '') + '{{date}}',
-            })
-          }}
-          className="btn-variable"
-        >
+        <Button type="button" variant="secondary" onClick={() => insertAtCursor('{{date}}')}>
           {'{{date}}'}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            onChange({
-              ...props,
-              text: (props.text || '') + '{{weekday}}',
-            })
-          }}
-          className="btn-variable"
-        >
+        </Button>
+        <Button type="button" variant="secondary" onClick={() => insertAtCursor('{{weekday}}')}>
           {'{{weekday}}'}
-        </button>
+        </Button>
       </div>
     </div>
   )

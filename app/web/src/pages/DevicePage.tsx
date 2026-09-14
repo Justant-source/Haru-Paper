@@ -3,8 +3,15 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { deviceApi } from '../api/device'
 import { timeAgoKo, formatDateTimeKo } from '../lib/date'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { EmptyState } from '../components/EmptyState'
+import { PageHeader } from '../components/PageHeader'
+import { Card } from '../components/Card'
+import { Badge, type BadgeTone } from '../components/Badge'
+import { Toggle } from '../components/Toggle'
+import { useI18n } from '../i18n'
 
 export function DevicePage() {
+  const { t } = useI18n()
   const [paperToggleError, setPaperToggleError] = useState<string | null>(null)
   const [paperTogglePending, setPaperTogglePending] = useState(false)
 
@@ -18,7 +25,6 @@ export function DevicePage() {
     mutationFn: (loaded: boolean) => deviceApi.setPaperState(loaded),
     onError: () => {
       setPaperToggleError('용지 상태 변경 실패')
-      // 토글을 원래 상태로 되돌리기 위해 refetch
       refetch()
     },
     onSuccess: () => {
@@ -27,11 +33,10 @@ export function DevicePage() {
     },
   })
 
-  const handlePaperToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newLoaded = e.target.checked
+  const handlePaperToggle = async (next: boolean) => {
     setPaperTogglePending(true)
     try {
-      await setPaperStateMutation.mutateAsync(newLoaded)
+      await setPaperStateMutation.mutateAsync(next)
     } finally {
       setPaperTogglePending(false)
     }
@@ -39,51 +44,39 @@ export function DevicePage() {
 
   if (isLoading) {
     return (
-      <div className="page">
-        <h1>기기</h1>
-        <p>로드 중...</p>
+      <div className="page page-with-header">
+        <PageHeader title={t('device')} />
+        <p>{t('loading')}</p>
       </div>
     )
   }
 
-  // 빈 상태: Pi가 한 번도 폴링하지 않음
   if (!device?.lastPollAt) {
     return (
-      <div className="page">
-        <h1>기기</h1>
+      <div className="page page-with-header">
+        <PageHeader title={t('device')} />
         <ErrorBanner error={error} onRetry={() => refetch()} />
-        <div
-          style={{
-            textAlign: 'center',
-            color: '#6b7280',
-            padding: '48px 16px',
-          }}
-        >
-          아직 Pi가 연결되지 않았습니다.
-        </div>
+        <EmptyState message="아직 Pi가 연결되지 않았습니다." />
       </div>
     )
   }
 
-  // Pi 마지막 폴링 경과 시간 계산
   const pollDiffMs = Date.now() - new Date(device.lastPollAt).getTime()
   const pollDiffMin = Math.floor(pollDiffMs / 1000 / 60)
   const isOldPoll = pollDiffMin >= 2
 
-  // 프린터 상태 색상 결정
-  const getStatusColor = (state: string) => {
+  const getStatusTone = (state: string): BadgeTone => {
     switch (state) {
       case 'ok':
-        return '#16a34a' // 초록
+        return 'ok'
       case 'offline':
       case 'error':
-        return '#dc2626' // 빨강
+        return 'danger'
       default:
-        return '#6b7280' // 회색
+        return 'neutral'
     }
   }
 
-  // 프린터 상태 라벨
   const getStatusLabel = (state: string) => {
     switch (state) {
       case 'ok':
@@ -99,7 +92,6 @@ export function DevicePage() {
     }
   }
 
-  // 용지 정책 설명
   const getPolicyDescription = (policy: string | null) => {
     switch (policy) {
       case 'unverified':
@@ -117,163 +109,77 @@ export function DevicePage() {
   const currentPaperLoaded = device.paperState?.loaded ?? false
 
   return (
-    <div className="page">
-      <h1>기기</h1>
+    <div className="page page-with-header">
+      <PageHeader title={t('device')} />
 
       <ErrorBanner error={error} onRetry={() => refetch()} />
+      <ErrorBanner error={paperToggleError ? new Error(paperToggleError) : null} />
 
-      {paperToggleError && (
-        <div
-          style={{
-            background: '#fef2f2',
-            color: '#dc2626',
-            border: '1px solid #fecaca',
-            borderRadius: '8px',
-            padding: '10px 12px',
-            marginBottom: '12px',
-            fontSize: '14px',
-          }}
-        >
-          {paperToggleError}
-        </div>
-      )}
-
-      {/* Pi 마지막 폴링 */}
-      <div
-        style={{
-          background: '#f3f4f6',
-          border: '1px solid #d1d5db',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '16px',
-        }}
-      >
-        <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>Pi 마지막 폴링</div>
-        <div
-          style={{
-            fontSize: '15px',
-            fontWeight: 500,
-            color: isOldPoll ? '#dc2626' : '#111827',
-          }}
-        >
-          {formatDateTimeKo(device.lastPollAt)} ({timeAgoKo(device.lastPollAt)})
-        </div>
-        {isOldPoll && (
-          <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '4px' }}>
-            2분 이상 응답이 없습니다.
-          </div>
-        )}
-      </div>
-
-      {/* 프린터 프로필 */}
-      <div
-        style={{
-          background: '#f3f4f6',
-          border: '1px solid #d1d5db',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '16px',
-        }}
-      >
-        <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '8px' }}>프린터 프로필</div>
-        {device.printerProfile ? (
-          <div style={{ fontSize: '14px' }}>
-            <div style={{ marginBottom: '6px' }}>
-              <span style={{ color: '#6b7280' }}>모델:</span> <strong>{device.printerProfile.model}</strong>
+      <div className="stack">
+        <Card>
+          <h2 className="sheet-title">Pi 마지막 폴링</h2>
+          <p>
+            {formatDateTimeKo(device.lastPollAt)} ({timeAgoKo(device.lastPollAt)})
+          </p>
+          {isOldPoll && (
+            <div className="banner banner-warn" role="status">
+              2분 이상 응답이 없습니다.
             </div>
-            <div style={{ marginBottom: '6px' }}>
-              <span style={{ color: '#6b7280' }}>DPI:</span> <strong>{device.printerProfile.dpi}</strong>
-            </div>
-            <div style={{ marginBottom: '6px' }}>
-              <span style={{ color: '#6b7280' }}>용지 너비:</span> <strong>{device.printerProfile.paperWidthMm}mm</strong>
-            </div>
-            <div>
-              <span style={{ color: '#6b7280' }}>인쇄 가능 폭:</span>{' '}
-              <strong>{device.printerProfile.printableWidthPx}px</strong>
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: '14px', color: '#6b7280' }}>아직 연결된 적 없음</div>
-        )}
-      </div>
-
-      {/* 프린터 상태 */}
-      {device.printerStatus && (
-        <div
-          style={{
-            background: '#f3f4f6',
-            border: '1px solid #d1d5db',
-            borderRadius: '8px',
-            padding: '12px',
-            marginBottom: '16px',
-          }}
-        >
-          <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '8px' }}>프린터 상태</div>
-          <div
-            style={{
-              fontSize: '15px',
-              fontWeight: 500,
-              color: getStatusColor(device.printerStatus.state),
-              marginBottom: device.printerStatus.detail ? '4px' : '0',
-            }}
-          >
-            {getStatusLabel(device.printerStatus.state)}
-          </div>
-          {device.printerStatus.detail && (
-            <div style={{ fontSize: '12px', color: '#6b7280' }}>{device.printerStatus.detail}</div>
           )}
-        </div>
-      )}
+        </Card>
 
-      {/* 용지 정책 */}
-      <div
-        style={{
-          background: '#f3f4f6',
-          border: '1px solid #d1d5db',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '16px',
-        }}
-      >
-        <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '8px' }}>용지 정책</div>
-        <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '6px' }}>
-          {device.paperPolicy || '정책 없음'}
-        </div>
-        <div style={{ fontSize: '12px', color: '#6b7280', lineHeight: '1.5' }}>
-          {getPolicyDescription(device.paperPolicy)}
-        </div>
-      </div>
+        <Card>
+          <h2 className="sheet-title">프린터 프로필</h2>
+          {device.printerProfile ? (
+            <dl>
+              <div>
+                <dt>모델</dt>
+                <dd>{device.printerProfile.model}</dd>
+              </div>
+              <div>
+                <dt>DPI</dt>
+                <dd>{device.printerProfile.dpi}</dd>
+              </div>
+              <div>
+                <dt>용지 너비</dt>
+                <dd>{device.printerProfile.paperWidthMm}mm</dd>
+              </div>
+              <div>
+                <dt>인쇄 가능 폭</dt>
+                <dd>{device.printerProfile.printableWidthPx}px</dd>
+              </div>
+            </dl>
+          ) : (
+            <p>아직 연결된 적 없음</p>
+          )}
+          {device.printerStatus && (
+            <div>
+              <h3 className="sheet-title">프린터 상태</h3>
+              <Badge tone={getStatusTone(device.printerStatus.state)}>
+                {getStatusLabel(device.printerStatus.state)}
+              </Badge>
+              {device.printerStatus.detail ? <p>{device.printerStatus.detail}</p> : null}
+            </div>
+          )}
+        </Card>
 
-      {/* 용지 장착됨 토글 */}
-      <div
-        style={{
-          background: '#f3f4f6',
-          border: '1px solid #d1d5db',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '16px',
-          opacity: isPaperStateDisabled ? 0.6 : 1,
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: '13px', fontWeight: 500, marginBottom: '4px' }}>용지 장착됨</div>
-            {isPaperStateDisabled && (
-              <div style={{ fontSize: '12px', color: '#6b7280' }}>현재 정책에서는 사용하지 않습니다</div>
-            )}
+        <Card>
+          <h2 className="sheet-title">용지 정책</h2>
+          <p>{device.paperPolicy || '정책 없음'}</p>
+          <p>{getPolicyDescription(device.paperPolicy)}</p>
+          <div className="row">
+            <div>
+              <div>용지 장착됨</div>
+              {isPaperStateDisabled && <p>현재 정책에서는 사용하지 않습니다</p>}
+            </div>
+            <Toggle
+              label="용지 장착됨"
+              checked={currentPaperLoaded}
+              disabled={isPaperStateDisabled || paperTogglePending}
+              onChange={handlePaperToggle}
+            />
           </div>
-          <input
-            type="checkbox"
-            checked={currentPaperLoaded}
-            onChange={handlePaperToggle}
-            disabled={isPaperStateDisabled || paperTogglePending}
-            style={{
-              width: '20px',
-              height: '20px',
-              cursor: isPaperStateDisabled ? 'not-allowed' : 'pointer',
-            }}
-          />
-        </div>
+        </Card>
       </div>
     </div>
   )

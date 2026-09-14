@@ -1,12 +1,34 @@
 import { useEffect, useState } from 'react'
 import { historyApi } from '../api/history'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { Badge, type BadgeTone } from '../components/Badge'
+import { Button } from '../components/Button'
+import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
+import { ErrorBanner } from '../components/ErrorBanner'
+import { PageHeader } from '../components/PageHeader'
 import type { HistoryEntry, ResultStatus } from '../types/history'
-import { STATUS_LABELS_KO, STATUS_COLORS } from '../types/history'
+import { STATUS_LABELS_KO } from '../types/history'
 import { formatDateTimeKo } from '../lib/date'
+import { useI18n } from '../i18n'
+
+function statusTone(status: ResultStatus): BadgeTone {
+  switch (status) {
+    case 'printed':
+      return 'ok'
+    case 'dry_run':
+      return 'neutral'
+    case 'failed':
+    case 'skipped_printer_offline':
+      return 'danger'
+    case 'missed':
+    case 'skipped_no_paper':
+    case 'skipped_clock_unsynced':
+      return 'warn'
+  }
+}
 
 export function HistoryPage() {
+  const { t } = useI18n()
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -36,95 +58,85 @@ export function HistoryPage() {
     return true
   })
 
-  if (loading && entries.length === 0) {
-    return (
-      <div className="page">
-        <h1>이력</h1>
-        <p>로드 중...</p>
-      </div>
-    )
-  }
-
-  if (entries.length === 0 && !loading) {
-    return (
-      <div className="page">
-        <h1>이력</h1>
-        <EmptyState message="아직 실행 기록이 없습니다." />
-      </div>
-    )
-  }
-
   return (
-    <div className="page">
-      <h1>이력</h1>
+    <div className="page page-with-header">
+      <PageHeader
+        title={t('history')}
+        action={
+          <Button variant="secondary" onClick={loadHistory} disabled={loading}>
+            {loading ? t('refreshing') : t('refresh')}
+          </Button>
+        }
+      />
 
       <ErrorBanner error={error} onRetry={loadHistory} />
 
-      {/* 필터 버튼 */}
-      <div className="filter-tabs">
-        <button
-          className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-          onClick={() => setFilter('all')}
-        >
-          전체
-        </button>
-        <button
-          className={`filter-btn ${filter === 'printed' ? 'active' : ''}`}
-          onClick={() => setFilter('printed')}
-        >
-          인쇄됨
-        </button>
-        <button
-          className={`filter-btn ${filter === 'problem' ? 'active' : ''}`}
-          onClick={() => setFilter('problem')}
-        >
-          문제 있음
-        </button>
-      </div>
-
-      {/* 새로고침 버튼 */}
-      <div className="refresh-section">
-        <button type="button" onClick={loadHistory} disabled={loading}>
-          {loading ? '새로고침 중...' : '새로고침'}
-        </button>
-      </div>
-
-      {/* 결과 목록 */}
-      {filteredEntries.length === 0 && !loading ? (
-        <EmptyState message="해당하는 기록이 없습니다." />
+      {loading && entries.length === 0 ? (
+        <p>{t('loading')}</p>
+      ) : entries.length === 0 ? (
+        <EmptyState message={t('historyEmpty')} />
       ) : (
-        <div className="history-list">
-          {filteredEntries.map((entry) => (
-            <HistoryEntryCard key={entry.resultId} entry={entry} />
-          ))}
-        </div>
+        <>
+          <div className="filter-tabs">
+            <button
+              type="button"
+              className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+              onClick={() => setFilter('all')}
+            >
+              {t('filterAll')}
+            </button>
+            <button
+              type="button"
+              className={`filter-btn ${filter === 'printed' ? 'active' : ''}`}
+              onClick={() => setFilter('printed')}
+            >
+              {t('filterPrinted')}
+            </button>
+            <button
+              type="button"
+              className={`filter-btn ${filter === 'problem' ? 'active' : ''}`}
+              onClick={() => setFilter('problem')}
+            >
+              {t('filterProblem')}
+            </button>
+          </div>
+
+          {filteredEntries.length === 0 && !loading ? (
+            <EmptyState message="해당하는 기록이 없습니다." />
+          ) : (
+            <div className="history-list">
+              {filteredEntries.map((entry) => (
+                <HistoryEntryCard key={entry.resultId} entry={entry} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
 }
 
 function HistoryEntryCard({ entry }: { entry: HistoryEntry }) {
-  const status = entry.status as ResultStatus
-  const statusLabel = STATUS_LABELS_KO[status] || status
-  const statusColor = STATUS_COLORS[status] || 'gray'
-  const sourceLabel = entry.source === 'schedule' ? '예약' : '지금 인쇄'
-  const timeStr = entry.executedAt ? formatDateTimeKo(entry.executedAt) : '-'
+  const { t } = useI18n()
+  const status = entry.status
+  const statusLabel = STATUS_LABELS_KO[status] ?? status
+  const sourceLabel = entry.source === 'schedule' ? t('sourceSchedule') : t('sourceCommand')
 
   return (
-    <div className="history-entry">
+    <Card>
       <div className="entry-header">
-        <div className="status-badge" style={{ color: statusColor }}>
-          ●
-        </div>
         <div className="entry-info">
           <div className="entry-title">
-            <span className="status-label" style={{ color: statusColor }}>
-              {statusLabel}
-            </span>
+            <Badge tone={statusTone(status)}>{statusLabel}</Badge>
             <span className="source-label">{sourceLabel}</span>
           </div>
           {entry.formatName && <div className="format-name">{entry.formatName}</div>}
-          <div className="entry-time">{timeStr}</div>
+          {entry.scheduledAt && (
+            <div className="entry-time">예약 {formatDateTimeKo(entry.scheduledAt)}</div>
+          )}
+          <div className="entry-time">
+            실행 {entry.executedAt ? formatDateTimeKo(entry.executedAt) : '-'}
+          </div>
         </div>
       </div>
 
@@ -134,6 +146,6 @@ function HistoryEntryCard({ entry }: { entry: HistoryEntry }) {
           <div className="detail-content">{entry.detail}</div>
         </details>
       )}
-    </div>
+    </Card>
   )
 }

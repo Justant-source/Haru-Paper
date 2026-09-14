@@ -119,12 +119,8 @@ export function Preview({ document }: { document: FormatDocument }) {
       )}
 
       {blobUrl && (
-        <div className="preview-image-container">
-          <img
-            src={blobUrl}
-            alt="미리보기"
-            className="preview-image"
-          />
+        <div className="paper-frame preview-image-container">
+          <img src={blobUrl} alt="미리보기" className="preview-image" />
         </div>
       )}
 

@@ -1,3 +1,5 @@
+import { Button } from './Button'
+
 export function EmptyState({
   message,
   actionLabel,
@@ -11,9 +13,9 @@ export function EmptyState({
     <div className="empty-state">
       <p>{message}</p>
       {actionLabel && onAction && (
-        <button type="button" onClick={onAction}>
+        <Button variant="primary" onClick={onAction}>
           {actionLabel}
-        </button>
+        </Button>
       )}
     </div>
   )
