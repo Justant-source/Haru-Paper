@@ -54,6 +54,11 @@ services:
       - haru-api
     ports:
       - "${HARU_WEB_BIND}:8080"
+      # [주의] HARU_WEB_TAILSCALE_BIND는 반드시 이 서버의 tailscale IP:포트여야 한다(0.0.0.0 절대 금지).
+      # 비워두면 이 서비스는 뜨지 않는다 — 빈 문자열이 host 주소 없이 포트만 남아 실수로 모든
+      # 인터페이스에 열릴 위험을 원천 차단한다. IP:포트 직접 접속이 필요 없으면 .env에서 이 줄과
+      # 아래 ports 항목을 함께 지운다.
+      - "${HARU_WEB_TAILSCALE_BIND:?HARU_WEB_TAILSCALE_BIND must be set to <tailscale-ip>:<port>, never 0.0.0.0}:8080"
     logging:
       driver: json-file
       options:

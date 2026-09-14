@@ -72,6 +72,24 @@
 - PWA 설치에는 HTTPS가 필요하다 — 이 경로가 그 조건을 만족한다.
 - Cloudflare Tunnel로 공개하지 않는다(PoC는 Tailscale 전용).
 
+### 3.1 IP:포트 직접 접속(추가 경로, HTTP) [기본값, 2026-09-14 추가]
+
+hostname(`https://justant-server2.tail2b65d1.ts.net`) 대신 **Tailscale IP로 직접** 접속해야 하는
+경우를 위한 두 번째 경로. `tailscale serve`는 SNI 기반이라 IP로 직접 붙으면 TLS 핸드셰이크
+자체가 실패한다(`TLS alert, internal error` [확인됨, 실사]) — 그래서 이 경로는 **HTTPS가 아니라
+HTTP**이고, hostname 경로와 별도로 존재한다(hostname+HTTPS 경로는 그대로 유지).
+
+- `haru-web`을 `${HARU_WEB_TAILSCALE_BIND}`(반드시 `<이 서버의 tailscale IP>:<포트>`, 예
+  `100.81.189.92:18080`)에도 바인딩한다. **`0.0.0.0`은 여기서도 절대 쓰지 않는다** — tailscale IP는
+  Tailscale 오버레이 네트워크 안에서만 라우팅되므로 이렇게 해도 "Tailscale 전용" 경계는 그대로
+  유지된다(같은 tailnet 안에서만 도달 가능, hostname 경로와 도달 가능 범위가 동일).
+  `docker-compose.yml`은 이 값이 비어 있으면 `${VAR:?...}` 문법으로 기동을 실패시켜, 실수로
+  호스트 주소 없이 포트만 남아 모든 인터페이스에 열리는 사고를 막는다.
+- `http://100.81.189.92:18080/`에서 `GET /api/health` 200 **[확인됨, 2026-09-14]**.
+- 이 경로가 필요 없어지면 `.env`의 `HARU_WEB_TAILSCALE_BIND`와 `docker-compose.yml`의 해당
+  `ports` 항목을 함께 지운다.
+- 이 경로는 PWA 설치 조건(HTTPS)을 만족하지 않는다 — PWA는 계속 hostname 경로로 설치한다.
+
 ## 4. 비밀값
 
 - `server/.env`는 **서버에만** 두고 커밋하지 않는다(공개 저장소). `chmod 600 server/.env`.
@@ -135,4 +153,6 @@ docker compose start haru-api
 - [x] [`api.md`](api.md) 7절 curl 시나리오 전부 기대대로
 - [x] 미리보기 PNG 폭 = 프로필 폭, 한글 렌더 정상
 - [x] 백업 파일 1회 생성 확인
-- [x] 호스트에서 `ss -tlnp`로 봤을 때 Haru-Paper가 연 포트는 `127.0.0.1:18080` 하나뿐
+- [x] 호스트에서 `ss -tlnp`로 봤을 때 Haru-Paper가 연 포트는 `127.0.0.1:18080`과
+      `<tailscale IP>:18080`(3.1절, 둘 다 사용자 요청으로 추가된 IP:포트 직접 접속 경로)뿐 —
+      **`0.0.0.0`에 열린 것은 없어야 한다**
