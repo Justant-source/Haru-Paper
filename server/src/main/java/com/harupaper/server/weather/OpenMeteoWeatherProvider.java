@@ -1,9 +1,12 @@
 package com.harupaper.server.weather;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+
+import java.time.Duration;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -32,7 +35,11 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
     private final RestClient restClient;
 
     public OpenMeteoWeatherProvider() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(HTTP_TIMEOUT_SECONDS));
+        factory.setReadTimeout(Duration.ofSeconds(HTTP_TIMEOUT_SECONDS));
         this.restClient = RestClient.builder()
+                .requestFactory(factory)
                 .build();
     }
 
@@ -47,22 +54,25 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
             return cached.weather;
         }
 
-        // API 호출 시도 (1회 재시도)
-        try {
-            return fetchFromApi(lat, lon, targetDate, cacheKey);
-        } catch (Exception e) {
-            log.warn("Failed to fetch weather from API: {}", e.getMessage());
-
-            // 24시간 이내 폴백 캐시 확인
-            if (cached != null && !cached.isExpiredForFallback(FALLBACK_CACHE_HOURS)) {
-                log.info("Using fallback cache for weather: {} (age: {}min)", cacheKey,
-                        (System.currentTimeMillis() - cached.cacheTime) / 60000);
-                return cached.weather;
+        Exception lastFailure = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                return fetchFromApi(lat, lon, targetDate, cacheKey);
+            } catch (Exception e) {
+                lastFailure = e;
+                log.warn("Failed to fetch weather from API (attempt {}): {}", attempt + 1, e.getMessage());
             }
-
-            // 모든 캐시 실패 -> 예외 발생
-            throw new WeatherProviderException("Failed to fetch weather after retry and no valid cache", e);
         }
+
+        if (cached != null && !cached.isExpiredForFallback(FALLBACK_CACHE_HOURS)) {
+            log.info("Using fallback cache for weather: {} (age: {}min)", cacheKey,
+                    (System.currentTimeMillis() - cached.cacheTime) / 60000);
+            DailyWeather stale = cached.weather;
+            return new DailyWeather(stale.date(), stale.tempMin(), stale.tempMax(), stale.precipProb(),
+                    stale.skyText(), stale.fetchedAt(), "open-meteo-stale");
+        }
+
+        throw new WeatherProviderException("Failed to fetch weather after retry and no valid cache", lastFailure);
     }
 
     private DailyWeather fetchFromApi(double lat, double lon, LocalDate targetDate, String cacheKey) {

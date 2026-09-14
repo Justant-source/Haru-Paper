@@ -25,6 +25,6 @@
 
 | 항목 | 상태 |
 |---|---|
-| `/app/web` 코드 | M0: 없음. M3에서 생성 |
+| `/app/web` 코드 | M3: Vite+React+TS PWA, 화면 7개 |
 | `/app/android`, `/app/ios` | 빈 폴더(`.gitkeep`) 예약 |
-| 상태관리·라우팅·UI 라이브러리 | [기본값] 제안만, M3에서 확정 |
+| 상태관리·라우팅·UI | React Query + React Router, 하단 탭 [기본값에서 확정] |

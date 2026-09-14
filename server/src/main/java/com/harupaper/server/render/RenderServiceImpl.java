@@ -2,6 +2,7 @@ package com.harupaper.server.render;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.harupaper.server.asset.AssetRepository;
+import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.device.PrinterProfileProvider;
 import com.harupaper.server.format.Format;
@@ -50,7 +51,7 @@ public class RenderServiceImpl implements RenderService {
     @Transactional
     public RenderResult renderSavedFormatPreview(String formatId, LocalDate targetDate) {
         Format format = formatRepository.findById(formatId)
-                .orElseThrow(() -> new RuntimeException("Format not found: " + formatId));
+                .orElseThrow(() -> new NotFoundException("Format not found: " + formatId));
 
         return renderWithCache(format, targetDate, "preview", 10 * 60 * 1000);
     }
@@ -73,7 +74,7 @@ public class RenderServiceImpl implements RenderService {
     @Transactional
     public RenderResult renderForCommand(String formatId, LocalDate targetDate) {
         Format format = formatRepository.findById(formatId)
-                .orElseThrow(() -> new RuntimeException("Format not found: " + formatId));
+                .orElseThrow(() -> new NotFoundException("Format not found: " + formatId));
 
         return doRender(format, targetDate, "command");
     }
@@ -82,7 +83,7 @@ public class RenderServiceImpl implements RenderService {
     @Transactional
     public RenderResult renderForScheduled(String formatId, LocalDate targetDate) {
         Format format = formatRepository.findById(formatId)
-                .orElseThrow(() -> new RuntimeException("Format not found: " + formatId));
+                .orElseThrow(() -> new NotFoundException("Format not found: " + formatId));
 
         return doRender(format, targetDate, "scheduled");
     }

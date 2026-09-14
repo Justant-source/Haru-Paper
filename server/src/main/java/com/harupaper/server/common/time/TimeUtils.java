@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 
 /**
  * Time utilities for Asia/Seoul timezone handling.
@@ -25,6 +26,21 @@ public class TimeUtils {
      */
     public static String toIso8601(Instant instant) {
         return ZonedDateTime.ofInstant(instant, KST).format(ISO_8601_FORMATTER);
+    }
+
+    /**
+     * API가 내보내는 +09:00 오프셋과 Instant.parse가 받는 Z를 모두 받는다.
+     * 빈 값은 null. 형식이 아니면 DateTimeParseException.
+     */
+    public static Instant parseIso8601(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return ISO_8601_FORMATTER.parse(value, Instant::from);
+        } catch (DateTimeParseException offsetFailed) {
+            return Instant.parse(value);
+        }
     }
 
     /**

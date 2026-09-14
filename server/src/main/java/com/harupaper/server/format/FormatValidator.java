@@ -34,6 +34,7 @@ public class FormatValidator {
     private static final double MAX_LINE_HEIGHT = 3.0;
     private static final double MIN_MARGIN = 0.0;
     private static final double MAX_MARGIN = 20.0;
+    private static final double MAX_BLOCK_MARGIN = 30.0;
     private static final double MAX_BLOCK_GAP = 30.0;
 
     private static final Set<String> VALID_BLOCK_TYPES = Set.of("text", "image", "dateHeader", "weather");
@@ -370,8 +371,13 @@ public class FormatValidator {
     private void validateWeatherProps(Map<String, Object> props, String blockPath, List<ValidationException.FieldError> errors) {
         // location is optional, default "default"
         Object locationObj = props.get("location");
-        if (locationObj != null && !(locationObj instanceof String)) {
-            errors.add(new ValidationException.FieldError(blockPath + ".props.location", "location must be a string"));
+        if (locationObj != null) {
+            if (!(locationObj instanceof String location)) {
+                errors.add(new ValidationException.FieldError(blockPath + ".props.location", "location must be a string"));
+            } else if (!"default".equals(location)) {
+                errors.add(new ValidationException.FieldError(blockPath + ".props.location",
+                        "v1 allows only \"default\""));
+            }
         }
 
         // fields is optional, default all 4
@@ -422,14 +428,14 @@ public class FormatValidator {
                 "fontSizePt must be " + MIN_FONT_SIZE + " to " + MAX_FONT_SIZE));
         }
 
-        if (style.marginTopMm() != null && (style.marginTopMm() < MIN_MARGIN || style.marginTopMm() > MAX_MARGIN)) {
+        if (style.marginTopMm() != null && (style.marginTopMm() < MIN_MARGIN || style.marginTopMm() > MAX_BLOCK_MARGIN)) {
             errors.add(new ValidationException.FieldError(blockPath + ".style.marginTopMm",
-                "marginTopMm must be 0 to " + MAX_MARGIN));
+                "marginTopMm must be 0 to " + MAX_BLOCK_MARGIN));
         }
 
-        if (style.marginBottomMm() != null && (style.marginBottomMm() < MIN_MARGIN || style.marginBottomMm() > MAX_MARGIN)) {
+        if (style.marginBottomMm() != null && (style.marginBottomMm() < MIN_MARGIN || style.marginBottomMm() > MAX_BLOCK_MARGIN)) {
             errors.add(new ValidationException.FieldError(blockPath + ".style.marginBottomMm",
-                "marginBottomMm must be 0 to " + MAX_MARGIN));
+                "marginBottomMm must be 0 to " + MAX_BLOCK_MARGIN));
         }
     }
 }

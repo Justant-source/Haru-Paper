@@ -12,14 +12,16 @@ import com.harupaper.server.settings.WeatherLocation;
 import com.harupaper.server.settings.WeatherLocationProvider;
 import com.harupaper.server.weather.DailyWeather;
 import com.harupaper.server.weather.WeatherProvider;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.HashMap;
@@ -28,23 +30,33 @@ import java.util.Optional;
 
 /**
  * FormatDocument을 HTML로 변환한다 (docs/server/rendering.md 2절).
- * Thymeleaf 템플릿을 사용해 자동 이스케이프를 보장한다.
+ * 사용자 HTML을 받지 않고 서버가 문자열을 조립하며 텍스트는 escape한다.
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class HtmlTemplateBuilder {
 
     private final PrinterProfileProvider printerProfileProvider;
     private final AssetRepository assetRepository;
     private final WeatherProvider weatherProvider;
     private final WeatherLocationProvider weatherLocationProvider;
+    private final String filesDir;
+
+    public HtmlTemplateBuilder(PrinterProfileProvider printerProfileProvider,
+                               AssetRepository assetRepository,
+                               WeatherProvider weatherProvider,
+                               WeatherLocationProvider weatherLocationProvider,
+                               @Value("${haru.files-dir}") String filesDir) {
+        this.printerProfileProvider = printerProfileProvider;
+        this.assetRepository = assetRepository;
+        this.weatherProvider = weatherProvider;
+        this.weatherLocationProvider = weatherLocationProvider;
+        this.filesDir = filesDir;
+    }
 
     /**
      * FormatDocument을 HTML로 변환한다.
      * 파이프라인: 변수 치환 → 동적 데이터 조회(날씨) → 직접 HTML 생성
-     *
-     * Thymeleaf 템플릿은 복잡한 바인딩이 필요하므로, 직접 HTML을 생성하는 것이 더 간단하다.
      */
     public String buildHtml(FormatDocument document, LocalDate targetDate) {
         var profile = printerProfileProvider.getCurrentProfile();
@@ -158,7 +170,8 @@ public class HtmlTemplateBuilder {
                 Object widthPercent = block.props().get("widthPercent");
                 int width = widthPercent != null ? ((Number) widthPercent).intValue() : 100;
                 String imageDataUri = getImageDataUri(assetId);
-                html.append("<div class=\"block\" style=\"").append(styleAttr).append(" text-align: center;\">\n");
+                html.append("<div class=\"block\" style=\"").append(styleAttr)
+                        .append(styleAttr.contains("text-align") ? "" : " text-align: center;").append("\">\n");
                 html.append("  <img src=\"").append(escapeHtmlAttr(imageDataUri)).append("\" style=\"width: ")
                     .append(width).append("%;\">\n");
                 html.append("</div>\n");
@@ -167,7 +180,8 @@ public class HtmlTemplateBuilder {
             case "dateHeader":
                 String pattern = (String) block.props().getOrDefault("pattern", "YYYY년 M월 D일 dddd");
                 String headerText = formatDateHeader(pattern, targetDate);
-                html.append("<div class=\"block\" style=\"").append(styleAttr).append(" text-align: center;\">\n");
+                html.append("<div class=\"block\" style=\"").append(styleAttr)
+                        .append(styleAttr.contains("text-align") ? "" : " text-align: center;").append("\">\n");
                 html.append("  <p>").append(escapeHtml(headerText)).append("</p>\n");
                 html.append("</div>\n");
                 break;
@@ -175,28 +189,7 @@ public class HtmlTemplateBuilder {
             case "weather":
                 if (weather != null) {
                     html.append("<div class=\"block\" style=\"").append(styleAttr).append("\">\n");
-                    @SuppressWarnings("unchecked")
-                    java.util.List<String> fields = (java.util.List<String>) block.props()
-                            .getOrDefault("fields", java.util.List.of("tempMin", "tempMax", "precipProb", "sky"));
-
-                    if (fields.contains("tempMin") || fields.contains("tempMax")) {
-                        html.append("  <p>");
-                        if (fields.contains("tempMin") && weather.tempMin() != null) {
-                            html.append(weather.tempMin()).append("°C");
-                        }
-                        if (fields.contains("tempMax") && weather.tempMax() != null) {
-                            html.append(" / ").append(weather.tempMax()).append("°C");
-                        }
-                        html.append("</p>\n");
-                    }
-
-                    if (fields.contains("precipProb") && weather.precipProb() != null) {
-                        html.append("  <p>").append(weather.precipProb()).append("% 강수확률</p>\n");
-                    }
-
-                    if (fields.contains("sky") && weather.skyText() != null) {
-                        html.append("  <p>").append(escapeHtml(weather.skyText())).append("</p>\n");
-                    }
+                    html.append("  <p>").append(escapeHtml(formatWeatherLine(block, weather))).append("</p>\n");
                     html.append("</div>\n");
                 }
                 break;
@@ -277,7 +270,8 @@ public class HtmlTemplateBuilder {
         return value.replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     /**
@@ -311,6 +305,51 @@ public class HtmlTemplateBuilder {
             return new DailyWeather(targetDate, null, null, null,
                     "날씨 정보를 가져오지 못했습니다", java.time.Instant.now(), "error");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String formatWeatherLine(Block block, DailyWeather weather) {
+        if ("error".equals(weather.source())
+                || (weather.tempMin() == null && weather.tempMax() == null && weather.precipProb() == null
+                && "날씨 정보를 가져오지 못했습니다".equals(weather.skyText()))) {
+            return "날씨 정보를 가져오지 못했습니다";
+        }
+
+        java.util.List<String> fields = java.util.List.of("tempMin", "tempMax", "precipProb", "sky");
+        if (block.props() != null && block.props().get("fields") instanceof java.util.List<?> listed && !listed.isEmpty()) {
+            fields = (java.util.List<String>) listed;
+        }
+
+        StringBuilder line = new StringBuilder();
+        WeatherLocation location = weatherLocationProvider.getCurrent();
+        if (location.label() != null && !location.label().isBlank()) {
+            line.append(location.label());
+        }
+        if (fields.contains("sky") && weather.skyText() != null) {
+            line.append("  ").append(weather.skyText());
+        }
+        boolean tmin = fields.contains("tempMin") && weather.tempMin() != null;
+        boolean tmax = fields.contains("tempMax") && weather.tempMax() != null;
+        if (tmin || tmax) {
+            line.append("  ");
+            if (tmin) {
+                line.append("최저 ").append(weather.tempMin()).append("°");
+            }
+            if (tmin && tmax) {
+                line.append(" / ");
+            }
+            if (tmax) {
+                line.append("최고 ").append(weather.tempMax()).append("°");
+            }
+        }
+        if (fields.contains("precipProb") && weather.precipProb() != null) {
+            line.append("  강수확률 ").append(weather.precipProb()).append("%");
+        }
+        if ("open-meteo-stale".equals(weather.source()) && weather.fetchedAt() != null) {
+            ZonedDateTime fetched = weather.fetchedAt().atZone(ZoneId.of("Asia/Seoul"));
+            line.append(" (").append(fetched.format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))).append(" 기준)");
+        }
+        return line.toString().trim();
     }
 
     /**
@@ -358,7 +397,7 @@ public class HtmlTemplateBuilder {
 
             Asset a = asset.get();
             // haru-files/{path} 읽기
-            byte[] imageData = Files.readAllBytes(Paths.get("/data/haru-files").resolve(a.getPath()));
+            byte[] imageData = Files.readAllBytes(Paths.get(filesDir).resolve(a.getPath()));
             String base64 = Base64.getEncoder().encodeToString(imageData);
             return "data:" + a.getContentType() + ";base64," + base64;
         } catch (IOException e) {

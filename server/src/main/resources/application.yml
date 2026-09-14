@@ -21,8 +21,6 @@ spring:
     multipart:
       max-file-size: ${HARU_UPLOAD_MAX_MB:10}MB
       max-request-size: 30MB
-  thymeleaf:
-    cache: true
 
 haru:
   device-token: ${HARU_DEVICE_TOKEN:}

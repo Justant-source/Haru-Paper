@@ -45,6 +45,18 @@ export function todayKstDateString(): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
+/** HH:mm (KST 지금) — 오늘 날짜의 일회성 예약에서 과거 시각을 막는다. */
+export function nowKstTimeString(): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: KST_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date())
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('hour')}:${get('minute')}`
+}
+
 export function timeAgoKo(iso: string | null | undefined): string {
   if (!iso) return ''
   const diffMs = Date.now() - new Date(iso).getTime()

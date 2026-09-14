@@ -103,27 +103,30 @@ public class FormatController {
     @PostMapping("/import")
     public ResponseEntity<FormatDetailResponse> importFormat(@RequestBody Map<String, Object> importJson)
         throws IOException {
-        // "assets"는 FormatDocument에 없는 필드라 먼저 떼어내야 한다. 남은 부분만 FormatDocument로
-        // 변환한다(그 안에 정말 모르는 필드가 남아 있으면 Jackson이 예외를 던지고,
-        // 그건 아래 doc 변환 실패 -> 422로 GlobalExceptionHandler가 처리한다).
-        Map<String, Object> importJsonCopy = new java.util.HashMap<>(importJson);
-        @SuppressWarnings("unchecked")
-        Map<String, String> assets = (Map<String, String>) importJsonCopy.remove("assets");
-        FormatDocument doc;
-        try {
-            doc = objectMapper.convertValue(importJsonCopy, FormatDocument.class);
-        } catch (IllegalArgumentException e) {
-            // format-schema.md 5절: 가져오기에서 알 수 없는 필드는 422(400 아님)
-            String path = (e.getCause() instanceof com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException upe)
-                    ? String.join(".", upe.getPath().stream().map(r -> r.getFieldName()).toList())
-                    : "document";
+        FormatDocument doc = formatService.getFormatValidator()
+                .validateAndParse(importJson, true, objectMapper);
+        Object assetsObj = importJson.get("assets");
+        Map<String, String> assets = Map.of();
+        if (assetsObj instanceof Map<?, ?> rawAssets) {
+            Map<String, String> copied = new HashMap<>();
+            for (Map.Entry<?, ?> entry : rawAssets.entrySet()) {
+                if (!(entry.getKey() instanceof String key) || !(entry.getValue() instanceof String value)) {
+                    throw new com.harupaper.server.common.exception.ValidationException(
+                            "format document is invalid",
+                            List.of(new com.harupaper.server.common.exception.ValidationException.FieldError(
+                                    "assets", "asset entries must be string data URIs")));
+                }
+                copied.put(key, value);
+            }
+            assets = copied;
+        } else if (assetsObj != null) {
             throw new com.harupaper.server.common.exception.ValidationException(
                     "format document is invalid",
                     List.of(new com.harupaper.server.common.exception.ValidationException.FieldError(
-                            path, e.getMessage())));
+                            "assets", "assets must be an object of data URIs")));
         }
 
-        FormatService.FormatDocumentWithAssets importData = new FormatService.FormatDocumentWithAssets(doc, assets != null ? assets : Map.of());
+        FormatService.FormatDocumentWithAssets importData = new FormatService.FormatDocumentWithAssets(doc, assets);
         Format imported = formatService.importFormat(importData);
         return ResponseEntity.status(HttpStatus.CREATED).body(toDetailResponse(imported));
     }

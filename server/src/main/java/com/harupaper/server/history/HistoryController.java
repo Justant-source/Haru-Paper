@@ -63,7 +63,12 @@ public class HistoryController {
             // before 파라미터가 있으면 그보다 이전 것만
             try {
                 // ISO-8601 문자열을 Instant로 파싱
-                Instant beforeInstant = Instant.parse(before);
+                Instant beforeInstant = TimeUtils.parseIso8601(before);
+                if (beforeInstant == null) {
+                    throw new ValidationException("before must be ISO-8601 timestamp", List.of(
+                            new ValidationException.FieldError("before", "must be a valid ISO-8601 timestamp")
+                    ));
+                }
                 results = resultRepository.findAllByExecutedAtBeforeOrderByExecutedAtDesc(beforeInstant);
             } catch (DateTimeParseException e) {
                 throw new ValidationException("before must be ISO-8601 timestamp", List.of(
@@ -94,12 +99,14 @@ public class HistoryController {
 
             // source 판단
             String source;
-            if (result.getOccurrenceKey() != null) {
+            boolean hasOccurrence = result.getOccurrenceKey() != null && !result.getOccurrenceKey().isBlank();
+            boolean hasCommand = result.getCommandId() != null && !result.getCommandId().isBlank();
+            if (hasOccurrence) {
                 source = "schedule";
-            } else if (result.getCommandId() != null) {
+            } else if (hasCommand) {
                 source = "command";
             } else {
-                source = null; // 이론상 발생하면 안 됨
+                source = null;
             }
 
             HistoryResponseDto dto = new HistoryResponseDto(

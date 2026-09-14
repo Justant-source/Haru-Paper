@@ -30,7 +30,7 @@
 
 ### 앱용: 없음
 
-Tailscale 내부망이 인증이다(init_plan Q11). `haru-web`은 `127.0.0.1`에만 바인딩되고 외부에는 `tailscale serve` HTTPS로만 열린다([`deploy.md`](deploy.md)).
+Tailscale 내부망이 인증이다(init_plan Q11). `haru-web`은 기본적으로 `127.0.0.1`에만 바인딩되고, HTTPS는 `tailscale serve`로 연다. 사용자 승인 하에 Tailscale IP:포트 HTTP를 추가로 열 수 있다([`deploy.md`](deploy.md) 3.1절). `0.0.0.0`은 금지.
 
 ### Pi용: `Authorization: Bearer <HARU_DEVICE_TOKEN>`
 

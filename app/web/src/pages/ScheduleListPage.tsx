@@ -6,7 +6,7 @@ import { formatsApi } from '../api/formats'
 import type { Schedule, ScheduleCreateRequest, ScheduleType, DayOfWeekCode } from '../types/schedule'
 import { DAY_LABELS_KO, ALL_DAYS } from '../types/schedule'
 import { ApiError } from '../types/problem'
-import { formatDateKo, formatDateTimeKo, todayKstDateString } from '../lib/date'
+import { formatDateKo, formatDateTimeKo, nowKstTimeString, todayKstDateString } from '../lib/date'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
@@ -326,12 +326,13 @@ export function ScheduleListPage() {
 
       <div className="field">
         <label htmlFor="form-time">시각</label>
-        <input
-          id="form-time"
-          type="time"
-          value={formTime}
-          onChange={(e) => setFormTime(e.target.value)}
-        />
+          <input
+            id="form-time"
+            type="time"
+            value={formTime}
+            onChange={(e) => setFormTime(e.target.value)}
+            min={formType === 'once' && formDate === todayKstDateString() ? nowKstTimeString() : undefined}
+          />
       </div>
 
       <div className="field">

@@ -8,6 +8,7 @@ export function Preview({ document }: { document: FormatDocument }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [outOfDate, setOutOfDate] = useState(false)
+  const [fullWidth, setFullWidth] = useState(false)
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestCountRef = useRef(0)
@@ -120,7 +121,12 @@ export function Preview({ document }: { document: FormatDocument }) {
 
       {blobUrl && (
         <div className="paper-frame preview-image-container">
-          <img src={blobUrl} alt="미리보기" className="preview-image" />
+          <img
+            src={blobUrl}
+            alt="미리보기"
+            className={`preview-image${fullWidth ? ' preview-image-native' : ''}`}
+            onClick={() => setFullWidth((v) => !v)}
+          />
         </div>
       )}
 

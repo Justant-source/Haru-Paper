@@ -4,6 +4,7 @@ import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.format.FormatRepository;
+import com.harupaper.server.render.RenderScanTrigger;
 import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
@@ -25,10 +26,13 @@ import java.util.UUID;
 public class ScheduleService {
     private final ScheduleRepository scheduleRepository;
     private final FormatRepository formatRepository;
+    private final RenderScanTrigger renderScanTrigger;
 
-    public ScheduleService(ScheduleRepository scheduleRepository, FormatRepository formatRepository) {
+    public ScheduleService(ScheduleRepository scheduleRepository, FormatRepository formatRepository,
+                           RenderScanTrigger renderScanTrigger) {
         this.scheduleRepository = scheduleRepository;
         this.formatRepository = formatRepository;
+        this.renderScanTrigger = renderScanTrigger;
     }
 
     /**
@@ -107,6 +111,7 @@ public class ScheduleService {
                 .build();
 
         Schedule saved = scheduleRepository.save(schedule);
+        renderScanTrigger.requestScan();
         return toResponseDto(saved);
     }
 
@@ -155,6 +160,10 @@ public class ScheduleService {
                         new ValidationException.FieldError("daysOfWeek", "must be null for once")
                 ));
             }
+        } else {
+            throw new ValidationException("Invalid schedule type: " + request.type(), List.of(
+                    new ValidationException.FieldError("type", "must be 'recurring' or 'once'")
+            ));
         }
 
         schedule.setFormatId(request.formatId());
@@ -166,6 +175,7 @@ public class ScheduleService {
         schedule.setUpdatedAt(Instant.now());
 
         Schedule updated = scheduleRepository.save(schedule);
+        renderScanTrigger.requestScan();
         return toResponseDto(updated);
     }
 
@@ -176,6 +186,7 @@ public class ScheduleService {
         Schedule schedule = scheduleRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Schedule not found: " + id));
         scheduleRepository.delete(schedule);
+        renderScanTrigger.requestScan();
     }
 
     /**

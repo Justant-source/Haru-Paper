@@ -7,6 +7,7 @@ export function ErrorBanner({ error, onRetry }: { error: unknown; onRetry?: () =
   if (!error) return null
 
   const isNetworkError = error instanceof TypeError
+  const fieldErrors = error instanceof ApiError ? error.problem.errors : undefined
   const message = isNetworkError
     ? t('networkError')
     : error instanceof ApiError
@@ -18,6 +19,15 @@ export function ErrorBanner({ error, onRetry }: { error: unknown; onRetry?: () =
   return (
     <div className="banner banner-danger" role="alert">
       <span>{message}</span>
+      {fieldErrors && fieldErrors.length > 0 && (
+        <ul className="banner-field-errors">
+          {fieldErrors.map((err) => (
+            <li key={err.path}>
+              {err.path}: {err.message}
+            </li>
+          ))}
+        </ul>
+      )}
       {onRetry && (
         <button type="button" className="banner-retry" onClick={onRetry}>
           {t('retry')}

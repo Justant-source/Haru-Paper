@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import org.springframework.data.domain.Persistable;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -25,7 +26,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Result {
+public class Result implements Persistable<String> {
 
     @Id
     private String id;
@@ -58,4 +59,13 @@ public class Result {
 
     @Column(name = "received_at", nullable = false)
     private Instant receivedAt;
+
+    /**
+     * 할당된 String PK라 JPA save()는 기본이 merge다. 항상 INSERT로 둬야
+     * 같은 resultId 재전송이 update가 아니라 PK 충돌→duplicates가 된다.
+     */
+    @Override
+    public boolean isNew() {
+        return true;
+    }
 }

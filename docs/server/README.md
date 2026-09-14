@@ -45,4 +45,4 @@
 
 - 서버 세션: `/server`, `/app`, `/docs/server`, `/docs/app`
 - 노트북 세션: `/pi`, `/docs/pi`
-- 공통(수정 직전 `git pull --ff-only`): `CLAUDE.md`, `README.md`, `docs/architecture.md`, `.gitignore`
+- 공통(수정 직전 `git pull --ff-only`): `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/architecture.md`, `.gitignore`, `.cursor/`

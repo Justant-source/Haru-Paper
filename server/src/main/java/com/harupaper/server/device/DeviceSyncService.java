@@ -3,15 +3,16 @@ package com.harupaper.server.device;
 import com.harupaper.server.command.Command;
 import com.harupaper.server.command.CommandRepository;
 import com.harupaper.server.common.time.TimeUtils;
+import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.render.Render;
 import com.harupaper.server.render.RenderRepository;
+import com.harupaper.server.render.RenderScanTrigger;
 import com.harupaper.server.schedule.Schedule;
 import com.harupaper.server.schedule.ScheduleRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,9 +42,10 @@ public class DeviceSyncService {
     private final CommandRepository commandRepository;
     private final RenderRepository renderRepository;
     private final ScheduleRepository scheduleRepository;
-    private final ResultRepository resultRepository;
+    private final ResultIngestService resultIngestService;
     private final ObjectMapper objectMapper;
     private final SnapshotHashCalculator snapshotHashCalculator;
+    private final RenderScanTrigger renderScanTrigger;
 
     @Value("${haru.poll-interval-sec:30}")
     private Integer pollIntervalSec;
@@ -88,7 +90,11 @@ public class DeviceSyncService {
         }
         device = deviceRepository.save(device);
 
-        // 2. 프로필이 바뀌었으면 렌더 스케줄러 트리거 (생략 - Rendering 에이전트가 알아서 함)
+        String newProfileKey = device.getPrinterProfile() != null ?
+                getProfileKey(device.getPrinterProfile()) : null;
+        if (newProfileKey != null && !newProfileKey.equals(prevProfileKey)) {
+            renderScanTrigger.requestScan();
+        }
 
         // 3. 현재 스냅샷의 snapshotHash 계산 → snapshotChanged 확인
         DeviceDto.SnapshotResponse snapshot = buildSnapshot();
@@ -233,51 +239,51 @@ public class DeviceSyncService {
     public DeviceDto.ResultsResponse processResults(DeviceDto.ResultsRequest request) {
         List<String> accepted = new ArrayList<>();
         List<String> duplicates = new ArrayList<>();
-        Instant now = Instant.now();
+        List<ValidationException.FieldError> errors = new ArrayList<>();
+
+        if (request.results() == null) {
+            throw new ValidationException("results is required", List.of(
+                    new ValidationException.FieldError("results", "must not be null")
+            ));
+        }
+
+        for (int i = 0; i < request.results().size(); i++) {
+            DeviceDto.ResultDto resultDto = request.results().get(i);
+            String path = "results[" + i + "]";
+            boolean hasOccurrence = resultDto.occurrenceKey() != null && !resultDto.occurrenceKey().isBlank();
+            boolean hasCommand = resultDto.commandId() != null && !resultDto.commandId().isBlank();
+            if (hasOccurrence == hasCommand) {
+                errors.add(new ValidationException.FieldError(path,
+                        "exactly one of occurrenceKey or commandId is required"));
+            }
+            if (resultDto.executedAt() == null || resultDto.executedAt().isBlank()) {
+                errors.add(new ValidationException.FieldError(path + ".executedAt", "executedAt is required"));
+            } else {
+                try {
+                    TimeUtils.parseIso8601(resultDto.executedAt());
+                } catch (Exception e) {
+                    errors.add(new ValidationException.FieldError(path + ".executedAt",
+                            "must be ISO-8601 with offset"));
+                }
+            }
+            if (resultDto.scheduledAt() != null && !resultDto.scheduledAt().isBlank()) {
+                try {
+                    TimeUtils.parseIso8601(resultDto.scheduledAt());
+                } catch (Exception e) {
+                    errors.add(new ValidationException.FieldError(path + ".scheduledAt",
+                            "must be ISO-8601 with offset"));
+                }
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new ValidationException("results payload is invalid", errors);
+        }
 
         for (DeviceDto.ResultDto resultDto : request.results()) {
-            // insert-first 멱등 처리: 동시 요청 경쟁 시 PK 충돌을 duplicate로 흡수
-            Result result = Result.builder()
-                    .id(resultDto.resultId())
-                    .occurrenceKey(resultDto.occurrenceKey())
-                    .commandId(resultDto.commandId())
-                    .formatId(resultDto.formatId())
-                    .renderId(resultDto.renderId())
-                    .status(resultDto.status())
-                    .detail(resultDto.detail())
-                    .scheduledAt(parseIso8601(resultDto.scheduledAt()))
-                    .executedAt(parseIso8601(resultDto.executedAt()))
-                    .receivedAt(now)
-                    .build();
-
-            try {
-                resultRepository.save(result);
+            if (resultIngestService.ingestNew(resultDto)) {
                 accepted.add(resultDto.resultId());
-            } catch (DataIntegrityViolationException e) {
+            } else {
                 duplicates.add(resultDto.resultId());
-                continue;
-            }
-
-            // commandId가 있으면 해당 명령을 done으로
-            if (resultDto.commandId() != null) {
-                Optional<Command> cmdOpt = commandRepository.findById(resultDto.commandId());
-                if (cmdOpt.isPresent()) {
-                    Command cmd = cmdOpt.get();
-                    cmd.setStatus("done");
-                    cmd.setCompletedAt(now);
-                    commandRepository.save(cmd);
-                }
-            }
-
-            // manual_flag 정책에서 실패 결과 처리
-            Device device = deviceRepository.findById(1).orElse(null);
-            if (device != null && "manual_flag".equals(device.getPaperPolicy())) {
-                if ("failed".equals(resultDto.status()) || "skipped_printer_offline".equals(resultDto.status())) {
-                    device.setPaperStateManual(false);
-                    device.setPaperStateUpdatedAt(now);
-                    device.setPaperStateUpdatedBy("server");
-                    deviceRepository.save(device);
-                }
             }
         }
 
@@ -355,23 +361,6 @@ public class DeviceSyncService {
                 TimeUtils.toIso8601(r.getRenderedAt()),
                 "/api/device/renders/" + r.getId() + ".png"
         );
-    }
-
-    /**
-     * ISO-8601 문자열을 Instant로 파싱 (null 안전)
-     */
-    private Instant parseIso8601(String iso8601) {
-        if (iso8601 == null || iso8601.isBlank()) {
-            return null;
-        }
-        try {
-            // ISO-8601 파싱: "2026-09-14T07:00:00+09:00"
-            return java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME
-                    .parse(iso8601, java.time.Instant::from);
-        } catch (Exception e) {
-            log.warn("Failed to parse ISO-8601 timestamp: {}", iso8601, e);
-            return null;
-        }
     }
 
     private Set<LocalDate> calculateUpcomingOccurrenceDates(Schedule schedule, ZonedDateTime now, ZonedDateTime end) {

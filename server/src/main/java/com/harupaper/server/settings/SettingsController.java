@@ -1,6 +1,7 @@
 package com.harupaper.server.settings;
 
 import com.harupaper.server.common.exception.ValidationException;
+import com.harupaper.server.render.RenderScanTrigger;
 import com.harupaper.server.weather.OpenMeteoWeatherProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ public class SettingsController {
 
     private final SettingsServiceImpl settingsService;
     private final OpenMeteoWeatherProvider weatherProvider;
+    private final RenderScanTrigger renderScanTrigger;
 
     /**
      * 현재 설정 조회.
@@ -88,6 +90,7 @@ public class SettingsController {
 
         // 날씨 캐시 무효화
         weatherProvider.clearCache();
+        renderScanTrigger.requestScan();
         log.info("Weather cache invalidated after location change");
 
         // 응답

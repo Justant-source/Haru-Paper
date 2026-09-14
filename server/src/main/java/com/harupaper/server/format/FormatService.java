@@ -5,8 +5,10 @@ import com.harupaper.server.asset.Asset;
 import com.harupaper.server.asset.AssetRepository;
 import com.harupaper.server.common.exception.ConflictException;
 import com.harupaper.server.common.exception.NotFoundException;
+import com.harupaper.server.common.exception.PayloadTooLargeException;
 import com.harupaper.server.common.exception.UnsupportedMediaTypeAppException;
 import com.harupaper.server.common.time.TimeUtils;
+import com.harupaper.server.render.RenderScanTrigger;
 import com.harupaper.server.schedule.ScheduleRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,20 +40,26 @@ public class FormatService {
     private final ScheduleRepository scheduleRepository;
     private final FormatValidator validator;
     private final ObjectMapper objectMapper;
+    private final RenderScanTrigger renderScanTrigger;
     private final String filesDir;
+    private final long uploadMaxMb;
 
     public FormatService(FormatRepository formatRepository,
                         AssetRepository assetRepository,
                         ScheduleRepository scheduleRepository,
                         FormatValidator validator,
                         ObjectMapper objectMapper,
-                        @Value("${haru.files-dir}") String filesDir) {
+                        RenderScanTrigger renderScanTrigger,
+                        @Value("${haru.files-dir}") String filesDir,
+                        @Value("${haru.upload-max-mb:10}") long uploadMaxMb) {
         this.formatRepository = formatRepository;
         this.assetRepository = assetRepository;
         this.scheduleRepository = scheduleRepository;
         this.validator = validator;
         this.objectMapper = objectMapper;
+        this.renderScanTrigger = renderScanTrigger;
         this.filesDir = filesDir;
+        this.uploadMaxMb = uploadMaxMb;
     }
 
     /**
@@ -74,7 +82,9 @@ public class FormatService {
             .updatedAt(now)
             .build();
 
-        return formatRepository.save(format);
+        Format saved = formatRepository.save(format);
+        renderScanTrigger.requestScan();
+        return saved;
     }
 
     /**
@@ -119,7 +129,9 @@ public class FormatService {
         existing.setHasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(withPreservedForkedFrom));
         existing.setUpdatedAt(Instant.now());
 
-        return formatRepository.save(existing);
+        Format saved = formatRepository.save(existing);
+        renderScanTrigger.requestScan();
+        return saved;
     }
 
     /**
@@ -138,6 +150,7 @@ public class FormatService {
         }
 
         formatRepository.delete(format);
+        renderScanTrigger.requestScan();
         // Note: render files cleanup is best-effort; could be omitted if time constraints exist
     }
 
@@ -156,6 +169,8 @@ public class FormatService {
                 ))
             );
         }
+
+        requireEmbeddedAssets(importedData.document(), importedData.assets());
 
         // Decode and save assets, build assetId mapping
         Map<String, String> assetIdMapping = new HashMap<>();
@@ -207,7 +222,9 @@ public class FormatService {
             .updatedAt(now)
             .build();
 
-        return formatRepository.save(format);
+        Format saved = formatRepository.save(format);
+        renderScanTrigger.requestScan();
+        return saved;
     }
 
     /**
@@ -302,6 +319,11 @@ public class FormatService {
         }
 
         byte[] imageBytes = Base64.getDecoder().decode(encodedData);
+        long maxBytes = uploadMaxMb * 1024 * 1024;
+        if (imageBytes.length > maxBytes) {
+            throw new PayloadTooLargeException(
+                    "embedded asset size " + imageBytes.length + " exceeds limit " + maxBytes);
+        }
 
         // Create Asset entry and save file
         String assetId = UUID.randomUUID().toString();
@@ -367,6 +389,30 @@ public class FormatService {
         } catch (Exception e) {
             log.error("Failed to calculate SHA-256", e);
             throw new RuntimeException("Failed to calculate SHA-256", e);
+        }
+    }
+
+    private void requireEmbeddedAssets(FormatDocument document, Map<String, String> assets) {
+        Map<String, String> embedded = assets != null ? assets : Map.of();
+        List<com.harupaper.server.common.exception.ValidationException.FieldError> errors = new java.util.ArrayList<>();
+        if (document.blocks() == null) {
+            return;
+        }
+        for (int i = 0; i < document.blocks().size(); i++) {
+            Block block = document.blocks().get(i);
+            if (!"image".equals(block.type()) || block.props() == null) {
+                continue;
+            }
+            Object assetIdObj = block.props().get("assetId");
+            if (assetIdObj instanceof String assetId && !embedded.containsKey(assetId)) {
+                errors.add(new com.harupaper.server.common.exception.ValidationException.FieldError(
+                        "blocks[" + i + "].props.assetId",
+                        "assetId must be present in assets (reissued on import)"));
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new com.harupaper.server.common.exception.ValidationException(
+                    "format document is invalid", errors);
         }
     }
 

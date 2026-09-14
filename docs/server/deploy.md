@@ -34,7 +34,7 @@
 |---|---|---|---|
 | `haru-db` | `mariadb`(LTS 태그 고정) | DB `haru_paper` | **없음** |
 | `haru-api` | `/server` 멀티스테이지(Gradle 빌드 → Playwright Java 런타임 이미지) | Spring Boot, 렌더러 | **없음**(내부 8080) |
-| `haru-web` | `/app/web` 멀티스테이지(Node 빌드 → `nginx` 안정 태그) | 웹앱 `dist` 서빙 + `/api/` → `haru-api:8080` 프록시 | **`${HARU_WEB_BIND}`만**(예: `127.0.0.1:18080`) |
+| `haru-web` | `/app/web` 멀티스테이지(Node 빌드 → `nginx` 안정 태그) | 웹앱 `dist` 서빙 + `/api/` → `haru-api:8080` 프록시 | `${HARU_WEB_BIND}`(127.0.0.1) + `${HARU_WEB_TAILSCALE_BIND}`(Tailscale IP). 둘 다 `:?`로 비어 있으면 기동 실패 |
 | `haru-db-backup` | `mariadb`(같은 태그) | 매일 덤프, 7일 보관 | 없음 |
 
 - 빌드 컨텍스트: `haru-web`은 `../app/web`, `haru-api`는 `.`(`/server`)
@@ -126,7 +126,7 @@ curl -fsS http://127.0.0.1:<포트>/api/health
 - 수동 1회 실행 (M2 통과 조건: 백업 파일 생성 확인):
   ```bash
   cd ~/Data/Haru-Paper/server
-  docker compose --profile backup run --rm haru-db-backup /scripts/backup.sh
+  docker compose run --rm haru-db-backup /scripts/backup.sh
   # 완료 후 백업 파일 확인
   docker run --rm -v haru-paper_haru-backups:/backups busybox ls -lh /backups/
   ```
@@ -148,7 +148,7 @@ docker compose start haru-api
 
 ## 7. M2 통과 조건
 
-- [x] `docker compose up -d`로 3개 서비스(haru-db/haru-api/haru-web) 기동, 전부 healthy
+- [x] `docker compose up -d`로 haru-db/haru-api/haru-web/haru-db-backup 기동
 - [x] `tailscale serve` HTTPS(사용자 승인 후)에서 `GET /api/health` 200 — 2026-09-14 확인
 - [x] [`api.md`](api.md) 7절 curl 시나리오 전부 기대대로
 - [x] 미리보기 PNG 폭 = 프로필 폭, 한글 렌더 정상

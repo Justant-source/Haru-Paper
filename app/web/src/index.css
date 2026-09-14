@@ -957,6 +957,12 @@ button {
   height: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
+  cursor: zoom-in;
+}
+
+.preview-image-native {
+  max-width: none;
+  cursor: zoom-out;
 }
 
 .format-list {
