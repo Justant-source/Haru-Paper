@@ -60,15 +60,15 @@
 - 외부 접근은 **Tailscale 내부망 HTTPS**로만:
 
   ```bash
-  # [미검증] 명령 형식은 서버의 tailscale 버전에 맞춰 `tailscale serve --help`로 확인
-  sudo tailscale serve --bg --https=443 http://127.0.0.1:<포트>
+  # [확인됨] tailscale 1.102.2, 실제 적용해 동작 확인
+  sudo tailscale serve --bg --https=443 http://127.0.0.1:18080
   tailscale serve status
   ```
 
-  → `https://justant-server2.tail2b65d1.ts.net/`
+  → `https://justant-server2.tail2b65d1.ts.net/` **[확인됨, 2026-09-14 적용]**
 
-- ⚠️ **`tailscale serve` 적용은 반드시 사용자 승인 후에 한다.** 운영 중인 서버 노드의 Tailscale 설정을 바꾸는 일이다(현재 serve 설정 없음).
-- tailnet에서 HTTPS 인증서(MagicDNS HTTPS)가 켜져 있어야 할 수 있다 [미검증]. 안 되면 사용자에게 Tailscale 관리 콘솔 설정을 요청한다.
+- **`tailscale serve` 적용은 사용자 승인 후 이 세션이 sudo 비밀번호를 입력할 TTY가 없어, 사용자가 서버에 직접 SSH로 접속한 터미널에서 위 명령을 실행했다.** 적용 후 `GET /api/health`가 200으로 응답하는 것을 확인했다(첫 요청은 인증서 준비로 타임아웃될 수 있음 — 재시도하면 된다).
+- tailnet의 MagicDNS HTTPS는 이미 켜져 있었다(추가 콘솔 설정 없이 바로 됨) **[확인됨]**.
 - PWA 설치에는 HTTPS가 필요하다 — 이 경로가 그 조건을 만족한다.
 - Cloudflare Tunnel로 공개하지 않는다(PoC는 Tailscale 전용).
 
@@ -130,9 +130,9 @@ docker compose start haru-api
 
 ## 7. M2 통과 조건
 
-- [ ] `docker compose up -d`로 4개 서비스 기동, `haru-db`·`haru-api` healthy
-- [ ] `tailscale serve` HTTPS(사용자 승인 후)에서 `GET /api/health` 200
-- [ ] [`api.md`](api.md) 7절 curl 시나리오 전부 기대대로
-- [ ] 미리보기 PNG 폭 = 프로필 폭, 한글 렌더 정상
-- [ ] 백업 파일 1회 생성 확인
-- [ ] 호스트에서 `ss -tlnp`로 봤을 때 Haru-Paper가 연 포트는 `127.0.0.1:<포트>` 하나뿐
+- [x] `docker compose up -d`로 3개 서비스(haru-db/haru-api/haru-web) 기동, 전부 healthy
+- [x] `tailscale serve` HTTPS(사용자 승인 후)에서 `GET /api/health` 200 — 2026-09-14 확인
+- [x] [`api.md`](api.md) 7절 curl 시나리오 전부 기대대로
+- [x] 미리보기 PNG 폭 = 프로필 폭, 한글 렌더 정상
+- [x] 백업 파일 1회 생성 확인
+- [x] 호스트에서 `ss -tlnp`로 봤을 때 Haru-Paper가 연 포트는 `127.0.0.1:18080` 하나뿐
