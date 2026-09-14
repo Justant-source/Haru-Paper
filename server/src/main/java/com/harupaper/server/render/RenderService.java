@@ -21,4 +21,7 @@ public interface RenderService {
 
     /** "지금 인쇄" 전용: kind=command로 즉시 렌더해 렌더 행을 만든다. */
     RenderResult renderForCommand(String formatId, LocalDate targetDate);
+
+    /** 예약 occurrence 전용: kind=scheduled로 렌더해 스냅샷용 렌더 행을 만든다. */
+    RenderResult renderForScheduled(String formatId, LocalDate targetDate);
 }

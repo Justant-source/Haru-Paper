@@ -11,6 +11,7 @@ export function Preview({ document }: { document: FormatDocument }) {
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestCountRef = useRef(0)
+  const blobUrlRef = useRef<string | null>(null)
 
   // 1초 디바운스로 미리보기 업데이트
   useEffect(() => {
@@ -36,9 +37,10 @@ export function Preview({ document }: { document: FormatDocument }) {
 
         // 응답이 도착했을 때 더 최신 요청이 없으면 상태 업데이트
         if (requestId === requestCountRef.current) {
-          if (blobUrl) {
-            URL.revokeObjectURL(blobUrl)
+          if (blobUrlRef.current) {
+            URL.revokeObjectURL(blobUrlRef.current)
           }
+          blobUrlRef.current = newBlobUrl
           setBlobUrl(newBlobUrl)
           setOutOfDate(false)
           setError(null)
@@ -63,13 +65,13 @@ export function Preview({ document }: { document: FormatDocument }) {
         clearTimeout(timeoutRef.current)
       }
     }
-  }, [document, blobUrl])
+  }, [document])
 
   // 언마운트 시 blob URL 정리
   useEffect(() => {
     return () => {
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl)
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
       }
     }
   }, [])

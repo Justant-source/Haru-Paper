@@ -86,7 +86,7 @@ export function PrintNowPage() {
         <EmptyState
           message="먼저 포맷을 만드세요"
           actionLabel="포맷 만들기"
-          onAction={() => navigate('/formats')}
+          onAction={() => navigate('/')}
         />
       </div>
     )

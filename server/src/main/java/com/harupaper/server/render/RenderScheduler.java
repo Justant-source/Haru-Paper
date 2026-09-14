@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -65,7 +66,7 @@ public class RenderScheduler {
                     // 렌더 필요 여부 확인
                     if (shouldRender(format, targetDate, currentProfileKey)) {
                         try {
-                            renderService.renderForCommand(format.getId(), targetDate);
+                            renderService.renderForScheduled(format.getId(), targetDate);
                             log.info("Scheduled render created: format={}, date={}", format.getId(), targetDate);
                         } catch (Exception e) {
                             log.error("Failed to render scheduled format: {} for {}",
@@ -77,7 +78,7 @@ public class RenderScheduler {
                     if (FormatDocumentSupport.hasDynamicBlocks(parseFormatDocument(format))) {
                         if (shouldRenderBeforeOccurrence(format, targetDate, schedule.getTime(), currentProfileKey)) {
                             try {
-                                renderService.renderForCommand(format.getId(), targetDate);
+                                renderService.renderForScheduled(format.getId(), targetDate);
                                 log.info("Dynamic format re-render (60min before): format={}, date={}",
                                         format.getId(), targetDate);
                             } catch (Exception e) {
@@ -100,8 +101,8 @@ public class RenderScheduler {
      */
     private Set<LocalDate> calculateOccurrences(Schedule schedule) {
         Set<LocalDate> dates = new HashSet<>();
-        LocalDate today = TimeUtils.todayInKST();
-        LocalDate endDate = today.plusDays(1);  // 36시간 = 1.5일, 보수적으로 2일
+        ZonedDateTime now = TimeUtils.nowInKST();
+        ZonedDateTime end = now.plusHours(36);
 
         if ("recurring".equals(schedule.getType())) {
             // daysOfWeek 파싱
@@ -116,19 +117,26 @@ public class RenderScheduler {
                 }
             }
 
-            // today ~ endDate 범위에서 매칭되는 날짜 찾기
-            for (LocalDate date = today; date.isBefore(endDate); date = date.plusDays(1)) {
-                if (daysOfWeek.contains(date.getDayOfWeek())) {
-                    dates.add(date);
+            // now ~ now+36h 범위에서 occurrence가 존재하는 날짜만 선택
+            LocalDate cursor = now.toLocalDate();
+            LocalDate last = end.toLocalDate();
+            while (!cursor.isAfter(last)) {
+                if (daysOfWeek.contains(cursor.getDayOfWeek())) {
+                    ZonedDateTime occurrence = cursor.atTime(schedule.getTime()).atZone(TimeUtils.KST);
+                    if (!occurrence.isBefore(now) && !occurrence.isAfter(end)) {
+                        dates.add(cursor);
+                    }
                 }
+                cursor = cursor.plusDays(1);
             }
 
         } else if ("once".equals(schedule.getType())) {
             // once: 일회성, date가 지정됨
-            if (schedule.getDate() != null &&
-                    !schedule.getDate().isBefore(today) &&
-                    schedule.getDate().isBefore(endDate)) {
-                dates.add(schedule.getDate());
+            if (schedule.getDate() != null) {
+                ZonedDateTime occurrence = schedule.getDate().atTime(schedule.getTime()).atZone(TimeUtils.KST);
+                if (!occurrence.isBefore(now) && !occurrence.isAfter(end)) {
+                    dates.add(schedule.getDate());
+                }
             }
         }
 
@@ -189,7 +197,7 @@ public class RenderScheduler {
         ZonedDateTime occurrence = targetDate.atTime(occurrenceTime).atZone(TimeUtils.KST);
 
         // 60분 이내?
-        long minutesUntilOccurrence = java.time.temporal.ChronoUnit.MINUTES.between(now, occurrence);
+        long minutesUntilOccurrence = ChronoUnit.MINUTES.between(now, occurrence);
         if (minutesUntilOccurrence > 60 || minutesUntilOccurrence < 0) {
             return false;  // 60분을 넘거나 이미 지남
         }

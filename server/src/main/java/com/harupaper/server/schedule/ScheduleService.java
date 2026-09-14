@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -58,6 +59,7 @@ public class ScheduleService {
                         new ValidationException.FieldError("daysOfWeek", "must have at least one day")
                 ));
             }
+            validateRecurringDaysOfWeek(request.daysOfWeek());
             if (request.date() != null) {
                 throw new ValidationException("date must be null for recurring schedule", List.of(
                         new ValidationException.FieldError("date", "must be null for recurring")
@@ -127,6 +129,7 @@ public class ScheduleService {
                         new ValidationException.FieldError("daysOfWeek", "must have at least one day")
                 ));
             }
+            validateRecurringDaysOfWeek(request.daysOfWeek());
             if (request.date() != null) {
                 throw new ValidationException("date must be null for recurring schedule", List.of(
                         new ValidationException.FieldError("date", "must be null for recurring")
@@ -288,6 +291,27 @@ public class ScheduleService {
                     new ValidationException.FieldError("time", "must be HH:mm format")
             ));
         }
-        return LocalTime.parse(timeStr);
+        try {
+            return LocalTime.parse(timeStr);
+        } catch (DateTimeParseException e) {
+            throw new ValidationException("Invalid time value", List.of(
+                    new ValidationException.FieldError("time", "must be a valid 24-hour time")
+            ));
+        }
+    }
+
+    private void validateRecurringDaysOfWeek(List<String> daysOfWeek) {
+        List<ValidationException.FieldError> errors = new ArrayList<>();
+        for (String raw : daysOfWeek) {
+            String code = raw == null ? "" : raw.trim().toUpperCase();
+            try {
+                dayCodeToDayOfWeek(code);
+            } catch (IllegalArgumentException e) {
+                errors.add(new ValidationException.FieldError("daysOfWeek", "invalid day code: " + raw));
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new ValidationException("Invalid daysOfWeek", errors);
+        }
     }
 }

@@ -2,15 +2,12 @@ package com.harupaper.server.device;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,7 +39,7 @@ public class SnapshotHashCalculator {
                             s.id(),
                             s.formatId(),
                             s.type(),
-                            s.daysOfWeek(),
+                            normalizeDaysOfWeek(s.daysOfWeek()),
                             s.time(),
                             s.date(),
                             s.enabled()
@@ -70,8 +67,8 @@ public class SnapshotHashCalculator {
 
             // 입력 객체를 LinkedHashMap으로 만들어서 순서를 보장하면서 JSON 직렬화
             LinkedHashMap<String, Object> input = new LinkedHashMap<>();
-            input.put("renders", sortedRenders);
             input.put("schedules", sortedSchedules);
+            input.put("renders", sortedRenders);
 
             // JSON 문자열 생성 (공백 없음)
             String json = sortingMapper.writeValueAsString(input);
@@ -98,5 +95,26 @@ public class SnapshotHashCalculator {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
+    }
+
+    private List<String> normalizeDaysOfWeek(List<String> daysOfWeek) {
+        if (daysOfWeek == null) {
+            return null;
+        }
+
+        java.util.Map<String, Integer> dayOrder = java.util.Map.of(
+                "MON", 1,
+                "TUE", 2,
+                "WED", 3,
+                "THU", 4,
+                "FRI", 5,
+                "SAT", 6,
+                "SUN", 7
+        );
+
+        return daysOfWeek.stream()
+                .map(code -> code == null ? "" : code.trim().toUpperCase())
+                .sorted(Comparator.comparingInt(code -> dayOrder.getOrDefault(code, Integer.MAX_VALUE)))
+                .collect(Collectors.toList());
     }
 }

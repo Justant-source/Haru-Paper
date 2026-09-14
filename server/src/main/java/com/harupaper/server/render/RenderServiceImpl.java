@@ -78,6 +78,15 @@ public class RenderServiceImpl implements RenderService {
         return doRender(format, targetDate, "command");
     }
 
+    @Override
+    @Transactional
+    public RenderResult renderForScheduled(String formatId, LocalDate targetDate) {
+        Format format = formatRepository.findById(formatId)
+                .orElseThrow(() -> new RuntimeException("Format not found: " + formatId));
+
+        return doRender(format, targetDate, "scheduled");
+    }
+
     /**
      * 내부 렌더 메서드. 캐시를 고려하거나 새로 생성한다.
      */

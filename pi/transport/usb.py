@@ -6,6 +6,15 @@ import errno
 import usb.core
 import usb.util
 
+from pi.printer.m832.constants import (
+    EP_IN as M832_EP_IN,
+    EP_OUT as M832_EP_OUT,
+    PID as M832_PID,
+    USB_CHUNK_SIZE as M832_USB_CHUNK_SIZE,
+    USB_INTERFACE as M832_USB_INTERFACE,
+    USB_WRITE_TIMEOUT_MS as M832_USB_WRITE_TIMEOUT_MS,
+    VID as M832_VID,
+)
 from . import Transport, TransportError
 
 
@@ -16,17 +25,17 @@ class UsbTransport(Transport):
     """
 
     # 장치 식별자
-    VID = 0x0483  # detox-printer findings "1단계"
-    PID = 0x5740  # detox-printer findings "1단계"
+    VID = M832_VID
 
     # 인터페이스·엔드포인트
-    USB_INTERFACE = 0  # Interface 0, detox-printer m832/docs/device-descriptor.md [확인됨]
-    OUT_ENDPOINT = 0x02  # BULK OUT, detox-printer m832/docs/device-descriptor.md [확인됨]
-    IN_ENDPOINT = 0x81  # BULK IN, detox-printer m832/docs/device-descriptor.md [확인됨]
+    PID = M832_PID
+    USB_INTERFACE = M832_USB_INTERFACE
+    OUT_ENDPOINT = M832_EP_OUT
+    IN_ENDPOINT = M832_EP_IN
 
     # 전송 파라미터
-    DEFAULT_CHUNK_SIZE = 4096  # 110mm 연속롤 281,199바이트를 한 번에 전송, detox-printer m832/src/07_print_image.py [확인됨·실물]
-    DEFAULT_WRITE_TIMEOUT_MS = 5000  # detox-printer m832/src/07_print_image.py [확인됨·실물]
+    DEFAULT_CHUNK_SIZE = M832_USB_CHUNK_SIZE
+    DEFAULT_WRITE_TIMEOUT_MS = M832_USB_WRITE_TIMEOUT_MS
 
     def __init__(
         self,

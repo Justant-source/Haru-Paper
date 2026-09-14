@@ -11,14 +11,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -176,16 +179,25 @@ public class DeviceSyncService {
         PrinterProfile profile = getCurrentProfile();
         String profileKey = profile.profileKey();
 
-        // 36시간 안의 occurrence 날짜 범위 (간단히 구현: 오늘과 내일)
-        LocalDate today = TimeUtils.todayInKST();
-        LocalDate tomorrow = today.plusDays(1);
+        // 36시간 안의 occurrence 날짜를 포맷별로 계산
+        ZonedDateTime now = TimeUtils.nowInKST();
+        ZonedDateTime end = now.plusHours(36);
+        java.util.Map<String, Set<LocalDate>> formatTargetDates = new java.util.HashMap<>();
+        for (Schedule schedule : enabledSchedules) {
+            Set<LocalDate> upcomingDates = calculateUpcomingOccurrenceDates(schedule, now, end);
+            if (upcomingDates.isEmpty()) {
+                continue;
+            }
+            formatTargetDates.computeIfAbsent(schedule.getFormatId(), _ignored -> new HashSet<>())
+                    .addAll(upcomingDates);
+        }
 
         List<DeviceDto.RenderDto> renderDtos = new ArrayList<>();
         Set<String> addedRenderIds = new HashSet<>();
 
         for (String formatId : enabledFormatIds) {
             // 지금부터 36시간 안 occurrence의 (formatId, targetDate)별 최신 렌더
-            for (LocalDate targetDate : List.of(today, tomorrow)) {
+            for (LocalDate targetDate : formatTargetDates.getOrDefault(formatId, Set.of())) {
                 Optional<Render> render = renderRepository.findFirstByFormatIdAndTargetDateAndProfileKeyOrderByRenderedAtDesc(
                         formatId, targetDate, profileKey);
                 if (render.isPresent() && !addedRenderIds.contains(render.get().getId())) {
@@ -224,50 +236,47 @@ public class DeviceSyncService {
         Instant now = Instant.now();
 
         for (DeviceDto.ResultDto resultDto : request.results()) {
-            boolean exists = resultRepository.existsById(resultDto.resultId());
+            // insert-first 멱등 처리: 동시 요청 경쟁 시 PK 충돌을 duplicate로 흡수
+            Result result = Result.builder()
+                    .id(resultDto.resultId())
+                    .occurrenceKey(resultDto.occurrenceKey())
+                    .commandId(resultDto.commandId())
+                    .formatId(resultDto.formatId())
+                    .renderId(resultDto.renderId())
+                    .status(resultDto.status())
+                    .detail(resultDto.detail())
+                    .scheduledAt(parseIso8601(resultDto.scheduledAt()))
+                    .executedAt(parseIso8601(resultDto.executedAt()))
+                    .receivedAt(now)
+                    .build();
 
-            if (exists) {
-                // 중복 처리: 기존 결과 유지, duplicates 목록에 추가
-                duplicates.add(resultDto.resultId());
-                // 내용이 다르면 경고 로그 (이 코드에서는 생략)
-            } else {
-                // 새로운 결과 저장
-                Result result = Result.builder()
-                        .id(resultDto.resultId())
-                        .occurrenceKey(resultDto.occurrenceKey())
-                        .commandId(resultDto.commandId())
-                        .formatId(resultDto.formatId())
-                        .renderId(resultDto.renderId())
-                        .status(resultDto.status())
-                        .detail(resultDto.detail())
-                        .scheduledAt(parseIso8601(resultDto.scheduledAt()))
-                        .executedAt(parseIso8601(resultDto.executedAt()))
-                        .receivedAt(now)
-                        .build();
-
+            try {
                 resultRepository.save(result);
                 accepted.add(resultDto.resultId());
+            } catch (DataIntegrityViolationException e) {
+                duplicates.add(resultDto.resultId());
+                continue;
+            }
 
-                // commandId가 있으면 해당 명령을 done으로
-                if (resultDto.commandId() != null) {
-                    Optional<Command> cmdOpt = commandRepository.findById(resultDto.commandId());
-                    if (cmdOpt.isPresent()) {
-                        Command cmd = cmdOpt.get();
-                        cmd.setStatus("done");
-                        cmd.setCompletedAt(now);
-                        commandRepository.save(cmd);
-                    }
+            // commandId가 있으면 해당 명령을 done으로
+            if (resultDto.commandId() != null) {
+                Optional<Command> cmdOpt = commandRepository.findById(resultDto.commandId());
+                if (cmdOpt.isPresent()) {
+                    Command cmd = cmdOpt.get();
+                    cmd.setStatus("done");
+                    cmd.setCompletedAt(now);
+                    commandRepository.save(cmd);
                 }
+            }
 
-                // manual_flag 정책에서 실패 결과 처리
-                Device device = deviceRepository.findById(1).orElse(null);
-                if (device != null && "manual_flag".equals(device.getPaperPolicy())) {
-                    if ("failed".equals(resultDto.status()) || "skipped_printer_offline".equals(resultDto.status())) {
-                        device.setPaperStateManual(false);
-                        device.setPaperStateUpdatedAt(now);
-                        device.setPaperStateUpdatedBy("server");
-                        deviceRepository.save(device);
-                    }
+            // manual_flag 정책에서 실패 결과 처리
+            Device device = deviceRepository.findById(1).orElse(null);
+            if (device != null && "manual_flag".equals(device.getPaperPolicy())) {
+                if ("failed".equals(resultDto.status()) || "skipped_printer_offline".equals(resultDto.status())) {
+                    device.setPaperStateManual(false);
+                    device.setPaperStateUpdatedAt(now);
+                    device.setPaperStateUpdatedBy("server");
+                    deviceRepository.save(device);
                 }
             }
         }
@@ -363,5 +372,66 @@ public class DeviceSyncService {
             log.warn("Failed to parse ISO-8601 timestamp: {}", iso8601, e);
             return null;
         }
+    }
+
+    private Set<LocalDate> calculateUpcomingOccurrenceDates(Schedule schedule, ZonedDateTime now, ZonedDateTime end) {
+        Set<LocalDate> dates = new HashSet<>();
+        if (schedule.getTime() == null) {
+            return dates;
+        }
+
+        if ("recurring".equals(schedule.getType())) {
+            Set<java.time.DayOfWeek> daysOfWeek = parseDayCodes(schedule.getDaysOfWeek());
+            if (daysOfWeek.isEmpty()) {
+                return dates;
+            }
+
+            LocalDate cursor = now.toLocalDate();
+            LocalDate last = end.toLocalDate();
+            while (!cursor.isAfter(last)) {
+                if (daysOfWeek.contains(cursor.getDayOfWeek())) {
+                    ZonedDateTime occurrence = cursor.atTime(schedule.getTime()).atZone(TimeUtils.KST);
+                    if (!occurrence.isBefore(now) && !occurrence.isAfter(end)) {
+                        dates.add(cursor);
+                    }
+                }
+                cursor = cursor.plusDays(1);
+            }
+        } else if ("once".equals(schedule.getType()) && schedule.getDate() != null) {
+            ZonedDateTime occurrence = schedule.getDate().atTime(schedule.getTime()).atZone(TimeUtils.KST);
+            if (!occurrence.isBefore(now) && !occurrence.isAfter(end)) {
+                dates.add(schedule.getDate());
+            }
+        }
+
+        return dates;
+    }
+
+    private Set<java.time.DayOfWeek> parseDayCodes(String daysOfWeek) {
+        if (daysOfWeek == null || daysOfWeek.isBlank()) {
+            return EnumSet.noneOf(java.time.DayOfWeek.class);
+        }
+        Set<java.time.DayOfWeek> parsed = EnumSet.noneOf(java.time.DayOfWeek.class);
+        for (String code : daysOfWeek.split(",")) {
+            try {
+                parsed.add(dayCodeToDayOfWeek(code.trim().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid day code in schedule snapshot: {}", code);
+            }
+        }
+        return parsed;
+    }
+
+    private java.time.DayOfWeek dayCodeToDayOfWeek(String code) {
+        return switch (code) {
+            case "MON" -> java.time.DayOfWeek.MONDAY;
+            case "TUE" -> java.time.DayOfWeek.TUESDAY;
+            case "WED" -> java.time.DayOfWeek.WEDNESDAY;
+            case "THU" -> java.time.DayOfWeek.THURSDAY;
+            case "FRI" -> java.time.DayOfWeek.FRIDAY;
+            case "SAT" -> java.time.DayOfWeek.SATURDAY;
+            case "SUN" -> java.time.DayOfWeek.SUNDAY;
+            default -> throw new IllegalArgumentException("unknown day code: " + code);
+        };
     }
 }

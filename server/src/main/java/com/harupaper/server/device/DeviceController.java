@@ -1,5 +1,6 @@
 package com.harupaper.server.device;
 
+import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.common.time.TimeUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Device API for web app (인증 없음, tailnet이 인증).
@@ -97,6 +99,11 @@ public class DeviceController {
     @PutMapping("/paper-state")
     public ResponseEntity<DeviceDto.PutPaperStateResponse> putPaperState(
             @RequestBody DeviceDto.PutPaperStateRequest request) {
+        if (request == null || request.loaded() == null) {
+            throw new ValidationException("loaded is required", List.of(
+                    new ValidationException.FieldError("loaded", "must not be null")
+            ));
+        }
 
         Device device = deviceRepository.findById(1).orElseGet(() ->
                 Device.builder().id(1).paperStateManual(false).build()

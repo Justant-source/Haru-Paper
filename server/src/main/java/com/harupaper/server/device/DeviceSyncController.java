@@ -1,6 +1,7 @@
 package com.harupaper.server.device;
 
 import com.harupaper.server.common.exception.NotFoundException;
+import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.render.Render;
 import com.harupaper.server.render.RenderRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 /**
  * Device Sync API for Pi (Bearer 토큰 인증).
@@ -111,6 +113,11 @@ public class DeviceSyncController {
     @PostMapping("/results")
     public ResponseEntity<DeviceDto.ResultsResponse> postResults(
             @RequestBody DeviceDto.ResultsRequest request) {
+        if (request == null || request.results() == null) {
+            throw new ValidationException("results is required", List.of(
+                    new ValidationException.FieldError("results", "must not be null")
+            ));
+        }
 
         log.debug("Results received from Pi: {} results", request.results().size());
 

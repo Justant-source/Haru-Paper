@@ -1,6 +1,7 @@
 package com.harupaper.server.history;
 
 import com.harupaper.server.common.time.TimeUtils;
+import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.device.Result;
 import com.harupaper.server.device.ResultRepository;
 import com.harupaper.server.format.Format;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -49,6 +51,12 @@ public class HistoryController {
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(required = false) String before
     ) {
+        if (limit < 1) {
+            throw new ValidationException("limit must be >= 1", List.of(
+                    new ValidationException.FieldError("limit", "must be greater than or equal to 1")
+            ));
+        }
+
         List<Result> results;
 
         if (before != null && !before.isEmpty()) {
@@ -57,9 +65,10 @@ public class HistoryController {
                 // ISO-8601 문자열을 Instant로 파싱
                 Instant beforeInstant = Instant.parse(before);
                 results = resultRepository.findAllByExecutedAtBeforeOrderByExecutedAtDesc(beforeInstant);
-            } catch (IllegalArgumentException e) {
-                // 파싱 실패하면 빈 목록
-                results = new ArrayList<>();
+            } catch (DateTimeParseException e) {
+                throw new ValidationException("before must be ISO-8601 timestamp", List.of(
+                        new ValidationException.FieldError("before", "must be a valid ISO-8601 timestamp")
+                ));
             }
         } else {
             // 전체 조회
