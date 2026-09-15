@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import time
 import usb.core
 import usb.util
 
@@ -12,6 +13,7 @@ from pi.printer.m832.constants import (
     PID as M832_PID,
     USB_CHUNK_SIZE as M832_USB_CHUNK_SIZE,
     USB_INTERFACE as M832_USB_INTERFACE,
+    USB_TOTAL_WRITE_DEADLINE_SEC as M832_USB_TOTAL_WRITE_DEADLINE_SEC,
     USB_WRITE_TIMEOUT_MS as M832_USB_WRITE_TIMEOUT_MS,
     VID as M832_VID,
 )
@@ -36,6 +38,7 @@ class UsbTransport(Transport):
     # 전송 파라미터
     DEFAULT_CHUNK_SIZE = M832_USB_CHUNK_SIZE
     DEFAULT_WRITE_TIMEOUT_MS = M832_USB_WRITE_TIMEOUT_MS
+    DEFAULT_TOTAL_WRITE_DEADLINE_SEC = M832_USB_TOTAL_WRITE_DEADLINE_SEC
 
     def __init__(
         self,
@@ -44,6 +47,7 @@ class UsbTransport(Transport):
         out_endpoint: int = OUT_ENDPOINT,
         in_endpoint: int = IN_ENDPOINT,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
+        total_write_deadline_sec: float = DEFAULT_TOTAL_WRITE_DEADLINE_SEC,
     ):
         """생성자.
 
@@ -53,12 +57,15 @@ class UsbTransport(Transport):
             out_endpoint: BULK OUT 엔드포인트 (기본 0x02)
             in_endpoint: BULK IN 엔드포인트 (기본 0x81)
             chunk_size: write() 청크 크기 바이트 (기본 4096)
+            total_write_deadline_sec: write() 전체 청크 합산 상한 초 (기본 60) — 청크별
+                타임아웃은 통과해도 총 시간이 쌓이는 경우를 막는다 (constants.py 근거 주석 참고)
         """
         self.vendor_id = vendor_id
         self.product_id = product_id
         self.out_endpoint = out_endpoint
         self.in_endpoint = in_endpoint
         self.chunk_size = chunk_size
+        self.total_write_deadline_sec = total_write_deadline_sec
         self.dev = None
 
     def open(self) -> None:
@@ -108,8 +115,18 @@ class UsbTransport(Transport):
 
         # 청크 단위로 전송
         # 전체를 보낼 때까지 반복 (detox-printer findings "E-1" 281,199바이트 성공)
+        start_time = time.monotonic()
         offset = 0
         while offset < len(data):
+            elapsed = time.monotonic() - start_time
+            if elapsed > self.total_write_deadline_sec:
+                # 청크별 타임아웃은 통과해도 총 시간이 쌓이는 경우를 막는다.
+                # docs/pi/printer-m832.md constants.py 근거 주석, .temp v1.2 4.3절
+                raise TransportError(
+                    f"write exceeded total deadline of {self.total_write_deadline_sec}s "
+                    f"at offset {offset}/{len(data)} (elapsed {elapsed:.1f}s)"
+                )
+
             chunk_end = min(offset + self.chunk_size, len(data))
             chunk = data[offset:chunk_end]
 

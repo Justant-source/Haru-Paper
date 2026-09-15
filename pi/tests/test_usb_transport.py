@@ -246,6 +246,58 @@ class TestUsbTransportWrite:
         assert "Device disconnected" in error_msg
 
     @patch("usb.core.find")
+    def test_write_exceeds_total_deadline(self, mock_find):
+        """청크별 타임아웃은 통과해도 총 소요 시간이 상한을 넘으면 예외.
+
+        .temp/01-orangepi-poc-작업지시서-v1.2.md 4.3절: 프린터가 데이터 소비를
+        멈추면 청크 타임아웃만으로는 전체 write가 무한정 쌓일 수 있다.
+        """
+        mock_device = MagicMock()
+        mock_device.is_kernel_driver_active.return_value = False
+
+        call_count = 0
+
+        def slow_write(endpoint, chunk, timeout):
+            nonlocal call_count
+            call_count += 1
+            return len(chunk)
+
+        mock_device.write.side_effect = slow_write
+        mock_find.return_value = mock_device
+
+        # 데드라인을 0으로 줘서 첫 청크 전에 바로 초과하게 만든다
+        transport = UsbTransport(total_write_deadline_sec=0)
+        transport.open()
+
+        with pytest.raises(TransportError) as exc_info:
+            transport.write(b"x" * 8192, timeout_ms=5000)
+
+        error_msg = str(exc_info.value)
+        assert "exceeded total deadline" in error_msg
+        assert "0s" in error_msg
+
+    @patch("usb.core.find")
+    def test_write_within_deadline_succeeds(self, mock_find):
+        """총 소요 시간이 데드라인 안이면 정상 완료."""
+        mock_device = MagicMock()
+        mock_device.is_kernel_driver_active.return_value = False
+        mock_device.write.side_effect = [4096, 4096, 100]
+        mock_find.return_value = mock_device
+
+        transport = UsbTransport(total_write_deadline_sec=60)
+        transport.open()
+
+        data = b"x" * 8292
+        transport.write(data, timeout_ms=5000)
+
+        assert mock_device.write.call_count == 3
+
+    def test_default_total_write_deadline(self):
+        """기본 전체 write 데드라인이 문서값과 일치 (60초)."""
+        transport = UsbTransport()
+        assert transport.total_write_deadline_sec == 60
+
+    @patch("usb.core.find")
     def test_write_default_timeout(self, mock_find):
         """timeout_ms 지정 없으면 기본값(5000ms) 사용."""
         mock_device = MagicMock()

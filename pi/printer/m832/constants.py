@@ -13,7 +13,8 @@ USB_INTERFACE = 0  # Interface 0 하나만 사용. docs/pi/printer-m832.md 2.1�
 EP_OUT = 0x02  # BULK OUT 엔드포인트. docs/pi/printer-m832.md 2.1절, m832/docs/device-descriptor.md
 EP_IN = 0x81  # BULK IN 엔드포인트. docs/pi/printer-m832.md 2.1절, m832/docs/device-descriptor.md
 USB_CHUNK_SIZE = 4096  # 청크 크기(libusb가 64바이트 패킷으로 분할). docs/pi/printer-m832.md 2.1절, m832/src/07_print_image.py, findings "E-1"
-USB_WRITE_TIMEOUT_MS = 5000  # write 타임아웃. docs/pi/printer-m832.md 2.1절, m832/src/07_print_image.py, findings "E-1"
+USB_WRITE_TIMEOUT_MS = 5000  # write 타임아웃(청크 1개당). docs/pi/printer-m832.md 2.1절, m832/src/07_print_image.py, findings "E-1"
+USB_TOTAL_WRITE_DEADLINE_SEC = 60  # 전체 write 상한. 프린터가 중간에 데이터 소비를 멈추면(용지 걸림 등) 청크별 타임아웃은 통과하면서도 총 시간이 쌓여 폴링 스레드를 오래 막을 수 있다 — .temp/01-orangepi-poc-작업지시서-v1.2.md 4.3절. 570KB 기준 정상 전송은 수 초면 끝나므로 60초면 충분
 
 # 래스터 스트림 파라미터 (2.2절, 110mm 연속 롤 고정)
 WIDTH_BYTES = 163  # 전송 폭(바이트). 110mm 실측값. docs/pi/printer-m832.md 2.2절, m832/docs/protocol.md "110mm 실측", findings "D단계"

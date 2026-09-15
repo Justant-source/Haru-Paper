@@ -24,7 +24,7 @@ log_error() {
 }
 
 # 1. apt 패키지 설치
-log_info "Step 1/10: apt 패키지 설치"
+log_info "Step 1/12: apt 패키지 설치"
 sudo apt-get update
 sudo apt-get install -y \
     git \
@@ -34,7 +34,7 @@ sudo apt-get install -y \
     bluez  # BT 방식일 때만 필요, 기본값으로 포함
 
 # 2. 서비스 사용자 생성 및 그룹 추가
-log_info "Step 2/10: 서비스 사용자 'haru' 설정"
+log_info "Step 2/12: 서비스 사용자 'haru' 설정"
 if id haru &>/dev/null; then
     log_warn "사용자 'haru'가 이미 존재합니다"
 else
@@ -55,7 +55,7 @@ for group in plugdev bluetooth; do
 done
 
 # 3. 저장소 클론 또는 업데이트
-log_info "Step 3/10: 저장소 클론/업데이트 (/opt/haru-paper)"
+log_info "Step 3/12: 저장소 클론/업데이트 (/opt/haru-paper)"
 REPO_PATH="/opt/haru-paper"
 REPO_URL="https://github.com/Justant-source/Haru-Paper.git"
 
@@ -72,7 +72,7 @@ else
 fi
 
 # 4. Python venv 생성 및 의존성 설치
-log_info "Step 4/10: Python venv 및 의존성 설치"
+log_info "Step 4/12: Python venv 및 의존성 설치"
 VENV_PATH="$REPO_PATH/pi/.venv"
 
 if [ ! -d "$VENV_PATH" ]; then
@@ -85,7 +85,7 @@ log_info "의존성 설치 중 (pip install -r requirements.txt)..."
 "$VENV_PATH/bin/pip" install -r "$REPO_PATH/pi/requirements.txt"
 
 # 5. udev 규칙 설치
-log_info "Step 5/10: udev 규칙 설정 (M832 USB 0483:5740)"
+log_info "Step 5/12: udev 규칙 설정 (M832 USB 0483:5740)"
 UDEV_RULES_FILE="/etc/udev/rules.d/99-haru-m832.rules"
 UDEV_RULE='SUBSYSTEM=="usb", ATTR{idVendor}=="0483", ATTR{idProduct}=="5740", MODE="0660", GROUP="plugdev"'
 
@@ -100,7 +100,7 @@ else
 fi
 
 # 6. .env 파일 설정
-log_info "Step 6/10: .env 파일 설정"
+log_info "Step 6/12: .env 파일 설정"
 ENV_FILE="$REPO_PATH/pi/.env"
 ENV_EXAMPLE="$REPO_PATH/pi/.env.example"
 
@@ -128,7 +128,7 @@ else
 fi
 
 # 7. systemd unit 설치
-log_info "Step 7/10: systemd unit 설치"
+log_info "Step 7/12: systemd unit 설치"
 SYSTEMD_UNIT_FILE="/etc/systemd/system/haru-paper-agent.service"
 SYSTEMD_UNIT_SOURCE="$REPO_PATH/pi/deploy/haru-paper-agent.service"
 
@@ -148,7 +148,7 @@ else
 fi
 
 # 8. journald 크기 제한 설정
-log_info "Step 8/10: journald 크기 제한 설정"
+log_info "Step 8/12: journald 크기 제한 설정"
 JOURNALD_CONF_DIR="/etc/systemd/journald.conf.d"
 JOURNALD_CONF_FILE="$JOURNALD_CONF_DIR/haru-paper.conf"
 
@@ -163,7 +163,7 @@ log_info "journald 재시작..."
 sudo systemctl restart systemd-journald
 
 # 9. 시간대 설정
-log_info "Step 9/10: 시간대 설정 (Asia/Seoul)"
+log_info "Step 9/12: 시간대 설정 (Asia/Seoul)"
 CURRENT_TZ=$(timedatectl show --property=Timezone --value)
 if [ "$CURRENT_TZ" != "Asia/Seoul" ]; then
     log_info "시간대를 Asia/Seoul로 변경 중..."
@@ -172,8 +172,37 @@ else
     log_warn "시간대가 이미 Asia/Seoul로 설정되어 있습니다"
 fi
 
-# 10. 상태 확인 및 로그 출력
-log_info "Step 10/10: 상태 확인"
+# 10. systemd-time-wait-sync 활성화
+log_info "Step 10/12: systemd-time-wait-sync.service 활성화"
+# time-sync.target은 이 서비스가 켜져 있어야 "실제 NTP 동기화 완료" 시점에 도달한다.
+# 안 켜면 target이 동기화와 무관하게 즉시 도달해 에이전트 unit의 After=time-sync.target이 무의미해진다.
+# 근거: .temp/01-orangepi-poc-작업지시서-v1.2.md 2.1절
+if systemctl is-enabled systemd-time-wait-sync.service &>/dev/null; then
+    log_warn "systemd-time-wait-sync.service가 이미 활성화되어 있습니다"
+else
+    log_info "systemd-time-wait-sync.service 활성화 중..."
+    sudo systemctl enable systemd-time-wait-sync.service || log_warn "systemd-time-wait-sync.service 활성화 실패 (수동 확인 필요)"
+fi
+
+# 11. Wi-Fi 절전 비활성화
+log_info "Step 11/12: Wi-Fi 절전 모드 비활성화"
+# 상시 기기의 실패 1순위는 프린터가 아니라 Wi-Fi다. 근거: .temp/01-orangepi-poc-작업지시서-v1.2.md 2.4절
+if ! command -v nmcli &>/dev/null; then
+    log_warn "nmcli가 없습니다. Wi-Fi 절전 설정을 건너뜁니다 (NetworkManager 미사용 환경으로 추정)"
+else
+    ACTIVE_WIFI_CONN=$(nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | awk -F: '$2 == "802-11-wireless" {print $1; exit}')
+    if [ -z "$ACTIVE_WIFI_CONN" ]; then
+        log_warn "활성화된 Wi-Fi 연결을 찾지 못했습니다. Wi-Fi 절전 설정을 건너뜁니다 (유선 연결 중이거나 Wi-Fi 미설정)"
+    else
+        log_info "활성 Wi-Fi 연결 '$ACTIVE_WIFI_CONN'의 절전 모드 비활성화 중..."
+        nmcli connection modify "$ACTIVE_WIFI_CONN" 802-11-wireless.powersave 2 || log_warn "절전 모드 설정 실패"
+        nmcli connection modify "$ACTIVE_WIFI_CONN" connection.autoconnect yes connection.autoconnect-retries 0 || log_warn "autoconnect 설정 실패"
+        nmcli connection up "$ACTIVE_WIFI_CONN" &>/dev/null || log_warn "연결 재적용 실패 (다음 재연결 시 반영됨)"
+    fi
+fi
+
+# 12. 상태 확인 및 로그 출력
+log_info "Step 12/12: 상태 확인"
 echo ""
 log_info "=== systemd 서비스 상태 ==="
 sudo systemctl status haru-paper-agent --no-pager || true

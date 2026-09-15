@@ -8,6 +8,10 @@
 > - 실험 기록 원본: `~/Data/detox-printer/m832/docs/findings.md`
 > - 최초 합의: [../init_plan.md](../init_plan.md) 9절
 
+## `.temp/01-orangepi-poc-작업지시서-v1.2.md`와의 관계
+
+이 문서는 오렌지파이 PoC의 OS 설정·배선·하드웨어 검증 절차를 다루는 별도 작업지시서다. 그중 OS 설정(udev, overlayfs, Wi-Fi 안정화, 시계 동기화)과 하드웨어 검증(용지 감지 등) 부분은 이 저장소([setup.md](setup.md), 이 문서)에 계속 반영한다. 그러나 그 문서의 **서버 연동(4장) 부분은 채택되지 않았다** — 서버가 CUPS 필터 체인으로 완성된 `.bin`을 만들고 `/api/device/register|poll|job/{id}/stream|job/{id}/ack`로 배포하는 "멍청한 파이프" 모델을 제안하지만, 실제로 구현·운영 중인 것은 [../architecture.md](../architecture.md)와 이 저장소 `CLAUDE.md` 구성요소 경계대로 **서버가 그레이스케일 PNG를 렌더**하고 `/api/device/{poll,snapshot,renders,results}`로 제공하며, **디더링·좌우 정렬 보정·비트 패킹은 Pi가**(`pi/printer/m832/image.py`) 직접 한다(server/, docs/server/ 커밋 이력으로 확인). 그 작업지시서의 4장은 사양이 아니라 참고용 대안 설계로만 취급한다.
+
 ## 현황표 (2026-09-13 기준)
 
 | ID | 내용 | 장소·시점 | PLAN-02 절 | 현재 상태 | 결과가 바꾸는 것 |
@@ -40,6 +44,10 @@
 | 실패 | `manual_flag` | 앱의 수동 "용지 장착됨"이 켜져 있을 때만 |
 
 상세는 [policy.md](policy.md).
+
+### H4 1순위 실험 후보 — 표준 프린터 클래스 `GET_PORT_STATUS` [미검증]
+
+`.temp/01-orangepi-poc-작업지시서-v1.2.md` §3.3이 제안한 경로: M832는 `7/1/2`(표준 USB 프린터 클래스)를 선언하므로, Phomemo 벤더 명령과 무관하게 표준 컨트롤 요청 `GET_PORT_STATUS`(bRequest 0x01)가 정의되어 있고 응답 1바이트에 Paper Empty(bit5) / Selected(bit4) / Not Error(bit3) 플래그가 있다. 리눅스에서는 보통 `usblp`가 이를 `LPGETSTATUS` ioctl로 노출하지만, 이 저장소의 실제 transport(`pi/transport/usb.py`)는 `usblp`가 아니라 raw pyusb를 쓰므로, 확인하려면 실험기에서 `usblp`로 바인드해 조회하거나 pyusb `dev.ctrl_transfer(...)`로 같은 표준 컨트롤 요청을 직접 보내야 한다. 값이 상태에 따라 바뀌면 U2(헤드 과열 감지)도 같은 상태 바이트의 Not Error 비트로 같이 해결될 가능성이 있다(U2는 이 문서 표에는 없으나 v1.2 문서 항목). 위 "실험 자체는 `~/Data/detox-printer`에서" 원칙대로, 이 실험은 여기서 하지 않고 detox-printer에서 먼저 시도한다.
 
 ### 흐름 제어 (H5)
 

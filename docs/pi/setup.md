@@ -2,7 +2,7 @@
 
 > Pi를 받아서 `haru-paper-agent`가 부팅 시 자동으로 도는 상태까지 만드는 절차.
 > 최초 결정: [../init_plan.md](../init_plan.md) 3장·8.1·10절 M5, Q24·Q34.
-> 공식 이미지의 세부 절차(파일 이름, 기본 계정, 헤드리스 Wi-Fi 설정 방법 등)는 **아직 확인하지 않았다 [미검증]**. 실제로 해 보고 이 문서를 고친다.
+> 공식 이미지의 파일명·기본 계정·헤드리스 Wi-Fi 설정 방법은 이미지를 직접 내려받아 확인했다(4.1~4.2절). **다만 아직 실제 Orange Pi에서 부팅해 본 적은 없다** — 그 이후 단계는 [미검증]으로 남아 있다.
 
 ## 1. 보드 사양 (구매 정보)
 
@@ -46,25 +46,49 @@
 
 V3(내장 BT 재부팅 20회)에서 실패하면 7절 Armbian으로 바꾼다.
 
-### 4.1 SD카드 굽기 (노트북)
+### 4.1 이미지 (확정) — `Orangepizero2w_1.0.2_debian_bookworm_server_linux6.1.31`
 
-1. Orange Pi 공식 사이트의 Zero 2W 페이지에서 **Debian 12 (Bookworm) 서버 이미지**를 받는다 — 정확한 파일명·커널 버전 [미검증]
-2. 압축을 풀고 balenaEtcher 또는 Raspberry Pi Imager의 "사용자 지정 이미지"로 32GB SD에 굽는다 [기본값]
-3. 이미지 체크섬이 제공되면 확인한다
+[확인됨·이미지 직접 확인] 실물 부팅은 아직 안 함. 경로: orangepi.org → service-and-support 페이지 → Google Drive "Debian" 폴더 → "Linux6.1 kernel version image" 하위 폴더. 같은 폴더에 Bullseye·desktop/xfce 변형도 있으나 이 프로젝트는 **server + bookworm**을 쓴다.
 
-### 4.2 첫 접속 (헤드리스 목표)
+| 항목 | 값 |
+|---|---|
+| 압축 파일 | `Orangepizero2w_1.0.2_debian_bookworm_server_linux6.1.31.7z` |
+| 이미지 파일 | `Orangepizero2w_1.0.2_debian_bookworm_server_linux6.1.31.img` (2,571,108,352 byte) |
+| SHA256 | `66c6f55b383ba1e927e6765c4843ff8976924bf128cbadf53ce0416d5523a4af` (압축 안에 동봉된 `.sha` 파일과 대조해 일치 확인) |
+| 빌드 | Debian 12(bookworm), 커널 6.1.31, orangepi-build 커밋 `82f9e56`, VERSION 1.0.2, arm64, 2024-07-11 (이미지 안 `/etc/orangepi-release`·`/etc/orangepi.txt` 확인) |
+| 파티션 구조 | ext4 파티션 1개뿐 — 별도 FAT 부트 파티션 없음(Allwinner 계열 관행대로 부트로더는 파티션 앞 raw 섹터에 있음). 루트 파티션은 축소된 채(~2.4GB) 출하되고 **첫 부팅 시 SD카드 전체로 자동 확장**된다(`orangepi-resize-filesystem` 서비스 확인됨) |
 
-모니터 없이 설정하는 것이 목표지만, 공식 이미지가 부팅 전에 Wi-Fi·SSH를 미리 넣는 방법을 지원하는지 **[미검증]**이다. 가능한 경로 순서:
+굽기: 이미지 체크섬을 먼저 확인한 뒤 `dd`(또는 balenaEtcher·Raspberry Pi Imager "사용자 지정 이미지")로 32GB SD에 쓴다. **쓰기 후 원본 이미지와 SHA256을 다시 대조해 바이트 단위로 검증한다** — 이번 세션에서는 노트북 WSL2에서 카드리더를 `usbipd-win`으로 통과시켜 `dd`로 굽고, 원본과 해시를 대조해 일치를 확인했으며, `e2fsck -n -f`로 파일시스템도 깨끗함을 확인했다.
 
-1. SD카드 부트 파티션에서 Wi-Fi·SSH 사전 설정이 가능한지 매뉴얼로 확인 → 가능하면 그대로 사용
-2. 불가능하면 **Mini HDMI + USB 키보드로 1회만** 로그인해 Wi-Fi(`nmtui` 또는 `nmcli`)를 설정 [미검증: 이미지에 NetworkManager 포함 여부]
-3. 또는 40핀 디버그 UART(USB-TTL 어댑터 필요, 추가 구매)
+### 4.2 첫 접속 — 헤드리스 (확정)
 
-기본 계정·비밀번호는 매뉴얼에서 확인하고 **첫 로그인 직후 바꾼다** [미검증: 기본 계정 이름]. 이후:
+[확인됨·이미지 직접 확인] 공식 이미지는 모니터 없이도 설정 가능하다.
 
-- 노트북 SSH 공개키를 등록하고 비밀번호 로그인을 끈다 [기본값]
-- 호스트명 `haru-pi` [기본값]
-- `apt update && apt full-upgrade`
+- **SSH가 기본 활성화**되어 있다(`ssh.service`가 `multi-user.target.wants`에 있음, 확인됨). 기본 계정은 **`orangepi`**(uid 1000, `sudo` 그룹). 첫 SSH 로그인 시 Armbian식 설정 마법사(`/usr/lib/orangepi/orangepi-firstlogin`, 확인됨)가 떠서 **비밀번호를 강제로 바꾼 뒤에야** 쉘을 준다 — SSH 세션 안에서 답변만 입력하면 되므로 모니터·키보드는 필요 없다.
+- **헤드리스 Wi-Fi 사전 설정**: 이미지에 `/boot/orangepi_first_run.txt.template`이 들어 있다(Armbian/orangepi-build 관행). SD카드를 굽자마자(노트북에서, Pi에 꽂기 전) 이 파일을 `/boot/orangepi_first_run.txt`로 복사하고 아래를 채우면 첫 부팅 때 자동으로 Wi-Fi에 붙는다 — 파일 자체의 안내문으로 확인, **실제 부팅으로 검증된 것은 아직 아님**:
+
+  ```
+  FR_general_delete_this_file_after_completion=1   # 적용 후 파일 자동 삭제
+  FR_net_change_defaults=1
+  FR_net_ethernet_enabled=0
+  FR_net_wifi_enabled=1
+  FR_net_wifi_ssid='<SSID>'
+  FR_net_wifi_key='<비밀번호>'                      # 평문 저장 — 파일 자체 경고문에 명시됨
+  FR_net_wifi_countrycode='KR'
+  ```
+
+  고정 IP가 필요하면 같은 파일의 `FR_net_use_static=1`과 IP·마스크·게이트웨이·DNS 필드를 쓴다. 네트워크 관리 주체는 **NetworkManager**다(`/etc/network/interfaces`에 "Network is managed by Network manager" 명시, 확인됨) — 4.4절 nmcli 명령의 대상이 맞다는 뜻.
+  - **이번 세션 기록**: 위 파일을 실제 SD카드에 썼다(`dd`로 이미지 자체를 쓴 뒤, 검증 읽기 직후 VFS 마운트가 read/write 상태 충돌로 걸려서 — 재현되면 알아둘 만한 특이 증상 — 대신 `debugfs -w`로 `/boot/orangepi_first_run.txt`를 직접 주입하고 다시 읽어 바이트 단위로 확인함). 사용자 홈 Wi-Fi로 자동 접속하도록 채워 넣었다. **카드를 아직 실제 Orange Pi에 꽂아 부팅한 적은 없다.**
+
+- 첫 로그인 이후: 노트북 SSH 공개키를 등록하고 비밀번호 로그인을 끈다 [기본값] / 호스트명은 이미지 기본값 `orangepizero2w`이며 필요하면 바꾼다(기존 계획의 `haru-pi`는 [기본값]으로 유지, 확정 아님) / `apt update && apt full-upgrade`
+
+### 4.2.1 다음 단계 (사용자가 직접 — 이번 세션 범위 밖)
+
+1. SD카드를 Orange Pi Zero 2W에 삽입, 전원 연결
+2. 몇 분 대기(첫 부팅 + Wi-Fi 연결 + 파일시스템 확장)
+3. 공유기 관리 페이지 또는 `arp-scan`/`nmap`으로 Pi의 IP 확인(호스트명 `orangepizero2w`로 뜰 가능성이 높음, 확정 아님)
+4. `ssh orangepi@<IP>` 접속 → 첫 로그인 마법사에서 비밀번호 설정
+5. 이후 5절 `install.sh` 절차로 진행
 
 ### 4.3 기본 설정
 
@@ -75,6 +99,18 @@ V3(내장 BT 재부팅 20회)에서 실패하면 7절 Armbian으로 바꾼다.
 | Tailscale | 공식 설치 스크립트로 설치 → `tailscale up` → 표시되는 URL로 **서버(`justant-server2`)·노트북·폰이 이미 들어 있는 같은 tailnet**에 등록(GitHub 계정과 tailnet 로그인 계정은 다를 수 있으니 기존 기기와 같은 tailnet인지 확인). 노드 이름 `haru-pi` [기본값] |
 | 서버 접근 확인 | `curl https://justant-server2.tail2b65d1.ts.net/api/health` (M2 이후) |
 | Python | Debian 12 기본 Python 3.11 + `python3-venv` |
+| NTP 동기화 대기 | `sudo systemctl enable systemd-time-wait-sync.service` — 이게 없으면 `time-sync.target`은 실제 동기화와 무관하게 즉시 도달해 systemd unit의 `After=time-sync.target`(6절)이 무의미해진다 |
+
+### 4.4 Wi-Fi 안정화
+
+상시 기기의 실패 1순위는 프린터가 아니라 Wi-Fi다(전송 방식이 `bt`든 `usb`든 폴링은 항상 Wi-Fi를 탄다). 온보드 UWE5622의 장기 안정성은 8절과 마찬가지로 **[미검증]**이므로, 절전을 꺼서 실패 원인을 최소한 하나 줄인다.
+
+```bash
+nmcli connection modify <SSID> 802-11-wireless.powersave 2   # 2 = disable
+nmcli connection modify <SSID> connection.autoconnect yes connection.autoconnect-retries 0
+```
+
+- 반복해서 끊기면 8절 Armbian 전환과 별개로 USB Wi-Fi 동글 교체를 검토한다(리그 교체는 30일 리셋 사유가 아니다, [hardware-verification.md](hardware-verification.md))
 
 ## 5. `install.sh` (M5에서 작성, 아직 없음)
 
@@ -83,13 +119,15 @@ V3(내장 BT 재부팅 20회)에서 실패하면 7절 Armbian으로 바꾼다.
 1. apt 패키지: `git`, `python3-venv`, `python3-pip`, `libusb-1.0-0`, `bluez` (BT 방식일 때) [기본값]
 2. 서비스 사용자 `haru` 생성(없을 때만), `plugdev`·`bluetooth` 그룹 추가 [기본값]
 3. 저장소: `/opt/haru-paper`에 `git clone`(없을 때) 또는 `git pull --ff-only`(있을 때) [기본값]
-4. venv 생성(`/opt/haru-paper/pi/.venv`)과 의존성 설치(Pillow 12.3.0 고정 — aarch64·Python 3.11용 설치 가능 여부 [미검증])
+4. venv 생성(`/opt/haru-paper/pi/.venv`)과 의존성 설치(Pillow 12.3.0 — aarch64·`cp311` 프리빌트 wheel 존재 확인됨 [확인됨·PyPI, 소스 컴파일 불필요]. 실제 Pi 실물 설치는 아직 [미검증])
 5. udev 규칙: `0483:5740`을 서비스 사용자가 열 수 있게
 6. `pi/.env`가 없으면 `.env.example`을 복사하고 **토큰 입력이 필요하다고 안내 후 종료**(있으면 절대 덮어쓰지 않음)
 7. systemd unit 설치·`daemon-reload`·`enable --now`
 8. journald 크기 제한 설정
 9. 시간대 확인
-10. 마지막에 `systemctl status haru-paper-agent`와 첫 폴링 로그 확인 방법을 출력
+10. `systemd-time-wait-sync.service` 활성화 (4.3절 — 이게 없으면 `time-sync.target`이 실제 동기화와 무관하게 즉시 도달함)
+11. Wi-Fi 절전 끄기 (4.4절 — 활성 연결 자동 감지, 없으면 경고만 남기고 건너뜀)
+12. 마지막에 `systemctl status haru-paper-agent`와 첫 폴링 로그 확인 방법을 출력
 
 배포(PoC): Pi에서 `cd /opt/haru-paper && git pull --ff-only && sudo systemctl restart haru-paper-agent` (또는 `install.sh` 재실행).
 
@@ -127,6 +165,24 @@ WantedBy=multi-user.target
 | PNG 캐시 | 참조 안 되는 오래된 렌더 정리 (M4에서 기준 결정) |
 | 에이전트 쓰기 | `kv.last_tick_at` 갱신 간격을 너무 짧게 하지 않음 |
 | 스왑 | RAM 1GB — 이미지 기본 zram/스왑 설정 확인 후 SD 스왑은 쓰지 않는 방향 [미검증: 기본 설정] |
+
+### 7.1 read-only 루트파일시스템 전환 (30일 시작 조건)
+
+30일 연속 운영([policy.md](policy.md))을 시작하기 전에 SD카드를 읽기 전용으로 돌린다. 순서:
+
+1. **개발 구간(1~2주)**: rw 상태로 개발
+2. **구성 동결**: overlayfs 적용 전에 아래가 전부 하부(비-overlay, 비-tmpfs) 레이어에 있는지 확인한다
+
+   | 항목 | 확인 방법 |
+   |---|---|
+   | `pi/.env`의 `HARU_DEVICE_TOKEN` | 이 저장소는 런타임 등록 API가 없다 — 토큰은 설치 시 수기로 `pi/.env`에 넣는다(5절 6번). overlay를 켜기 전에 이 파일이 실제 SD카드(하부 레이어)에 쓰였는지 확인한다. tmpfs 위에 있으면 **재부팅마다 토큰이 사라져 매번 기기가 오프라인처럼 보인다** |
+   | Wi-Fi 자격증명 | NetworkManager 설정 위치 확인(보통 하부 레이어) |
+   | 파이썬 패키지 | venv(`pi/.venv`) 설치가 overlay 켜기 전에 끝나 있어야 함 |
+   | udev 규칙, systemd unit | 마찬가지로 overlay 켜기 전 설치 완료 |
+
+3. **overlayfs 적용**: `armbian-config` → System → Overlayfs (Armbian 기준, 8절). 공식 Debian 12 이미지의 overlayfs 전환 방법은 **[미검증]**
+4. **강제 전원 차단 10회 부팅 검증** — 매 부팅 후 서버 폴링이 정상 도달하는지 확인(토큰이 유지되는지가 핵심)
+5. 여기까지 통과해야 30일 카운트를 시작한다
 
 ## 8. V3 실패 시 — Armbian 전환
 
