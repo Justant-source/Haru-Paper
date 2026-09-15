@@ -1,5 +1,6 @@
 package com.harupaper.server.render;
 
+import com.harupaper.server.common.time.ClockProvider;
 import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.device.PrinterProfileProvider;
 import com.harupaper.server.format.Format;
@@ -41,6 +42,7 @@ public class RenderScheduler {
     private final RenderRepository renderRepository;
     private final RenderService renderService;
     private final PrinterProfileProvider printerProfileProvider;
+    private final ClockProvider clockProvider;
 
     @Scheduled(fixedDelay = 300000)  // 5분 = 300,000ms
     @Transactional
@@ -101,7 +103,7 @@ public class RenderScheduler {
      */
     private Set<LocalDate> calculateOccurrences(Schedule schedule) {
         Set<LocalDate> dates = new HashSet<>();
-        ZonedDateTime now = TimeUtils.nowInKST();
+        ZonedDateTime now = clockProvider.nowInKST();
         ZonedDateTime end = now.plusHours(36);
 
         if ("recurring".equals(schedule.getType())) {
@@ -190,10 +192,14 @@ public class RenderScheduler {
      * 동적 포맷 60분 전 재렌더 판단:
      * - occurrence까지 60분 이하로 남았고
      * - 최신 렌더의 renderedAt이 occurrence - 60분보다 이전이면 → true
+     *
+     * docs/server/rendering.md 4절 항목 4:
+     * "동적 포맷(has_dynamic_blocks = true)은 occurrence 약 60분 전에 한 번 더 렌더
+     *  조건: occurrence까지 60분 이하로 남았고, 최신 렌더의 rendered_at이 occurrence − 60분보다 이전"
      */
     private boolean shouldRenderBeforeOccurrence(Format format, LocalDate targetDate,
                                                   LocalTime occurrenceTime, String currentProfileKey) {
-        ZonedDateTime now = TimeUtils.nowInKST();
+        ZonedDateTime now = clockProvider.nowInKST();
         ZonedDateTime occurrence = targetDate.atTime(occurrenceTime).atZone(TimeUtils.KST);
 
         // 60분 이내?

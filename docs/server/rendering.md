@@ -124,10 +124,10 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 
 ## 7. M2에서 확인할 것
 
-- [ ] 미리보기 PNG 폭 = 프로필 `printableWidthPx`
-- [ ] 한글(Pretendard/Noto Sans KR) 정상, 줄바꿈 자연스러움
-- [ ] `{{date}}`/`{{weekday}}`/`dateHeader`가 targetDate 기준
-- [ ] 외부 URL을 억지로 넣은 HTML이 템플릿 경로로 들어갈 수 없음(텍스트에 `<img src=http://...>` 입력 → 문자 그대로 인쇄)
-- [ ] 네트워크 차단 route 동작, `data:` 이미지 표시 [미검증 항목 해소]
-- [ ] JS 끈 상태에서 폰트가 스크린샷에 반영됨 [미검증 항목 해소]
-- [ ] 동적 포맷 60분 전 재렌더가 스냅샷 `renders`에 반영되어 `snapshotChanged`
+- [x] 미리보기 PNG 폭 = 프로필 `printableWidthPx` **[확인됨, 2026-09-15]** 1300px 고정 확인(Pretendard/Noto Sans KR/dateHeader 3종 포맷)
+- [x] 한글(Pretendard/Noto Sans KR) 정상, 줄바꿈 자연스러움 **[확인됨, 2026-09-15]** 깨진 글자 없음, `word-break: keep-all` 정상 동작
+- [x] `{{date}}`/`{{weekday}}`/`dateHeader`가 targetDate 기준 **[확인됨, 2026-09-15]** 여러 날짜(월·연 경계 포함)로 교차검증
+- [x] 외부 URL을 억지로 넣은 HTML이 템플릿 경로로 들어갈 수 없음(텍스트에 `<img src=http://...>` 입력 → 문자 그대로 인쇄) **[확인됨, 2026-09-15]** `HtmlTemplateBuilder.escapeHtml()`이 이스케이프
+- [x] 네트워크 차단 route 동작, `data:` 이미지 표시 **[확인됨, 2026-09-15]** `PlaywrightRenderer`가 `data:`만 통과시키고 나머지 스킴은 차단
+- [x] JS 끈 상태에서 폰트가 스크린샷에 반영됨 **[확인됨, 2026-09-15]** 컨테이너 시스템 폰트 설치 방식으로 해결, 폰트 로딩 대기 불필요함 확인
+- [x] 동적 포맷 60분 전 재렌더가 스냅샷 `renders`에 반영되어 `snapshotChanged` **[확인됨, 2026-09-15]** 경계조건 단위테스트 8종 + 통합 시나리오로 검증(`RenderScheduler`에 `ClockProvider` 도입해 시간 고정 테스트 가능하게 함)
