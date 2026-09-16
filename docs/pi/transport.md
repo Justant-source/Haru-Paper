@@ -30,7 +30,7 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 | 순서 | (활성 시) detach_kernel_driver → set_configuration → claim_interface → write → release_interface → dispose_resources | [확인됨·실물] |
 | 청크 | 4096바이트 | [확인됨·실물] |
 | write 타임아웃(청크당) | 5000ms | [확인됨·실물] |
-| write 전체 데드라인 | 60초 (청크 합산) | [기본값] — 청크별 타임아웃은 통과해도 프린터가 중간에 소비를 멈추면(용지 걸림 등) 총 시간이 쌓여 폴링 스레드를 오래 막을 수 있다. `.temp/01-orangepi-poc-작업지시서-v1.2.md` 4.3절 아이디어를 이 프로젝트의 pyusb 기반 transport(usblp 아님)에 맞게 적용 |
+| write 전체 데드라인 | 60초 (청크 합산) | [기본값] — 청크별 타임아웃은 통과해도 프린터가 중간에 소비를 멈추면(용지 걸림 등) 총 시간이 쌓여 폴링 스레드를 오래 막을 수 있다. `.temp/01-orangepi-poc-작업지시서-v1.3.md` 4.2절 아이디어를 이 프로젝트의 pyusb 기반 transport(usblp 아님)에 맞게 적용 |
 | read | 전송 후 64바이트 읽기는 무응답이었음 | [확인됨·무응답] |
 
 ### 주의

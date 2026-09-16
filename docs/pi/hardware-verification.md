@@ -8,9 +8,9 @@
 > - 실험 기록 원본: `~/Data/detox-printer/m832/docs/findings.md`
 > - 최초 합의: [../init_plan.md](../init_plan.md) 9절
 
-## `.temp/01-orangepi-poc-작업지시서-v1.2.md`와의 관계
+## `.temp/01-orangepi-poc-작업지시서-v1.3.md`와의 관계
 
-이 문서는 오렌지파이 PoC의 OS 설정·배선·하드웨어 검증 절차를 다루는 별도 작업지시서다. 그중 OS 설정(udev, overlayfs, Wi-Fi 안정화, 시계 동기화)과 하드웨어 검증(용지 감지 등) 부분은 이 저장소([setup.md](setup.md), 이 문서)에 계속 반영한다. 그러나 그 문서의 **서버 연동(4장) 부분은 채택되지 않았다** — 서버가 CUPS 필터 체인으로 완성된 `.bin`을 만들고 `/api/device/register|poll|job/{id}/stream|job/{id}/ack`로 배포하는 "멍청한 파이프" 모델을 제안하지만, 실제로 구현·운영 중인 것은 [../architecture.md](../architecture.md)와 이 저장소 `CLAUDE.md` 구성요소 경계대로 **서버가 그레이스케일 PNG를 렌더**하고 `/api/device/{poll,snapshot,renders,results}`로 제공하며, **디더링·좌우 정렬 보정·비트 패킹은 Pi가**(`pi/printer/m832/image.py`) 직접 한다(server/, docs/server/ 커밋 이력으로 확인). 그 작업지시서의 4장은 사양이 아니라 참고용 대안 설계로만 취급한다.
+이 문서는 오렌지파이 PoC의 OS 설정·배선·하드웨어 검증 절차를 다루는 별도 작업지시서다(2026-09-17 v1.2 → v1.3 개정, 실물 3대 환경·BT 전환·노트북 WSL 배제 반영). 그중 OS 설정(overlayfs, Wi-Fi 안정화, 시계 동기화)과 하드웨어 검증(BT 전송·용지 감지 등) 부분은 이 저장소([setup.md](setup.md), 이 문서)에 계속 반영한다. **v1.3에서 이미 바로잡은 것**: ① 연결 방식을 USB 직결 → BT(SPP/RFCOMM 채널 1)로 전환 ② 서버 연동(옛 4장 "멍청한 파이프": CUPS `.bin` + `register/poll/stream/ack`)은 **기각된 설계**이므로 실제 아키텍처(서버=그레이스케일 PNG 렌더, Pi=디더링·정렬보정·비트패킹·인코딩·전송, `/api/device/{poll,snapshot,renders,results}`)로 교체 ③ U5(용지 없이 write) 삭제 — `CLAUDE.md` 절대금지 1 위반 ④ 용지 감지를 USB `GET_PORT_STATUS` → BT 기반 재조사로 이동. 규약 원본은 [../architecture.md](../architecture.md)다.
 
 ### 절별 처리 현황 (2026-09-16, 서버 세션 Pi 개발환경 구축 시점)
 
@@ -105,9 +105,16 @@
 
 상세는 [policy.md](policy.md).
 
-### H4 1순위 실험 후보 — 표준 프린터 클래스 `GET_PORT_STATUS` [미검증]
+### H4 실험 후보 — BT 기반 재조사 [미검증] (v1.3: USB `GET_PORT_STATUS` 경로 폐기)
 
-`.temp/01-orangepi-poc-작업지시서-v1.2.md` §3.3이 제안한 경로: M832는 `7/1/2`(표준 USB 프린터 클래스)를 선언하므로, Phomemo 벤더 명령과 무관하게 표준 컨트롤 요청 `GET_PORT_STATUS`(bRequest 0x01)가 정의되어 있고 응답 1바이트에 Paper Empty(bit5) / Selected(bit4) / Not Error(bit3) 플래그가 있다. 리눅스에서는 보통 `usblp`가 이를 `LPGETSTATUS` ioctl로 노출하지만, 이 저장소의 실제 transport(`pi/transport/usb.py`)는 `usblp`가 아니라 raw pyusb를 쓰므로, 확인하려면 실험기에서 `usblp`로 바인드해 조회하거나 pyusb `dev.ctrl_transfer(...)`로 같은 표준 컨트롤 요청을 직접 보내야 한다. 값이 상태에 따라 바뀌면 U2(헤드 과열 감지)도 같은 상태 바이트의 Not Error 비트로 같이 해결될 가능성이 있다(U2는 이 문서 표에는 없으나 v1.2 문서 항목). 위 "실험 자체는 `~/Data/detox-printer`에서" 원칙대로, 이 실험은 여기서 하지 않고 detox-printer에서 먼저 시도한다.
+**v1.2까지의 1순위는 USB 표준 클래스 `GET_PORT_STATUS`**(bRequest 0x01, 응답 1바이트에 Paper Empty bit5 / Not Error bit3)였고, 리눅스 `usblp`의 `LPGETSTATUS` ioctl 또는 pyusb `ctrl_transfer`로 조회하는 방식이었다. 그러나 **Pi와 M832를 USB로 잇지 않기로 확정(2026-09-16)되어 운영 경로에 USB가 없다** — 이 경로는 해당 없음이 됐다. 작업지시서 v1.3 §3.3대로 **BT에서 용지 유무를 알 수 있는지**를 재조사한다(전부 상태 조회만, 래스터 금지):
+
+1. **전송 후 응답 바이트**: RFCOMM 전송 후 프린터가 11바이트를 돌려줬다(`1a 3e 00 00 1a 3b 04 19 00 05 00`, findings V2). 용지 있음/없음 상태별로 이 바이트가 바뀌는지 본다.
+2. **findpaper 직후 read**: `1F 11 11`을 전송 **직후**(USB에선 전송 후 무응답이었으나 BT는 응답이 있었음) RFCOMM read.
+3. **계열 상태 조회**: M835 사례 `A8/A9`(용지), `98/99`(커버)를 RFCOMM으로 [추정·타 기종, 실험기만].
+4. **BLE 상태**: 폰 앱이 쓰는 상태 조회를 스누프해 BLE로 재현.
+
+값이 상태에 따라 바뀌면 U2(헤드 과열)도 같은 응답의 다른 비트로 함께 풀릴 가능성이 있다. "실험 자체는 `~/Data/detox-printer`에서" 원칙대로, 이 실험은 여기서 하지 않고 detox-printer에서 먼저 시도한다.
 
 ### 흐름 제어 (H5)
 
