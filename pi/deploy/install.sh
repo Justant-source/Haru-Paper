@@ -64,7 +64,10 @@ if [ ! -d "$REPO_PATH" ]; then
     sudo git clone "$REPO_URL" "$REPO_PATH"
 else
     log_info "저장소 업데이트 중 (git pull --ff-only)..."
-    if ! sudo git -C "$REPO_PATH" pull --ff-only 2>&1 | tee /tmp/git_pull.log; then
+    # root가 아니라 haru로 실행한다: 저장소가 haru 소유(아래 chown)인데 root로 git을 돌리면
+    # Git 2.35.2+의 "detected dubious ownership" 보호에 걸려 실패한다.
+    # (2026-09-16 서버 세션, 실물 Pi 2회차 install.sh 실행에서 발견)
+    if ! sudo -u haru git -C "$REPO_PATH" pull --ff-only 2>&1 | tee /tmp/git_pull.log; then
         log_error "git pull --ff-only 실패!"
         log_error "fast-forward가 불가능합니다. 로컬 변경사항을 수동으로 처리하세요."
         exit 1
