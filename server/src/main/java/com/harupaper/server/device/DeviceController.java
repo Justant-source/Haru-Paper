@@ -2,6 +2,7 @@ package com.harupaper.server.device;
 
 import com.harupaper.server.auth.UserPrincipal;
 import com.harupaper.server.common.exception.ValidationException;
+import com.harupaper.server.common.security.TokenHasher;
 import com.harupaper.server.common.time.TimeUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,6 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Device API for web app (앱 사용자 인증 필요, tailnet이 네트워크 인증).
@@ -31,6 +35,7 @@ import java.util.List;
 public class DeviceController {
 
     private final DeviceRepository deviceRepository;
+    private final PairingCodeRepository pairingCodeRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${haru.poll-interval-sec:30}")
@@ -132,6 +137,90 @@ public class DeviceController {
                 device.getPaperStateManual(),
                 TimeUtils.toIso8601(device.getPaperStateUpdatedAt()),
                 device.getPaperStateUpdatedBy()
+        );
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * POST /api/device/pair
+     * 무인증. 페어링 코드로 기기 토큰 발급.
+     * (docs/server/api.md 5절 "기기 페어링")
+     */
+    @PostMapping("/pair")
+    public ResponseEntity<DeviceDto.PairResponse> pair(
+            @RequestBody DeviceDto.PairRequest request) {
+        if (request == null || request.code() == null || request.code().isBlank()) {
+            throw new ValidationException("code is required", List.of(
+                    new ValidationException.FieldError("code", "must not be blank")
+            ));
+        }
+
+        String code = request.code().trim();
+
+        // 코드 조회
+        PairingCode pairingCode = pairingCodeRepository.findById(code).orElse(null);
+        if (pairingCode == null) {
+            throw new ValidationException("Invalid pairing code", List.of(
+                    new ValidationException.FieldError("code", "not found")
+            ), HttpStatus.NOT_FOUND.value());
+        }
+
+        Instant now = Instant.now();
+
+        // 만료 확인
+        if (pairingCode.getExpiresAt().isBefore(now)) {
+            throw new ValidationException("Pairing code expired", List.of(
+                    new ValidationException.FieldError("code", "expired")
+            ), HttpStatus.GONE.value());
+        }
+
+        // 이미 사용됨
+        if (pairingCode.getUsedAt() != null) {
+            throw new ValidationException("Pairing code already used", List.of(
+                    new ValidationException.FieldError("code", "already used")
+            ), HttpStatus.GONE.value());
+        }
+
+        String userId = pairingCode.getUserId();
+
+        // 그 사용자의 기기 조회/생성
+        Optional<Device> existing = deviceRepository.findByOwnerUserId(userId);
+        Device device;
+        if (existing.isPresent()) {
+            device = existing.get();
+        } else {
+            device = Device.builder()
+                    .id(UUID.randomUUID().toString())
+                    .ownerUserId(userId)
+                    .name("내 프린터")
+                    .paperStateManual(false)
+                    .createdAt(now)
+                    .build();
+        }
+
+        // 토큰 생성
+        String token = TokenHasher.generateToken();
+        String tokenHash = TokenHasher.sha256Hex(token);
+
+        device.setTokenHash(tokenHash);
+        device.setTokenIssuedAt(now);
+
+        // printerProfile이 들어오면 저장 (선택사항)
+        if (request.printerProfile() != null && !request.printerProfile().isBlank()) {
+            device.setPrinterProfile(request.printerProfile());
+        }
+
+        device = deviceRepository.save(device);
+
+        // 코드를 1회용으로 표시
+        pairingCode.setUsedAt(now);
+        pairingCodeRepository.save(pairingCode);
+
+        DeviceDto.PairResponse response = new DeviceDto.PairResponse(
+                device.getId(),
+                token,
+                device.getPrinterProfile()
         );
 
         return ResponseEntity.ok(response);

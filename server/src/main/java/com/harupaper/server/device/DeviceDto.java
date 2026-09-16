@@ -165,4 +165,21 @@ public class DeviceDto {
             String targetDate,
             String sha256
     ) {}
+
+    /**
+     * POST /api/device/pair request (무인증)
+     */
+    public record PairRequest(
+            String code,
+            String printerProfile  // 선택사항: JSON 문자열
+    ) {}
+
+    /**
+     * POST /api/device/pair response
+     */
+    public record PairResponse(
+            String deviceId,
+            String token,
+            String printerProfile  // 선택사항: 저장된 값 또는 null
+    ) {}
 }
