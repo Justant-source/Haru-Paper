@@ -4,10 +4,8 @@ import { formatsApi } from '../api/formats'
 import { deviceApi } from '../api/device'
 import {
   DEFAULT_STYLE,
-  newBlock,
   type FormatDocument,
   type Block,
-  type BlockType,
   type Row,
   type TextProps,
   type ImageProps,
@@ -27,21 +25,12 @@ import { ImageBlockForm } from '../format-editor/blocks/ImageBlockForm'
 import { DateHeaderBlockForm } from '../format-editor/blocks/DateHeaderBlockForm'
 import { WeatherBlockForm } from '../format-editor/blocks/WeatherBlockForm'
 import { Preview } from '../format-editor/Preview'
+import { LayoutEditor } from '../format-editor/LayoutEditor'
 import { useI18n } from '../i18n'
-// 다른 에이전트들이 만드는 컴포넌트. 아직 없으면 위에 주석으로 남겨두고 먼저 코드 구조만 짜라
-// import { LayoutCanvas } from '../format-editor/LayoutCanvas'
-// import { WidgetPalette } from '../format-editor/WidgetPalette'
 
 // PrinterProfile.DEFAULT 값 (서버와 같은 값)
 // 기준: 110mm 롤, 300dpi → 1304px
 const DEFAULT_PRINTER_WIDTH_PX = 1304
-
-const BLOCK_TYPES: { type: BlockType; label: string }[] = [
-  { type: 'text', label: '텍스트' },
-  { type: 'image', label: '이미지' },
-  { type: 'dateHeader', label: '날짜 헤더' },
-  { type: 'weather', label: '날씨' },
-]
 
 export function FormatEditPage() {
   const { t } = useI18n()
@@ -86,7 +75,7 @@ export function FormatEditPage() {
         if (device.printerProfile?.printableWidthPx) {
           setPrinterWidthPx(device.printerProfile.printableWidthPx)
         }
-      } catch (e) {
+      } catch {
         // 기기 로드 실패는 로깅만 하고 기본값 사용
         console.debug('Failed to load device profile, using default printer width')
       }
@@ -328,18 +317,16 @@ export function FormatEditPage() {
             </details>
           </Card>
 
-          {/* LayoutCanvas 자리 (아직 컴포넌트가 없으면 stub으로 대체) */}
-          <div style={{ marginBottom: '1rem' }}>
-            <p>레이아웃 캔버스 (구현 중)</p>
-            <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
-              정확히 보기
-            </Button>
-          </div>
+          <LayoutEditor
+            rows={document.rows}
+            onChange={(rows) => handleDocumentChange({ ...document, rows })}
+            onSelectSlot={(rowId, slotId) => setSelectedSlot({ rowId, slotId })}
+            printerWidthPx={printerWidthPx}
+          />
 
-          {/* WidgetPalette 자리 (아직 컴포넌트가 없으면 stub으로 대체) */}
-          <div style={{ marginBottom: '1rem' }}>
-            <p>블록 팔레트 (구현 중)</p>
-          </div>
+          <Button variant="secondary" onClick={() => setPreviewOpen(true)} className="btn-exact-preview">
+            {t('exactPreview')}
+          </Button>
         </div>
       </div>
 

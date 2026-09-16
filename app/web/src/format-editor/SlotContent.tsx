@@ -1,5 +1,5 @@
 import React from 'react'
-import { Block } from '../types/format'
+import type { Block } from '../types/format'
 import { ptToPx } from '../lib/layout-math'
 
 /**
@@ -17,12 +17,12 @@ const DEFAULT_DPI = 300
 export function SlotContent({
   block,
   printerWidthPx = DEFAULT_PRINTER_WIDTH_PX,
-  slotWidthFraction = 1,
+  slotWidthFraction: _slotWidthFraction = 1,
 }: {
   block: Block
   printerWidthPx?: number
   slotWidthFraction?: number
-}): JSX.Element {
+}): React.JSX.Element {
   switch (block.type) {
     case 'text':
       return renderText(block)
@@ -41,7 +41,7 @@ export function SlotContent({
  * text 블록 렌더링
  * props.text를 보여주고, 글자 크기는 block.style?.fontSizePt 또는 기본값 11pt
  */
-function renderText(block: Block): JSX.Element {
+function renderText(block: Block): React.JSX.Element {
   const text = (block.props?.text as string) || ''
   const fontSizePt = block.style?.fontSizePt ?? 11 // 기본값 11pt (docs/server/format-schema.md 3.2절)
   const fontSizePx = ptToPx(fontSizePt, DEFAULT_DPI)
@@ -69,7 +69,7 @@ function renderText(block: Block): JSX.Element {
  * props.assetId로 GET /api/assets/{assetId} 이미지를 표시
  * 같은 origin이라 쿠키 인증 자동 포함
  */
-function renderImage(block: Block, printerWidthPx: number): JSX.Element {
+function renderImage(block: Block, _printerWidthPx: number): React.JSX.Element {
   const assetId = (block.props?.assetId as string) || ''
   const widthPercent = (block.props?.widthPercent as number) ?? 100
   const align = block.style?.align ?? 'left'
@@ -109,7 +109,7 @@ function renderImage(block: Block, printerWidthPx: number): JSX.Element {
  * 토큰 규칙: docs/server/format-schema.md 4.3절 dateHeader
  * dddd(월요일), YYYY(2026), MM(09), DD(05), ddd(월), M(9), D(5)
  */
-function renderDateHeader(block: Block): JSX.Element {
+function renderDateHeader(block: Block): React.JSX.Element {
   const pattern = (block.props?.pattern as string) ?? 'YYYY년 M월 D일 dddd'
   const fontSizePt = block.style?.fontSizePt ?? 11
   const fontSizePx = ptToPx(fontSizePt, DEFAULT_DPI)
@@ -136,7 +136,7 @@ function renderDateHeader(block: Block): JSX.Element {
  * weather 블록 렌더링
  * 실제 날씨 데이터가 없으므로 플레이스홀더 텍스트만 표시
  */
-function renderWeather(): JSX.Element {
+function renderWeather(): React.JSX.Element {
   return (
     <div className="slot-content" style={{ color: '#666', fontStyle: 'italic' }}>
       날씨 (인쇄 시점에 채워짐)

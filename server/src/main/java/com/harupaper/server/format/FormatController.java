@@ -144,8 +144,13 @@ public class FormatController {
         if (principal == null) {
             return ResponseEntity.status(401).build();
         }
+        // 이 저장소가 schemaVersion 2(행/슬롯)로 바뀌기 전에 내보낸 v1 파일도 가져올 수 있어야
+        // 한다 — validateAndParse는 schemaVersion 2만 허용하므로, 검증 전에 raw JSON 단계에서
+        // 먼저 올려친다(FormatDocumentSupport, 읽기 경로의 up-convert와 같은 로직).
+        Map<String, Object> normalizedImportJson =
+                FormatDocumentSupport.upConvertRawImportIfNeeded(importJson, objectMapper);
         FormatDocument doc = formatService.getFormatValidator()
-                .validateAndParse(importJson, true, objectMapper);
+                .validateAndParse(normalizedImportJson, true, objectMapper);
         Object assetsObj = importJson.get("assets");
         Map<String, String> assets = Map.of();
         if (assetsObj instanceof Map<?, ?> rawAssets) {

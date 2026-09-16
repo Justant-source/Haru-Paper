@@ -174,7 +174,7 @@ req "$jarB" GET "/api/auth/me" -o /dev/null
 req "$jarB" POST "/api/auth/signup" -d "{\"email\":\"$EMAIL_B\",\"password\":\"$PASS_B\",\"handle\":\"$HANDLE_B\",\"displayName\":\"사용자B\"}" -o /dev/null
 status_of "$jarB" POST "/api/auth/login" -d "{\"email\":\"$EMAIL_B\",\"password\":\"$PASS_B\"}" >/dev/null
 
-format_body='{"schemaVersion":1,"meta":{"name":"e2e 포맷","author":"A"},"style":{},"blocks":[{"type":"text","props":{"text":"e2e"},"style":{}}]}'
+format_body='{"schemaVersion":2,"meta":{"name":"e2e 포맷","author":"A"},"style":{},"rows":[{"id":"r1","slots":[{"id":"s1","width":"1/1","block":{"type":"text","props":{"text":"e2e"},"style":{}}}]}]}'
 resp=$(req "$jarA" POST "/api/formats" -d "$format_body")
 format_id=$(echo "$resp" | jq -r '.id // empty')
 if [ -n "$format_id" ]; then ok "A가 포맷 생성 (id=$format_id)"; else bad "A의 포맷 생성 실패: $resp"; fi
@@ -198,7 +198,7 @@ if [ -n "$format_id" ]; then
     bad "목록 API 소유권 분리 실패 (A목록=$listA / B목록=$listB)"
   fi
 
-  updated_body='{"schemaVersion":1,"meta":{"name":"e2e 포맷-수정","author":"A"},"style":{},"blocks":[{"type":"text","props":{"text":"e2e-updated"},"style":{}}]}'
+  updated_body='{"schemaVersion":2,"meta":{"name":"e2e 포맷-수정","author":"A"},"style":{},"rows":[{"id":"r1","slots":[{"id":"s1","width":"1/1","block":{"type":"text","props":{"text":"e2e-updated"},"style":{}}}]}]}'
   resp=$(req "$jarA" PUT "/api/formats/$format_id" -d "$updated_body")
   if echo "$resp" | jq -e '.document.meta.name == "e2e 포맷-수정"' >/dev/null 2>&1; then
     ok "A는 본인 포맷을 수정할 수 있다"
@@ -226,6 +226,23 @@ if [ -n "$(echo "$export_resp" | jq -r '.schemaVersion // empty')" ]; then
   fi
 else
   bad "export 실패: $export_resp"
+fi
+
+# 드래그 편집기 도입(schemaVersion 2, rows/slots) 전에 내보낸 v1 파일도 가져올 수 있어야 한다 —
+# 이 저장소 붙박이 예제로 손으로 만든 v1 export JSON을 그대로 import해서 확인한다.
+v1_import_body='{"schemaVersion":1,"meta":{"name":"v1 가져오기 테스트","author":"A"},"style":{},"blocks":[{"type":"text","props":{"text":"legacy"},"style":{}}],"assets":{}}'
+v1_import_resp=$(req "$jarA" POST "/api/formats/import" -d "$v1_import_body")
+v1_imported_id=$(echo "$v1_import_resp" | jq -r '.id // empty')
+if [ -n "$v1_imported_id" ]; then
+  ok "schemaVersion 1(구버전) export JSON도 import 가능(up-convert)"
+  v1_check=$(req "$jarA" GET "/api/formats/$v1_imported_id")
+  if echo "$v1_check" | jq -e '.document.schemaVersion == 2 and (.document.rows | length) == 1 and .document.rows[0].slots[0].block.props.text == "legacy"' >/dev/null 2>&1; then
+    ok "up-convert 결과가 정확하다(rows[0].slots[0].block.props.text == legacy)"
+  else
+    bad "up-convert 결과가 틀렸다: $v1_check"
+  fi
+else
+  bad "v1 import 실패(up-convert 회귀): $v1_import_resp"
 fi
 
 # ---------------------------------------------------------------------------

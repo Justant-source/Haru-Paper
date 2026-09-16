@@ -66,6 +66,29 @@ public final class FormatDocumentSupport {
     }
 
     /**
+     * 가져오기(import) 원본 JSON(Map)이 schemaVersion 1이면 v2로 변환해서 돌려주고,
+     * 아니면(이미 2) 그대로 돌려준다. "assets" 키(가져오기 전용, FormatDocument에는 없는 필드)는
+     * 보존한다. import는 저장된 데이터가 아니라 사용자가 올린 파일을 검증기(schemaVersion==2만
+     * 허용)에 넘기기 직전에 거쳐야 한다 — 안 그러면 이 저장소 도입 이전에 내보낸 v1 파일을
+     * 아무도 다시 가져올 수 없다.
+     */
+    public static Map<String, Object> upConvertRawImportIfNeeded(Map<String, Object> raw, ObjectMapper mapper) {
+        Object versionObj = raw.get("schemaVersion");
+        int version = (versionObj instanceof Number) ? ((Number) versionObj).intValue() : 2;
+        if (version != 1) {
+            return raw;
+        }
+        FormatDocument upConverted = upConvertFromV1(raw, mapper);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> converted = new java.util.HashMap<>(
+                (Map<String, Object>) mapper.convertValue(upConverted, Map.class));
+        if (raw.containsKey("assets")) {
+            converted.put("assets", raw.get("assets"));
+        }
+        return converted;
+    }
+
+    /**
      * v1 포맷을 v2로 변환한다.
      * 각 블록을 1/1 폭의 단일 슬롯을 가진 행으로 감싼다. 순서는 그대로 유지된다.
      */

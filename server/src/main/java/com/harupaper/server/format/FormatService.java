@@ -159,29 +159,17 @@ public class FormatService {
      * Returns new format with forkedFrom set.
      */
     public Format importFormat(FormatDocumentWithAssets importedData, String userId) throws IOException {
-        // Validate schemaVersion first - accept 1 or 2
-        int schemaVersion = importedData.document().schemaVersion();
-        if (schemaVersion != 1 && schemaVersion != 2) {
+        // FormatController가 검증(validateAndParse, schemaVersion 2만 허용) 전에 이미
+        // FormatDocumentSupport.upConvertRawImportIfNeeded로 v1→v2를 끝냈다 — 여기 도달하는
+        // document는 항상 schemaVersion 2다.
+        if (importedData.document().schemaVersion() != 2) {
             throw new com.harupaper.server.common.exception.ValidationException(
                 "unsupported schemaVersion",
                 List.of(new com.harupaper.server.common.exception.ValidationException.FieldError(
                     "schemaVersion",
-                    "unsupported schemaVersion: " + schemaVersion + " (only 1 or 2 supported)"
+                    "unsupported schemaVersion: " + importedData.document().schemaVersion() + " (only 2 supported)"
                 ))
             );
-        }
-
-        // If v1, up-convert to v2 first
-        FormatDocument documentToProcess = importedData.document();
-        if (schemaVersion == 1) {
-            // Note: v1 document has .blocks(), but we need to up-convert it to v2 with .rows()
-            // Since importedData holds FormatDocument which now has .rows(), this is a bit tricky.
-            // We need to manually construct a v1 map and up-convert it.
-            // For simplicity, we assume that if schemaVersion is 1, the document should already be
-            // in v1 format. But since FormatDocument now only has rows(), we need to handle this
-            // in the FormatDocumentWithAssets itself, or we accept that v1 imports will be treated as v2.
-            // For now, let's keep v1 compatibility by assuming the import system will handle v1→v2 conversion.
-            log.info("Importing v1 format, will be up-converted to v2");
         }
 
         requireEmbeddedAssets(importedData.document(), importedData.assets());
