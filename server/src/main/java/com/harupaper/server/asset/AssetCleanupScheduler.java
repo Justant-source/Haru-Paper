@@ -110,13 +110,19 @@ public class AssetCleanupScheduler {
         List<Format> allFormats = formatRepository.findAll();
         for (Format format : allFormats) {
             try {
-                FormatDocument doc = objectMapper.readValue(format.getBody(), FormatDocument.class);
-                if (doc.blocks() != null) {
-                    for (Block block : doc.blocks()) {
-                        if ("image".equals(block.type()) && block.props() != null) {
-                            Object assetIdObj = block.props().get("assetId");
-                            if (assetIdObj instanceof String assetId) {
-                                referencedAssets.add(assetId);
+                // v1 포맷은 자동으로 up-convert되어 rows를 반환한다
+                FormatDocument doc = com.harupaper.server.format.FormatDocumentSupport.readDocument(format.getBody(), objectMapper);
+                if (doc.rows() != null) {
+                    for (com.harupaper.server.format.Row row : doc.rows()) {
+                        if (row.slots() != null) {
+                            for (com.harupaper.server.format.Slot slot : row.slots()) {
+                                Block block = slot.block();
+                                if (block != null && "image".equals(block.type()) && block.props() != null) {
+                                    Object assetIdObj = block.props().get("assetId");
+                                    if (assetIdObj instanceof String assetId) {
+                                        referencedAssets.add(assetId);
+                                    }
+                                }
                             }
                         }
                     }

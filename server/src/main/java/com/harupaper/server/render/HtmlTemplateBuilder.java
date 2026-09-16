@@ -8,6 +8,8 @@ import com.harupaper.server.format.BlockStyle;
 import com.harupaper.server.format.FormatDocument;
 import com.harupaper.server.format.FormatStyle;
 import com.harupaper.server.format.MarginMm;
+import com.harupaper.server.format.Row;
+import com.harupaper.server.format.Slot;
 import com.harupaper.server.settings.WeatherLocation;
 import com.harupaper.server.settings.WeatherLocationProvider;
 import com.harupaper.server.weather.DailyWeather;
@@ -70,10 +72,18 @@ public class HtmlTemplateBuilder {
 
         // 2. 동적 데이터 조회 (날씨)
         DailyWeather weather = null;
-        for (Block block : document.blocks()) {
-            if ("weather".equals(block.type())) {
-                weather = fetchWeather(targetDate);
-                break;
+        if (document.rows() != null) {
+            for (Row row : document.rows()) {
+                if (row.slots() != null) {
+                    for (Slot slot : row.slots()) {
+                        Block block = slot.block();
+                        if (block != null && "weather".equals(block.type())) {
+                            weather = fetchWeather(targetDate);
+                            break;
+                        }
+                    }
+                    if (weather != null) break;
+                }
             }
         }
 
@@ -122,22 +132,50 @@ public class HtmlTemplateBuilder {
         html.append("<body>\n");
         html.append("<div class=\"container\">\n");
 
-        // 블록 렌더
-        for (int i = 0; i < document.blocks().size(); i++) {
-            Block block = document.blocks().get(i);
-            html.append(renderBlock(block, profile, dateVariables, weather, targetDate));
+        // 행→슬롯 이중 루프로 블록 렌더
+        boolean isFirstRow = true;
+        if (document.rows() != null) {
+            for (int rowIdx = 0; rowIdx < document.rows().size(); rowIdx++) {
+                Row row = document.rows().get(rowIdx);
+                boolean isLastRow = (rowIdx == document.rows().size() - 1);
 
-            // 구분선 (마지막 블록 제외)
-            if (i < document.blocks().size() - 1) {
-                if ("line".equals(style.divider())) {
-                    html.append("<hr class=\"divider\">\n");
-                } else if ("dashed".equals(style.divider())) {
-                    html.append("<hr class=\"divider-dashed\">\n");
+                // 행이 2개 슬롯인 경우 flex로 나란히 배치
+                if (row.slots().size() == 2) {
+                    html.append("<div style=\"display: flex; gap: 0;\">\n");
+                    for (int slotIdx = 0; slotIdx < 2; slotIdx++) {
+                        Slot slot = row.slots().get(slotIdx);
+                        String width = slot.width();
+                        double percentage = parseSlotWidthPercentage(width);
+                        html.append("<div style=\"flex: 0 0 ").append(String.format("%.2f", percentage))
+                            .append("%;\">\n");
+                        if (slot.block() != null) {
+                            html.append(renderBlock(slot.block(), profile, dateVariables, weather, targetDate));
+                        }
+                        html.append("</div>\n");
+                    }
+                    html.append("</div>\n");
+                } else {
+                    // 1개 슬롯인 경우
+                    Slot slot = row.slots().get(0);
+                    if (slot.block() != null) {
+                        html.append(renderBlock(slot.block(), profile, dateVariables, weather, targetDate));
+                    }
                 }
 
-                // 블록 간격
-                int gapPx = (int) Math.round(style.blockGapMm() * profile.dpi() / 25.4);
-                html.append("<div style=\"height: ").append(gapPx).append("px;\"></div>\n");
+                // 구분선 및 행 간격 (마지막 행 제외)
+                if (!isLastRow) {
+                    if ("line".equals(style.divider())) {
+                        html.append("<hr class=\"divider\">\n");
+                    } else if ("dashed".equals(style.divider())) {
+                        html.append("<hr class=\"divider-dashed\">\n");
+                    }
+
+                    // 행 간격
+                    int gapPx = (int) Math.round(style.blockGapMm() * profile.dpi() / 25.4);
+                    html.append("<div style=\"height: ").append(gapPx).append("px;\"></div>\n");
+                }
+
+                isFirstRow = false;
             }
         }
 
@@ -235,6 +273,20 @@ public class HtmlTemplateBuilder {
         }
 
         return css.toString();
+    }
+
+    /**
+     * 슬롯 폭 문자열("1/1", "1/2", "2/3" 등)을 백분율로 변환
+     */
+    private double parseSlotWidthPercentage(String width) {
+        if (width == null) return 100.0;
+        return switch (width) {
+            case "1/1" -> 100.0;
+            case "1/2" -> 50.0;
+            case "1/3" -> 33.333333;
+            case "2/3" -> 66.666667;
+            default -> 100.0;
+        };
     }
 
     /**

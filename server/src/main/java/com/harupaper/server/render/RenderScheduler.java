@@ -230,14 +230,15 @@ public class RenderScheduler {
     }
 
     /**
-     * Format.body (JSON)을 FormatDocument로 파싱 (간단한 버전, 에러 무시)
+     * Format.body (JSON)을 FormatDocument로 파싱. v1은 자동 up-convert된다.
      */
     private com.harupaper.server.format.FormatDocument parseFormatDocument(Format format) {
         try {
             com.fasterxml.jackson.databind.ObjectMapper mapper =
                     new com.fasterxml.jackson.databind.ObjectMapper();
             mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
-            return mapper.readValue(format.getBody(), com.harupaper.server.format.FormatDocument.class);
+            // v1 포맷은 FormatDocumentSupport.readDocument에서 자동 up-convert된다
+            return com.harupaper.server.format.FormatDocumentSupport.readDocument(format.getBody(), mapper);
         } catch (Exception e) {
             log.warn("Failed to parse format document: {}", format.getId());
             return null;

@@ -50,7 +50,7 @@ public class FormatValidator {
         this.assetRepository = assetRepository;
     }
 
-    private static final Set<String> VALID_ROOT_KEYS = Set.of("schemaVersion", "meta", "style", "blocks");
+    private static final Set<String> VALID_ROOT_KEYS = Set.of("schemaVersion", "meta", "style", "rows");
     private static final Set<String> VALID_META_KEYS = Set.of("name", "author", "description", "forkedFrom");
     private static final Set<String> VALID_STYLE_KEYS = Set.of(
             "fontFamily", "baseFontSizePt", "lineHeight", "marginMm", "blockGapMm", "divider");
@@ -88,19 +88,35 @@ public class FormatValidator {
                     rejectUnknownKeys(margin, VALID_MARGIN_KEYS, "style.marginMm.", errors));
         });
 
-        Object blocksObj = raw.get("blocks");
-        if (blocksObj instanceof List<?> blocks) {
-            for (int i = 0; i < blocks.size(); i++) {
-                final String blockPath = "blocks[" + i + "].";
-                asMap(blocks.get(i)).ifPresent(block -> {
-                    rejectUnknownKeys(block, VALID_BLOCK_KEYS, blockPath, errors);
-                    asMap(block.get("style")).ifPresent(style ->
-                            rejectUnknownKeys(style, VALID_BLOCK_STYLE_KEYS, blockPath + "style.", errors));
-                    Object typeObj = block.get("type");
-                    Set<String> validPropsKeys = (typeObj instanceof String type) ? VALID_PROPS_KEYS_BY_TYPE.get(type) : null;
-                    if (validPropsKeys != null) {
-                        asMap(block.get("props")).ifPresent(props ->
-                                rejectUnknownKeys(props, validPropsKeys, blockPath + "props.", errors));
+        Object rowsObj = raw.get("rows");
+        if (rowsObj instanceof List<?> rows) {
+            for (int i = 0; i < rows.size(); i++) {
+                final String rowPath = "rows[" + i + "].";
+                asMap(rows.get(i)).ifPresent(row -> {
+                    Set<String> validRowKeys = Set.of("id", "slots");
+                    rejectUnknownKeys(row, validRowKeys, rowPath, errors);
+
+                    Object slotsObj = row.get("slots");
+                    if (slotsObj instanceof List<?> slots) {
+                        for (int j = 0; j < slots.size(); j++) {
+                            final String slotPath = rowPath + "slots[" + j + "].";
+                            asMap(slots.get(j)).ifPresent(slot -> {
+                                Set<String> validSlotKeys = Set.of("id", "width", "block");
+                                rejectUnknownKeys(slot, validSlotKeys, slotPath, errors);
+
+                                asMap(slot.get("block")).ifPresent(block -> {
+                                    rejectUnknownKeys(block, VALID_BLOCK_KEYS, slotPath + "block.", errors);
+                                    asMap(block.get("style")).ifPresent(style ->
+                                            rejectUnknownKeys(style, VALID_BLOCK_STYLE_KEYS, slotPath + "block.style.", errors));
+                                    Object typeObj = block.get("type");
+                                    Set<String> validPropsKeys = (typeObj instanceof String type) ? VALID_PROPS_KEYS_BY_TYPE.get(type) : null;
+                                    if (validPropsKeys != null) {
+                                        asMap(block.get("props")).ifPresent(props ->
+                                                rejectUnknownKeys(props, validPropsKeys, slotPath + "block.props.", errors));
+                                    }
+                                });
+                            });
+                        }
                     }
                 });
             }
@@ -173,9 +189,9 @@ public class FormatValidator {
 
     private void collectDocumentErrors(FormatDocument document, List<ValidationException.FieldError> errors) {
         // schemaVersion
-        if (document.schemaVersion() != 1) {
+        if (document.schemaVersion() != 2) {
             errors.add(new ValidationException.FieldError("schemaVersion",
-                "unsupported schemaVersion: " + document.schemaVersion() + " (only 1 supported)"));
+                "unsupported schemaVersion: " + document.schemaVersion() + " (only 2 supported)"));
         }
 
         // meta
@@ -190,15 +206,15 @@ public class FormatValidator {
             validateStyle(document.style(), errors);
         }
 
-        // blocks
-        if (document.blocks() == null) {
-            errors.add(new ValidationException.FieldError("blocks", "blocks is required"));
-        } else if (document.blocks().isEmpty() || document.blocks().size() > MAX_BLOCKS) {
-            errors.add(new ValidationException.FieldError("blocks",
-                "blocks must have 1 to " + MAX_BLOCKS + " items, got " + document.blocks().size()));
+        // rows
+        if (document.rows() == null) {
+            errors.add(new ValidationException.FieldError("rows", "rows is required"));
+        } else if (document.rows().isEmpty() || document.rows().size() > 30) {
+            errors.add(new ValidationException.FieldError("rows",
+                "rows must have 1 to 30 items, got " + document.rows().size()));
         } else {
-            for (int i = 0; i < document.blocks().size(); i++) {
-                validateBlock(document.blocks().get(i), i, errors);
+            for (int i = 0; i < document.rows().size(); i++) {
+                validateRow(document.rows().get(i), i, errors);
             }
         }
     }
@@ -268,9 +284,58 @@ public class FormatValidator {
         }
     }
 
-    private void validateBlock(Block block, int index, List<ValidationException.FieldError> errors) {
-        String blockPath = "blocks[" + index + "]";
+    private void validateRow(com.harupaper.server.format.Row row, int index, List<ValidationException.FieldError> errors) {
+        String rowPath = "rows[" + index + "]";
 
+        if (row.slots() == null || row.slots().isEmpty() || row.slots().size() > 2) {
+            errors.add(new ValidationException.FieldError(rowPath + ".slots",
+                "slots must have 1 to 2 items, got " + (row.slots() != null ? row.slots().size() : 0)));
+            return;
+        }
+
+        // 슬롯 폭 조합 검증
+        if (row.slots().size() == 1) {
+            // 1슬롯 행: "1/1"만 허용
+            com.harupaper.server.format.Slot slot = row.slots().get(0);
+            if (!"1/1".equals(slot.width())) {
+                errors.add(new ValidationException.FieldError(rowPath + ".slots[0].width",
+                    "single-slot row must have width \"1/1\", got \"" + slot.width() + "\""));
+            }
+            validateSlot(slot, rowPath, 0, errors);
+        } else {
+            // 2슬롯 행: ("1/2","1/2") | ("2/3","1/3") | ("1/3","2/3")만 허용
+            String width0 = row.slots().get(0).width();
+            String width1 = row.slots().get(1).width();
+            boolean validPair = false;
+            if (("1/2".equals(width0) && "1/2".equals(width1)) ||
+                ("2/3".equals(width0) && "1/3".equals(width1)) ||
+                ("1/3".equals(width0) && "2/3".equals(width1))) {
+                validPair = true;
+            }
+
+            if (!validPair) {
+                errors.add(new ValidationException.FieldError(rowPath + ".slots",
+                    "invalid width pair: (\"" + width0 + "\",\"" + width1 + "\")"));
+            }
+
+            for (int i = 0; i < 2; i++) {
+                validateSlot(row.slots().get(i), rowPath, i, errors);
+            }
+        }
+    }
+
+    private void validateSlot(com.harupaper.server.format.Slot slot, String rowPath, int slotIndex, List<ValidationException.FieldError> errors) {
+        String slotPath = rowPath + ".slots[" + slotIndex + "]";
+
+        if (slot.block() == null) {
+            errors.add(new ValidationException.FieldError(slotPath + ".block", "block is required"));
+            return;
+        }
+
+        validateBlock(slot.block(), slotPath + ".block", errors);
+    }
+
+    private void validateBlock(Block block, String blockPath, List<ValidationException.FieldError> errors) {
         if (block.type() == null || !VALID_BLOCK_TYPES.contains(block.type())) {
             errors.add(new ValidationException.FieldError(blockPath + ".type",
                 "block type must be one of " + VALID_BLOCK_TYPES + ", got '" + block.type() + "'"));
@@ -282,13 +347,16 @@ public class FormatValidator {
             return;
         }
 
-        validateBlockProps(block, index, errors);
+        validateBlockPropsWithPath(block, blockPath, errors);
         validateBlockStyle(block.style(), blockPath, errors);
     }
 
-    private void validateBlockProps(Block block, int index, List<ValidationException.FieldError> errors) {
+    private void validateBlock(Block block, int index, List<ValidationException.FieldError> errors) {
         String blockPath = "blocks[" + index + "]";
+        validateBlock(block, blockPath, errors);
+    }
 
+    private void validateBlockPropsWithPath(Block block, String blockPath, List<ValidationException.FieldError> errors) {
         switch (block.type()) {
             case "text":
                 validateTextProps(block.props(), blockPath, errors);
@@ -303,6 +371,11 @@ public class FormatValidator {
                 validateWeatherProps(block.props(), blockPath, errors);
                 break;
         }
+    }
+
+    private void validateBlockProps(Block block, int index, List<ValidationException.FieldError> errors) {
+        String blockPath = "blocks[" + index + "]";
+        validateBlockPropsWithPath(block, blockPath, errors);
     }
 
     private void validateTextProps(Map<String, Object> props, String blockPath, List<ValidationException.FieldError> errors) {

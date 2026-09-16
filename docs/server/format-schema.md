@@ -1,14 +1,17 @@
-# 포맷 스키마 v1
+# 포맷 스키마 v2
 
 > **이 문서가 포맷 스키마의 원본이다.** 앱(`/app/web` 편집기), 서버 검증기, 렌더러는 모두 이 문서를 따른다.
 > 출발점은 [`../init_plan.md`](../init_plan.md) 6.1절이고, 필드별 제약·기본값은 M0에서 정한 **[기본값]**이다. M2 구현 중 바꾸면 이 문서를 먼저 고친다.
+> **v2 도입**: 2026-09-16. 드래그 기반 레이아웃 편집기(행/슬롯 모델)을 위해 블록 배치를 평평한 배열에서 행/슬롯 계층으로 변경.
 
 ## 1. 개념
 
 - **포맷(Format) = 카드.** 인쇄물 한 장의 설계이자 내용이다. 저장해 두고 여러 예약에서 다시 쓴다.
 - 예약은 포맷을 가리킨다(예약 1개 = 포맷 1개).
 - **가져오기(import)** 하면 내 라이브러리에 **새 포맷**이 생긴다(fork). 원본 출처는 `meta.forkedFrom`에 남고, 이후 자유롭게 고친다.
-- **블록 쌓기**: `blocks[]`를 위에서 아래로 쌓는다. 용지가 110mm 연속 롤이라 높이는 내용 길이만큼이다.
+- **행·슬롯 기반 배치**: 포맷은 행(row)들의 순서 리스트다. 각 행은 1~2개의 슬롯(slot)을 담으며, 각 슬롯이 블록 하나를 담는다. 
+  - 1슬롯 행: 블록 하나가 폭 전체를 차지
+  - 2슬롯 행: 두 블록이 나란히 배치, 폭 조합은 `("1/2","1/2")` / `("2/3","1/3")` / `("1/3","2/3")` 3가지만 허용
 - **허용되는 것은 JSON 블록 + 화이트리스트 스타일 속성뿐.** 임의 HTML/CSS/JS는 받지 않는다(7절).
 - **단위는 mm(길이)와 pt(글자 크기).** 프린터 dpi와 무관하게 정의하고, 렌더할 때 프린터 프로필 dpi로 환산한다([`rendering.md`](rendering.md)).
 - `style`(전체)과 `blocks[].style`(개별)을 **분리**한다. 나중에 "내 스타일 입히기"를 스타일 덮어쓰기로 구현하기 위해서다.
@@ -17,18 +20,33 @@
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "meta": { "name": "아침 브리핑", "author": "justant", "description": "", "forkedFrom": null },
   "style": {
     "fontFamily": "Pretendard", "baseFontSizePt": 11, "lineHeight": 1.4,
     "marginMm": { "top": 3, "right": 3, "bottom": 8, "left": 3 },
     "blockGapMm": 3, "divider": "none"
   },
-  "blocks": [
-    { "type": "dateHeader", "props": { "pattern": "YYYY년 M월 D일 dddd" }, "style": { "align": "center", "fontSizePt": 16, "bold": true } },
-    { "type": "text", "props": { "text": "{{date}} {{weekday}}\n오늘의 할 일" }, "style": { "align": "left" } },
-    { "type": "image", "props": { "assetId": "a1b2", "widthPercent": 100 } },
-    { "type": "weather", "props": { "location": "default", "fields": ["tempMin", "tempMax", "precipProb", "sky"] } }
+  "rows": [
+    {
+      "id": "row-uuid-1",
+      "slots": [
+        { "id": "slot-uuid-1", "width": "1/1", "block": { "type": "dateHeader", "props": { "pattern": "YYYY년 M월 D일 dddd" }, "style": { "align": "center", "fontSizePt": 16, "bold": true } } }
+      ]
+    },
+    {
+      "id": "row-uuid-2",
+      "slots": [
+        { "id": "slot-uuid-2a", "width": "2/3", "block": { "type": "text", "props": { "text": "{{date}} {{weekday}}\n오늘의 할 일" }, "style": { "align": "left" } } },
+        { "id": "slot-uuid-2b", "width": "1/3", "block": { "type": "weather", "props": { "fields": ["tempMin", "tempMax"] } } }
+      ]
+    },
+    {
+      "id": "row-uuid-3",
+      "slots": [
+        { "id": "slot-uuid-3", "width": "1/1", "block": { "type": "image", "props": { "assetId": "a1b2", "widthPercent": 100 } } }
+      ]
+    }
   ],
   "assets": { "a1b2": "data:image/png;base64,..." }
 }
@@ -40,10 +58,10 @@
 
 | 필드 | 타입 | 필수 | 기본값 | 허용값·제약 |
 |---|---|---|---|---|
-| `schemaVersion` | integer | 필수 | — | `1` (서버가 아는 최대 버전 이하만 허용) |
+| `schemaVersion` | integer | 필수 | — | `2` (서버가 아는 최대 버전 이하만 허용) |
 | `meta` | object | 필수 | — | 3.1절 |
 | `style` | object | 선택 | 3.2절 기본값 | 3.2절 |
-| `blocks` | array | 필수 | — | 1~50개 [기본값] |
+| `rows` | array | 필수 | — | 1~30개 행 [기본값] |
 | `assets` | object | 가져오기 파일에서만 | — | `{assetId: dataURI}`. 일반 생성·수정 요청에 있으면 422 [기본값] |
 
 ### 3.1 `meta`
@@ -58,10 +76,10 @@
 `forkedFrom` 형태 [기본값]:
 
 ```json
-{ "name": "원본 포맷 이름", "author": "원작자", "schemaVersion": 1, "importedAt": "2026-09-14T07:00:00+09:00" }
+{ "name": "원본 포맷 이름", "author": "원작자", "schemaVersion": 2, "importedAt": "2026-09-14T07:00:00+09:00" }
 ```
 
-v1은 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom` 체인은 버린다 [기본값].
+v2는 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom` 체인은 버린다 [기본값].
 
 ### 3.2 `style` (전체)
 
@@ -71,22 +89,48 @@ v1은 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom
 | `baseFontSizePt` | number | `11` | 6~48 |
 | `lineHeight` | number | `1.4` | 1.0~3.0 (배수) |
 | `marginMm` | object | `{top:3, right:3, bottom:8, left:3}` | 각 0~20 |
-| `blockGapMm` | number | `3` | 0~30 |
-| `divider` | enum | `"none"` | `"none"`, `"line"`, `"dashed"` — 블록 사이 구분선 |
+| `blockGapMm` | number | `3` | 0~30 (행 사이 간격) |
+| `divider` | enum | `"none"` | `"none"`, `"line"`, `"dashed"` — 행 사이 구분선 |
 
 `style` 전체가 없거나 일부 필드가 없으면 기본값으로 채운다.
 
-## 4. 블록
+## 4. 행(Row)과 슬롯(Slot)
 
-### 4.1 공통 구조
+### 4.1 행(Row) 구조
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `id` | string | 필수 | 행의 고유 id (uuid). 편집기 내부에서만 사용 |
+| `slots` | array | 필수 | 1~2개 슬롯. 2개 이상이면 422 |
+
+### 4.2 슬롯(Slot) 구조
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `id` | string | 필수 | 슬롯의 고유 id (uuid). 편집기 내부에서만 사용 |
+| `width` | enum | 필수 | 슬롯이 행에서 차지하는 폭. 1슬롯 행이면 `"1/1"`만 허용, 2슬롯 행이면 `("1/2","1/2")` \| `("2/3","1/3")` \| `("1/3","2/3")`만 허용. 그 외 조합은 422 |
+| `block` | object | 필수 | 4절 블록. **`null`은 허용하지 않는다** — 슬롯이 존재하는 순간 반드시 블록이 있어야 한다 |
+
+### 4.3 행/슬롯 제약 정리
+
+| 제약 | 허용 | 거부 |
+|---|---|---|
+| 행의 슬롯 개수 | 1 또는 2 | 0, 3개 이상 |
+| 1슬롯 행의 폭 | `"1/1"` | 나머지 모두 |
+| 2슬롯 행의 폭 조합 | `("1/2","1/2")`, `("2/3","1/3")`, `("1/3","2/3")` | 나머지 모두 |
+| 슬롯의 블록 | Block(type/props/style) | `null` |
+
+## 5. 블록
+
+### 5.1 공통 구조
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
 | `type` | enum | 필수 | `"text"`, `"image"`, `"dateHeader"`, `"weather"` |
-| `props` | object | 필수 | 타입별(4.3절) |
-| `style` | object | 선택 | 블록 스타일 화이트리스트(4.2절) |
+| `props` | object | 필수 | 타입별(5.3절) |
+| `style` | object | 선택 | 블록 스타일 화이트리스트(5.2절) |
 
-### 4.2 블록 스타일 화이트리스트
+### 5.2 블록 스타일 화이트리스트
 
 | 필드 | 타입 | 기본값 | 허용값·제약 |
 |---|---|---|---|
@@ -98,7 +142,7 @@ v1은 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom
 
 이 표에 없는 스타일 키는 **거부(422)** 한다. 색상, 임의 CSS, 폰트 URL은 없다(감열지는 흑백).
 
-### 4.3 타입별 `props`
+### 5.3 타입별 `props`
 
 #### `text`
 
@@ -111,7 +155,7 @@ v1은 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom
 | 필드 | 타입 | 필수 | 기본값 | 제약 |
 |---|---|---|---|---|
 | `assetId` | string | 필수 | — | 업로드된 에셋 id(`POST /api/assets`). 외부 URL 불가 |
-| `widthPercent` | integer | 선택 | `100` | 10~100. 본문 폭(용지 폭 − 좌우 여백) 대비. 가로세로 비율 유지, 정렬은 `style.align` |
+| `widthPercent` | integer | 선택 | `100` | 10~100. 슬롯 폭(슬롯 실제 폭 − 블록 좌우 여백) 대비. 가로세로 비율 유지, 정렬은 `style.align` |
 
 흑백 변환(디더링)은 서버가 하지 않는다. 서버는 그레이스케일 PNG까지만 만들고, 디더링은 Pi 드라이버가 한다.
 
@@ -127,41 +171,77 @@ v1은 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom
 
 | 필드 | 타입 | 필수 | 기본값 | 제약 |
 |---|---|---|---|---|
-| `location` | string | 선택 | `"default"` | v1은 `"default"`만 허용(설정의 날씨 기본 위치) [기본값] |
+| `location` | string | 선택 | `"default"` | v2는 `"default"`만 허용(설정의 날씨 기본 위치) [기본값] |
 | `fields` | array | 선택 | 4개 전부 | `"tempMin"`, `"tempMax"`, `"precipProb"`, `"sky"` 중 1개 이상, 중복 불가 |
 
 데이터 출처·표시 형식·실패 시 표시는 [`weather.md`](weather.md). `weather` 블록이 하나라도 있는 포맷은 **동적 포맷**으로 보고, 렌더 스케줄러가 예약 약 60분 전에 다시 렌더한다([`rendering.md`](rendering.md)).
 
-## 5. 가져오기 / 내보내기
+## 6. Up-Convert (v1 → v2)
+
+2026-09-16부터 저장되는 모든 포맷은 schemaVersion 2이다. 그 이전에 저장된 v1 포맷을 읽을 때는 자동으로 v2로 변환(up-convert)한다.
+
+### 변환 규칙 [기본값]
+
+v1의 `blocks` 배열 각 항목을 1/1 폭의 단일 슬롯을 가진 행으로 감싼다. 순서는 그대로 유지된다.
+
+```
+v1:
+"blocks": [
+  { "type": "dateHeader", ... },
+  { "type": "text", ... },
+  { "type": "image", ... }
+]
+
+v2 (up-convert):
+"rows": [
+  { "id": "row-uuid-1", "slots": [{ "id": "slot-uuid-1", "width": "1/1", "block": { "type": "dateHeader", ... } }] },
+  { "id": "row-uuid-2", "slots": [{ "id": "slot-uuid-2", "width": "1/1", "block": { "type": "text", ... } }] },
+  { "id": "row-uuid-3", "slots": [{ "id": "slot-uuid-3", "width": "1/1", "block": { "type": "image", ... } }] }
+]
+```
+
+### 실행 시점
+
+- **조회(GET)**: `FormatService.getFormat()`, `RenderScheduler.parseFormatDocument()` 등 저장된 body를 읽는 모든 경로
+- **내보내기**: `exportFormat()` — 내보낸 파일은 v2
+- **검증(쓰기)**: 생성·수정·미리보기는 항상 v2만 허용. v1 import는 따로 처리하지 않고 v2 up-convert가 끝난 결과물로 진행
+
+### 일괄 마이그레이션 없음 [기본값]
+
+DB에 저장된 `format.body` 레코드는 원래 v1 JSON 문자열이다. up-convert는 read-time에만 일어나므로 DB 변경 없음. 처음 읽은 뒤 저장되면 자동으로 v2로 serialization된다.
+
+## 7. 가져오기 / 내보내기
 
 ### 내보내기 — `GET /api/formats/{id}/export`
 
-- 저장된 포맷 문서에 `assets`를 붙여 반환한다. `blocks`가 참조하는 모든 `assetId`의 파일을 `data:<mime>;base64,...`로 내장한다.
+- 저장된 포맷 문서에 `assets`를 붙여 반환한다. `rows`가 참조하는 모든 `assetId`의 파일을 `data:<mime>;base64,...`로 내장한다.
 - `meta.forkedFrom`은 그대로 둔다.
 - 파일 이름 [기본값]: `<meta.name>.haru-format.json` (`Content-Disposition`).
 
 ### 가져오기 — `POST /api/formats/import`
 
-본문 = 내보낸 JSON. 처리 순서:
+본문 = 내보낸 JSON (v1 또는 v2). 처리 순서:
 
 1. JSON 파싱 실패 → 400
-2. `schemaVersion` 확인: 서버가 아는 최대 버전보다 크면 → 422 `unsupported schemaVersion`
-3. **엄격 검증**: 알 수 없는 필드·블록 타입·스타일 키 → 422 (필드 경로 목록 포함)
-4. `assets` 검증: `blocks`가 참조하는 `assetId`가 `assets`에 없으면 422. 참조되지 않는 항목은 무시
-5. 각 data URI 디코드: MIME은 `image/png`, `image/jpeg`만 [기본값], 개당 10MB 이하
-6. 에셋마다 **새 `assetId`** 로 저장하고 `blocks`의 `assetId`를 새 값으로 바꾼다
-7. **새 포맷 id** 발급, `meta.forkedFrom = {name, author, schemaVersion, importedAt}`(원본 파일 `meta` 기준), `assets` 필드는 저장하지 않음
-8. 201 + 새 포맷 반환
+2. `schemaVersion` 확인: v1 또는 v2만 허용 (v3 이상 → 422)
+3. v1이면 up-convert to v2
+4. **엄격 검증**: 알 수 없는 필드·행/슬롯 구조·블록 타입·스타일 키 → 422 (필드 경로 목록 포함)
+5. `assets` 검증: `rows`의 모든 블록이 참조하는 `assetId`가 `assets`에 없으면 422. 참조되지 않는 항목은 무시
+6. 각 data URI 디코드: MIME은 `image/png`, `image/jpeg`만 [기본값], 개당 10MB 이하
+7. 에셋마다 **새 `assetId`** 로 저장하고 `rows`의 모든 블록의 `assetId`를 새 값으로 바꾼다
+8. **새 포맷 id** 발급, `meta.forkedFrom = {name, author, schemaVersion, importedAt}`(원본 파일 `meta` 기준), `assets` 필드는 저장하지 않음
+9. 201 + 새 포맷 반환
 
 `meta.name`은 원본 이름을 그대로 쓴다. 사용자가 나중에 고친다.
 
 ### 일반 생성·수정 — `POST /api/formats`, `PUT /api/formats/{id}`
 
-- 3·4절 엄격 검증을 똑같이 적용한다. 편집본 미리보기 `POST /api/formats/preview`도 같은 검증을 한다(저장은 안 함).
+- 3·5절 엄격 검증을 똑같이 적용한다. 편집본 미리보기 `POST /api/formats/preview`도 같은 검증을 한다(저장은 안 함).
 - `assets` 필드가 있으면 422. 이미지는 먼저 `POST /api/assets`로 올리고 `assetId`로 참조한다.
 - 존재하지 않는 `assetId` 참조 → 422.
+- **schemaVersion은 반드시 2이어야 한다.**
 
-## 6. 텍스트 변수와 targetDate
+## 8. 텍스트 변수와 targetDate
 
 | 변수 | 치환값 [기본값] | 적용 대상 |
 |---|---|---|
@@ -172,17 +252,17 @@ v1은 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom
   - 예약 렌더: occurrence가 속한 KST 날짜
   - 지금 인쇄·미리보기: 요청 시점의 KST 오늘(미리보기는 `?date=`로 지정 가능)
 - 모르는 변수(예: `{{time}}`)는 **문자 그대로** 출력한다. 검증 오류가 아니다 [기본값].
-- v1에는 이스케이프 문법이 없다.
+- v2에는 이스케이프 문법이 없다.
 - **알려진 한계(PoC 수용)**: Pi가 오래 오프라인이면 마지막으로 받은 렌더를 인쇄하므로 날짜·날씨가 그 렌더 시점 값으로 나온다.
 
-## 7. 보안 — 임의 HTML/CSS/JS를 받지 않는 이유
+## 9. 보안 — 임의 HTML/CSS/JS를 받지 않는 이유
 
 렌더러는 서버 안의 헤드리스 Chromium이다. 서버는 운영 중인 다른 서비스들과 같은 LAN·tailnet에 있다.
 
 - **SSRF**: 남이 만든 HTML이 `<img src="http://내부주소:포트">`, CSS `url()`, `@import`로 서버 LAN·tailnet 내부 주소(다른 컨테이너의 3000/8080 포트, DB 관리 페이지 등)에 요청을 보낼 수 있다. 응답 내용이 렌더 PNG에 찍혀 밖으로 새어 나갈 수 있다.
 - **JS 실행**: 스크립트가 렌더 중 임의 동작을 할 수 있다.
 
-그래서 v1은 다음을 지킨다.
+그래서 v2도 v1과 같이 다음을 지킨다.
 
 - 포맷에 HTML/CSS/JS를 담는 필드가 없다. 텍스트는 HTML 이스케이프 후 삽입한다.
 - 폰트는 내장 폰트 enum, 이미지는 업로드 에셋만(외부 URL 불가).
@@ -190,12 +270,12 @@ v1은 **직전 출처 한 단계만** 기록한다. 원본 파일의 `forkedFrom
 
 HTML 템플릿 블록은 **네트워크·JS가 차단된 샌드박스가 검증된 뒤에만** 재검토한다.
 
-## 8. 향후 확장
+## 10. 향후 확장
 
 - **내 스타일 입히기**: 저장해 둔 스타일 객체로 가져온 포맷의 `style`(필요하면 블록 `style`)을 덮어쓴다. v1에서 `style`을 분리해 둔 이유다.
 - **새 블록 타입·필드 추가 절차** [기본값]
   1. 이 문서에 표 추가
-  2. `schemaVersion` 올리기(예: 2). 서버는 자기가 아는 최대 버전 이하만 받고, 더 새 버전 파일은 422로 명확히 거부
+  2. `schemaVersion` 올리기(예: 3). 서버는 자기가 아는 최대 버전 이하만 받고, 더 새 버전 파일은 422로 명확히 거부
   3. 서버 검증기 + 렌더 템플릿 + (필요하면) 동적 데이터 제공자
   4. 앱 편집기
   5. 이전 버전 문서는 읽을 때 서버 코드에서 새 버전으로 올려 변환(up-convert)
