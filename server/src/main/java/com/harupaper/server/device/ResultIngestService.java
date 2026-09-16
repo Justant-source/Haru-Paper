@@ -27,7 +27,7 @@ public class ResultIngestService {
     private final DeviceRepository deviceRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean ingestNew(DeviceDto.ResultDto resultDto) {
+    public boolean ingestNew(Device device, DeviceDto.ResultDto resultDto) {
         if (resultRepository.existsById(resultDto.resultId())) {
             return false;
         }
@@ -35,6 +35,8 @@ public class ResultIngestService {
         Instant now = Instant.now();
         Result result = Result.builder()
                 .id(resultDto.resultId())
+                .ownerUserId(device.getOwnerUserId())
+                .deviceId(device.getId())
                 .occurrenceKey(blankToNull(resultDto.occurrenceKey()))
                 .commandId(blankToNull(resultDto.commandId()))
                 .formatId(resultDto.formatId())
@@ -63,8 +65,7 @@ public class ResultIngestService {
             }
         }
 
-        Device device = deviceRepository.findById(1).orElse(null);
-        if (device != null && "manual_flag".equals(device.getPaperPolicy())) {
+        if ("manual_flag".equals(device.getPaperPolicy())) {
             if ("failed".equals(resultDto.status()) || "skipped_printer_offline".equals(resultDto.status())) {
                 device.setPaperStateManual(false);
                 device.setPaperStateUpdatedAt(now);

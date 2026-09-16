@@ -4,6 +4,7 @@ import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.render.Render;
 import com.harupaper.server.render.RenderRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,11 +49,15 @@ public class DeviceSyncController {
      * (docs/server/api.md 6절 "poll 처리 순서")
      */
     @PostMapping("/poll")
-    public ResponseEntity<DeviceDto.PollResponse> poll(@RequestBody DeviceDto.PollRequest request) {
-        log.debug("Poll received from Pi: agentVersion={}, snapshotHash={}",
-                request.agentVersion(), request.snapshotHash());
+    public ResponseEntity<DeviceDto.PollResponse> poll(
+            HttpServletRequest request,
+            @RequestBody DeviceDto.PollRequest pollRequest) {
+        Device device = (Device) request.getAttribute(DeviceTokenAuthFilter.DEVICE_ATTRIBUTE);
 
-        DeviceDto.PollResponse response = deviceSyncService.processPoll(request);
+        log.debug("Poll received from Pi: agentVersion={}, snapshotHash={}",
+                pollRequest.agentVersion(), pollRequest.snapshotHash());
+
+        DeviceDto.PollResponse response = deviceSyncService.processPoll(device, pollRequest);
 
         log.debug("Poll response: snapshotChanged={}, commandCount={}",
                 response.snapshotChanged(), response.commands().size());
@@ -65,10 +70,12 @@ public class DeviceSyncController {
      * snapshotChanged일 때만 Pi가 부른다.
      */
     @GetMapping("/snapshot")
-    public ResponseEntity<DeviceDto.SnapshotResponse> getSnapshot() {
+    public ResponseEntity<DeviceDto.SnapshotResponse> getSnapshot(HttpServletRequest request) {
+        Device device = (Device) request.getAttribute(DeviceTokenAuthFilter.DEVICE_ATTRIBUTE);
+
         log.debug("Snapshot requested by Pi");
 
-        DeviceDto.SnapshotResponse response = deviceSyncService.buildSnapshot();
+        DeviceDto.SnapshotResponse response = deviceSyncService.buildSnapshot(device);
 
         log.debug("Snapshot response: scheduleCount={}, renderCount={}",
                 response.schedules().size(), response.renders().size());
@@ -112,16 +119,19 @@ public class DeviceSyncController {
      */
     @PostMapping("/results")
     public ResponseEntity<DeviceDto.ResultsResponse> postResults(
-            @RequestBody DeviceDto.ResultsRequest request) {
-        if (request == null || request.results() == null) {
+            HttpServletRequest request,
+            @RequestBody DeviceDto.ResultsRequest resultsRequest) {
+        Device device = (Device) request.getAttribute(DeviceTokenAuthFilter.DEVICE_ATTRIBUTE);
+
+        if (resultsRequest == null || resultsRequest.results() == null) {
             throw new ValidationException("results is required", List.of(
                     new ValidationException.FieldError("results", "must not be null")
             ));
         }
 
-        log.debug("Results received from Pi: {} results", request.results().size());
+        log.debug("Results received from Pi: {} results", resultsRequest.results().size());
 
-        DeviceDto.ResultsResponse response = deviceSyncService.processResults(request);
+        DeviceDto.ResultsResponse response = deviceSyncService.processResults(device, resultsRequest);
 
         log.debug("Results processed: {} accepted, {} duplicates",
                 response.accepted().size(), response.duplicates().size());

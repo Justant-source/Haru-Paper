@@ -20,7 +20,9 @@ public class PrinterProfileProviderImpl implements PrinterProfileProvider {
 
     @Override
     public PrinterProfile getCurrentProfile() {
-        Device device = deviceRepository.findById(1).orElse(null);
+        // 폴백: 아무 기기나 하나 (RenderScheduler가 호출할 때, 여러 기기가 있으면
+        // 이 메서드는 각각을 순회해야 하므로 3번 개선에서 없어진다)
+        Device device = deviceRepository.findAll().stream().findFirst().orElse(null);
 
         if (device == null || device.getPrinterProfile() == null || device.getPrinterProfile().isBlank()) {
             log.debug("Device printer profile not found or empty, using DEFAULT");
@@ -31,6 +33,25 @@ public class PrinterProfileProviderImpl implements PrinterProfileProvider {
             return objectMapper.readValue(device.getPrinterProfile(), PrinterProfile.class);
         } catch (Exception e) {
             log.error("Failed to deserialize printer profile from device, using DEFAULT", e);
+            return PrinterProfile.DEFAULT;
+        }
+    }
+
+    /**
+     * 특정 사용자의 기기 프로필을 가져온다 (렌더링에서 소유자별로 호출).
+     */
+    public PrinterProfile getCurrentProfile(String ownerUserId) {
+        Device device = deviceRepository.findByOwnerUserId(ownerUserId).orElse(null);
+
+        if (device == null || device.getPrinterProfile() == null || device.getPrinterProfile().isBlank()) {
+            log.debug("Device printer profile not found for user {}, using DEFAULT", ownerUserId);
+            return PrinterProfile.DEFAULT;
+        }
+
+        try {
+            return objectMapper.readValue(device.getPrinterProfile(), PrinterProfile.class);
+        } catch (Exception e) {
+            log.error("Failed to deserialize printer profile for user {}, using DEFAULT", ownerUserId, e);
             return PrinterProfile.DEFAULT;
         }
     }

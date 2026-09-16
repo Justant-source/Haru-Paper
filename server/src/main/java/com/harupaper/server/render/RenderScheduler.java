@@ -2,6 +2,8 @@ package com.harupaper.server.render;
 
 import com.harupaper.server.common.time.ClockProvider;
 import com.harupaper.server.common.time.TimeUtils;
+import com.harupaper.server.device.Device;
+import com.harupaper.server.device.DeviceRepository;
 import com.harupaper.server.device.PrinterProfileProvider;
 import com.harupaper.server.format.Format;
 import com.harupaper.server.format.FormatDocumentSupport;
@@ -37,6 +39,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RenderScheduler {
 
+    private final DeviceRepository deviceRepository;
     private final ScheduleRepository scheduleRepository;
     private final FormatRepository formatRepository;
     private final RenderRepository renderRepository;
@@ -50,41 +53,47 @@ public class RenderScheduler {
         log.debug("RenderScheduler: scanning for upcoming occurrences");
 
         try {
-            List<Schedule> enabledSchedules = scheduleRepository.findAllByEnabledTrue();
-            String currentProfileKey = printerProfileProvider.getCurrentProfile().profileKey();
+            // 기기별로 순회하면서 각 기기의 소유자의 예약을 처리
+            List<Device> devices = deviceRepository.findAll();
+            for (Device device : devices) {
+                String ownerUserId = device.getOwnerUserId();
+                String currentProfileKey = printerProfileProvider.getCurrentProfile(ownerUserId).profileKey();
 
-            for (Schedule schedule : enabledSchedules) {
-                Format format = formatRepository.findById(schedule.getFormatId())
-                        .orElse(null);
-                if (format == null) {
-                    log.warn("Format not found for schedule: {}", schedule.getId());
-                    continue;
-                }
+                List<Schedule> enabledSchedules = scheduleRepository.findAllByOwnerUserIdAndEnabledTrue(ownerUserId);
 
-                // Occurrence 계산 (지금부터 36시간 안)
-                Set<LocalDate> occurrenceDates = calculateOccurrences(schedule);
-
-                for (LocalDate targetDate : occurrenceDates) {
-                    // 렌더 필요 여부 확인
-                    if (shouldRender(format, targetDate, currentProfileKey)) {
-                        try {
-                            renderService.renderForScheduled(format.getId(), targetDate);
-                            log.info("Scheduled render created: format={}, date={}", format.getId(), targetDate);
-                        } catch (Exception e) {
-                            log.error("Failed to render scheduled format: {} for {}",
-                                    format.getId(), targetDate, e);
-                        }
+                for (Schedule schedule : enabledSchedules) {
+                    Format format = formatRepository.findById(schedule.getFormatId())
+                            .orElse(null);
+                    if (format == null) {
+                        log.warn("Format not found for schedule: {}", schedule.getId());
+                        continue;
                     }
 
-                    // 동적 포맷: occurrence 60분 전에 다시 렌더
-                    if (FormatDocumentSupport.hasDynamicBlocks(parseFormatDocument(format))) {
-                        if (shouldRenderBeforeOccurrence(format, targetDate, schedule.getTime(), currentProfileKey)) {
+                    // Occurrence 계산 (지금부터 36시간 안)
+                    Set<LocalDate> occurrenceDates = calculateOccurrences(schedule);
+
+                    for (LocalDate targetDate : occurrenceDates) {
+                        // 렌더 필요 여부 확인
+                        if (shouldRender(format, targetDate, currentProfileKey)) {
                             try {
                                 renderService.renderForScheduled(format.getId(), targetDate);
-                                log.info("Dynamic format re-render (60min before): format={}, date={}",
-                                        format.getId(), targetDate);
+                                log.info("Scheduled render created: format={}, date={}", format.getId(), targetDate);
                             } catch (Exception e) {
-                                log.error("Failed to re-render dynamic format", e);
+                                log.error("Failed to render scheduled format: {} for {}",
+                                        format.getId(), targetDate, e);
+                            }
+                        }
+
+                        // 동적 포맷: occurrence 60분 전에 다시 렌더
+                        if (FormatDocumentSupport.hasDynamicBlocks(parseFormatDocument(format))) {
+                            if (shouldRenderBeforeOccurrence(format, targetDate, schedule.getTime(), currentProfileKey)) {
+                                try {
+                                    renderService.renderForScheduled(format.getId(), targetDate);
+                                    log.info("Dynamic format re-render (60min before): format={}, date={}",
+                                            format.getId(), targetDate);
+                                } catch (Exception e) {
+                                    log.error("Failed to re-render dynamic format", e);
+                                }
                             }
                         }
                     }

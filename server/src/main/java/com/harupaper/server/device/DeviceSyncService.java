@@ -58,12 +58,8 @@ public class DeviceSyncService {
      * (docs/server/api.md 6절 "poll 처리 순서")
      */
     @Transactional
-    public DeviceDto.PollResponse processPoll(DeviceDto.PollRequest request) {
+    public DeviceDto.PollResponse processPoll(Device device, DeviceDto.PollRequest request) {
         Instant now = Instant.now();
-
-        Device device = deviceRepository.findById(1).orElseGet(() ->
-                Device.builder().id(1).paperStateManual(false).build()
-        );
 
         // 1. device 행 갱신
         String prevProfileKey = device.getPrinterProfile() != null ?
@@ -97,7 +93,7 @@ public class DeviceSyncService {
         }
 
         // 3. 현재 스냅샷의 snapshotHash 계산 → snapshotChanged 확인
-        DeviceDto.SnapshotResponse snapshot = buildSnapshot();
+        DeviceDto.SnapshotResponse snapshot = buildSnapshot(device);
         String currentHash = snapshotHashCalculator.calculate(snapshot.schedules(), snapshot.renders());
         boolean snapshotChanged = !currentHash.equals(request.snapshotHash());
 
@@ -168,21 +164,24 @@ public class DeviceSyncService {
      * GET /api/device/snapshot 응답 빌드
      */
     @Transactional(readOnly = true)
-    public DeviceDto.SnapshotResponse buildSnapshot() {
-        List<Schedule> allSchedules = scheduleRepository.findAll();
+    public DeviceDto.SnapshotResponse buildSnapshot(Device device) {
+        String ownerUserId = device.getOwnerUserId();
+
+        // 그 기기 소유자의 모든 예약
+        List<Schedule> allSchedules = scheduleRepository.findAllByOwnerUserId(ownerUserId);
         List<DeviceDto.ScheduleDto> scheduleDtos = allSchedules.stream()
                 .map(this::toScheduleDto)
                 .sorted(Comparator.comparing(DeviceDto.ScheduleDto::id))
                 .collect(Collectors.toList());
 
         // 켜진 예약이 참조하는 포맷들의 렌더를 포함
-        List<Schedule> enabledSchedules = scheduleRepository.findAllByEnabledTrue();
+        List<Schedule> enabledSchedules = scheduleRepository.findAllByOwnerUserIdAndEnabledTrue(ownerUserId);
         Set<String> enabledFormatIds = enabledSchedules.stream()
                 .map(Schedule::getFormatId)
                 .collect(Collectors.toSet());
 
         // 현재 profileKey 계산
-        PrinterProfile profile = getCurrentProfile();
+        PrinterProfile profile = getCurrentProfile(device);
         String profileKey = profile.profileKey();
 
         // 36시간 안의 occurrence 날짜를 포맷별로 계산
@@ -236,7 +235,7 @@ public class DeviceSyncService {
      * POST /api/device/results 처리 (멱등)
      */
     @Transactional
-    public DeviceDto.ResultsResponse processResults(DeviceDto.ResultsRequest request) {
+    public DeviceDto.ResultsResponse processResults(Device device, DeviceDto.ResultsRequest request) {
         List<String> accepted = new ArrayList<>();
         List<String> duplicates = new ArrayList<>();
         List<ValidationException.FieldError> errors = new ArrayList<>();
@@ -280,7 +279,7 @@ public class DeviceSyncService {
         }
 
         for (DeviceDto.ResultDto resultDto : request.results()) {
-            if (resultIngestService.ingestNew(resultDto)) {
+            if (resultIngestService.ingestNew(device, resultDto)) {
                 accepted.add(resultDto.resultId());
             } else {
                 duplicates.add(resultDto.resultId());
@@ -291,10 +290,9 @@ public class DeviceSyncService {
     }
 
     /**
-     * 프린터 프로필 조회 (현재 device 테이블의 값)
+     * 프린터 프로필 조회 (주어진 device의 값)
      */
-    private PrinterProfile getCurrentProfile() {
-        Device device = deviceRepository.findById(1).orElse(null);
+    private PrinterProfile getCurrentProfile(Device device) {
         if (device != null && device.getPrinterProfile() != null && !device.getPrinterProfile().isBlank()) {
             try {
                 return objectMapper.readValue(device.getPrinterProfile(), PrinterProfile.class);
