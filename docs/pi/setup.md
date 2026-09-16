@@ -4,7 +4,8 @@
 > 최초 결정: [../init_plan.md](../init_plan.md) 3장·8.1·10절 M5, Q24·Q34.
 > 공식 이미지의 파일명·기본 계정·헤드리스 Wi-Fi 설정 방법은 이미지를 직접 내려받아 확인했다(4.1~4.2절).
 > **2026-09-16 실물 Orange Pi Zero 2W 첫 부팅·SSH 접속 완료.** 계정 `orangepi`, 이미지 기본 비밀번호로 그대로 접속됨(마법사 강제 변경 없음, 4.2절 — 비밀번호 값은 공개 저장소에 적지 않음), 고정 IP·타임존·NTP 대기·Wi-Fi 절전 끄기까지 적용하고 재부팅으로 유지 확인(4.3~4.4절). 이후 계정을 `justant`로 rename, SSH 키 인증 전환, Tailscale 연결까지 완료(4.5절).
-> `install.sh`는 이미 존재하나(`pi/deploy/install.sh`) 실물 실행은 아직, systemd unit(6절)·overlayfs(7.1절)도 아직 적용 전이라 [미검증]으로 남아 있다.
+> **2026-09-16 서버 세션(`justant-server2`)에서 `install.sh` 실물 실행 완료.** Tailscale로 Pi에 SSH가 닿는 것을 이용해, 노트북이 아니라 서버 세션이 이번 1회에 한해 사용자 승인을 받고 `/pi`·`/docs/pi`를 작업했다(평소에는 노트북 세션 담당, `CLAUDE.md` 참고). `haru-paper-agent`가 systemd로 떠서 실제로 서버를 폴링하고, **재부팅 후에도 자동으로 복구되는 것까지 확인**했다 — 5·6·9절 참고. overlayfs(7.1절)는 아직 적용 전(개발 구간이라 의도적으로 미룸).
+> **프린터는 Pi에 물리적으로 연결돼 있지 않다.** Pi와 M832는 각자 별도 USB-C 충전기로 전원만 받고, 연결은 앞으로 BT 또는 Wi-Fi로만 한다(사용자 확인, 2026-09-16) — 3장의 USB 직결 시험(V4)과 3.1~3.4의 프린터 실물 시험은 이번에 하지 않았다.
 
 ## 1. 보드 사양 (구매 정보)
 
@@ -190,9 +191,40 @@ sudo tailscale up --hostname=haru-pi
 
   Pi(`haru-pi`, tailnet IP `100.117.239.83`)가 서버(`justant-server2`)·노트북과 **같은 tailnet에서 서로 온라인**으로 확인됨. 이제 물리적으로 노트북이 아닌 **서버(`justant-server2`)에서도 Tailscale을 통해 Pi에 SSH 접속이 가능하다** — 다만 이 저장소 `CLAUDE.md`의 "노트북 세션 → `/pi`, `/docs/pi`" 담당 규칙은 프린터가 물리적으로 노트북에 USB로 붙어 있다는 전제로 정해둔 것이라, Pi의 네트워크 도달성과는 별개다. 담당을 서버 세션으로 옮기려면 `CLAUDE.md`를 사용자가 직접(또는 요청해서) 고쳐야 한다 — 이번 세션에서는 고치지 않았다.
 
-## 5. `install.sh` — 이미 작성됨 (`pi/deploy/install.sh`, `pi/deploy/haru-paper-agent.service`)
+## 5. `install.sh` — 실물 실행 완료 [확인됨·실물, 2026-09-16]
 
-[미검증] 이 절의 아래 목록은 원래 계획(스펙)이고, 실제 `pi/deploy/install.sh` 내용을 오늘 이 목록과 한 줄씩 대조하지는 않았다 — 이번 세션은 Pi OS/네트워크 설정(4절)만 다뤘다. 실물 Pi에서 `install.sh`를 아직 실행해 보지 않았으므로 M5 통과 조건(9절)의 "재부팅 후 자동 시작" 확인은 여전히 남아 있다.
+`pi/deploy/install.sh`, `pi/deploy/haru-paper-agent.service`. 서버 세션이 Tailscale SSH로 `haru-pi`(100.117.239.83)에서 처음 실행했다. 목록 12단계 전부 스크립트에 있는 그대로 동작을 확인했다(아래 5.1 결함 3건을 고친 뒤).
+
+### 5.1 실행 전 고친 결함 3건
+
+스크립트를 그대로 실물에서 돌리자 곧바로 죽었다. 전부 고치고 커밋(`97247ea`, `16f16da`)한 뒤에야 끝까지 통과했다.
+
+| # | 증상 | 원인 | 고침 |
+|---|---|---|---|
+| 1 | 4단계(venv 생성)에서 `Permission denied`로 스크립트 전체 종료 | `sudo git clone`이 `/opt/haru-paper`를 root 소유로 만드는데, 그 다음 `python3 -m venv`·`pip install`은 sudo 없이 실행돼 root 소유 디렉터리에 못 씀 | clone 직후 `sudo chown -R haru:haru`로 저장소 소유권을 서비스 계정으로 옮김. 이후 venv·pip·`.env` 복사는 `sudo -u haru`로 통일 |
+| 2 | (1을 고친 뒤 재실행에서 새로 발견) 3단계(git pull)에서 `detected dubious ownership in repository` | 저장소가 haru 소유가 됐는데 `git pull`은 여전히 root(sudo)로 실행 — Git 2.35.2+ 보호 기능에 걸림 | `git pull`도 `sudo -u haru`로 통일(clone은 최초 1회뿐이라 root 유지, 이후 pull만 haru) |
+| 3 | plugdev·bluetooth 그룹에 `haru`가 안 들어감(USB 접근 실패 위험) | `if sudo usermod ... || [ $? -eq 4 ]`가 `usermod`가 아니라 `||` 좌변 전체의 종료코드를 봄. Debian 12의 실제 실패 코드는 4가 아니라 다름 | 그룹 존재 여부를 `grep`으로 직접 확인 후 무조건 `usermod -a -G`를 시도하는 방식으로 재작성 |
+
+부수 효과: 저장소가 root가 아니라 `haru` 소유가 되면서 `.env`(mode 600)도 `haru` 소유가 돼, `EnvironmentFile=`로 읽는 systemd `User=haru`와 자연히 맞아떨어졌다(별도 권한 조정 불필요).
+
+### 5.2 기기 토큰 발급 — M6부터 절차가 바뀜
+
+`pi/.env.example`의 안내("서버 `server/.env`의 `HARU_DEVICE_TOKEN`과 같은 값")는 **더 이상 맞지 않는다.** M6부터 토큰은 서버 `.env`의 단일 값이 아니라 **기기별로 DB에 해시 저장**된다(`server/.../device/DeviceTokenAuthFilter.java` 주석 확인). 기존에 로컬 개발용으로 쓰던 `pi/.env`의 토큰을 그대로 Pi에 넣었더니 `POST /api/device/poll`이 401을 반환했다(무효화됨, 확인됨).
+
+**발급 절차 [확인됨·실물]**: 웹앱(`https://justant-server2.tail2b65d1.ts.net`) 로그인 → 기기 메뉴 → "토큰 발급받기"(`POST /api/devices/me/token`) → 응답에 평문 토큰이 **이번 한 번만** 표시됨 → `pi/.env`의 `HARU_DEVICE_TOKEN`에 저장. 재발급하면 이전 토큰은 즉시 무효화된다(기기당 1개).
+
+### 5.3 폴링 확인 [확인됨·실물]
+
+```
+POST /api/device/poll HTTP/1.1" 200
+GET /api/device/snapshot HTTP/1.1" 200
+```
+
+재부팅 전·후 모두 위 로그를 확인했다(9절 M5 통과 조건).
+
+**별도로 확인된 문서 불일치(이번 범위 밖, 기록만)**: `docs/architecture.md`는 `GET /api/device`를 "인증 없음(앱용)"으로 규정하지만, 실제로는 인증 없이 호출하면 401("로그인이 필요하다")을 반환한다. 서버 코드 또는 문서 중 하나가 갱신이 필요하다 — 이번 세션은 `/pi`·`/docs/pi` 범위라 손대지 않았다.
+
+이 절의 아래 목록은 위 실행으로 전부 확인된 스펙이다.
 
 `/pi/deploy/install.sh`. **여러 번 실행해도 안전(idempotent)**해야 한다. 할 일:
 
@@ -211,7 +243,7 @@ sudo tailscale up --hostname=haru-pi
 
 배포(PoC): Pi에서 `cd /opt/haru-paper && git pull --ff-only && sudo systemctl restart haru-paper-agent` (또는 `install.sh` 재실행).
 
-## 6. systemd unit 개요 [기본값, M5에서 작성]
+## 6. systemd unit 개요 [확인됨·실물, 2026-09-16]
 
 ```ini
 [Unit]
@@ -235,6 +267,7 @@ WantedBy=multi-user.target
 - **`Requires=network-online.target`을 쓰지 않는다** — 인터넷이 없어도 에이전트는 시작해서 캐시로 인쇄해야 한다.
 - `StateDirectory=haru-paper` → `/var/lib/haru-paper` ([agent.md](agent.md) 4절)
 - 시계 미동기 상태에서도 서비스는 뜨고, 인쇄만 보류한다([policy.md](policy.md) 4절)
+- **실물 재부팅 검증 [확인됨·실물, 2026-09-16]**: `sudo reboot` 후 별도 조작 없이 `haru-paper-agent`가 `active`/`enabled`로 다시 뜨고, 부팅 약 40초 만에 `POST /api/device/poll`이 200을 받는 것을 확인했다(로그 타임스탬프로 대조).
 
 ## 7. SD카드 보호
 
@@ -244,7 +277,7 @@ WantedBy=multi-user.target
 | 보낸 바이트 | 30일 순환 (`HARU_SENT_RETENTION_DAYS`) |
 | PNG 캐시 | 참조 안 되는 오래된 렌더 정리 (M4에서 기준 결정) |
 | 에이전트 쓰기 | `kv.last_tick_at` 갱신 간격을 너무 짧게 하지 않음 |
-| 스왑 | RAM 1GB — 이미지 기본 zram/스왑 설정 확인 후 SD 스왑은 쓰지 않는 방향 [미검증: 기본 설정] |
+| 스왑 | **[확인됨·실물, 2026-09-16]** 이미지 기본값이 `/dev/zram0`(502708KB) — SD카드 기반 스왑 파일이 아니라 압축 메모리라 SD 수명에 영향 없음. `free -h` 기준 `RAM 981Mi / swap 490Mi`. 별도 조치 불필요 |
 
 ### 7.1 read-only 루트파일시스템 전환 (30일 시작 조건)
 
@@ -273,9 +306,11 @@ WantedBy=multi-user.target
 
 ## 9. M5 통과 조건 (init_plan 10절)
 
-- 재부팅 후 `haru-paper-agent`가 **자동 시작**
-- 서버 폴링 정상 (서버 앱의 기기 화면에 마지막 폴링 시각 표시)
-- V3·V4 결과로 **연결 방식 결정** ([hardware-verification.md](hardware-verification.md))
-- 결정된 transport로 **실물 인쇄 1회**
+- [x] 재부팅 후 `haru-paper-agent`가 **자동 시작** — **[확인됨·실물, 2026-09-16]** 5·6절
+- [x] 서버 폴링 정상 — **[확인됨·실물, 2026-09-16]** `POST /api/device/poll` 200, `GET /api/device/snapshot` 200 (재부팅 전후 모두). 다만 "서버 앱의 기기 화면에 마지막 폴링 시각 표시"는 앱 화면으로 직접 보지는 않았다(로그로 확인) — `GET /api/device`가 문서(무인증)와 달리 401을 반환하는 문제가 있어(5.3절) 앱 화면 확인은 이 문제 해소 후로 남는다
+- [ ] V3·V4 결과로 **연결 방식 결정** ([hardware-verification.md](hardware-verification.md)) — **미착수.** 사용자가 Pi와 M832를 물리적으로 연결하지 않고 BT/Wi-Fi로만 잇겠다고 확정했으므로(2026-09-16) **V4(USB 직결)는 대상에서 제외**되고 V1~V3(BT 경로)만 남는다. V3(Pi 내장 BT 재부팅 20회 생존)는 프린터 페어링 없이도 가능하지만 이번 세션에서는 하지 않았다
+- [ ] 결정된 transport로 **실물 인쇄 1회** — 프린터가 Pi에 아직 없어 미착수. 현재 `HARU_PRINTER_DRIVER=fake`로 소프트웨어 경로만 살아있는 상태
+
+**현재 상태 요약**: 4개 중 2개 완료. 남은 2개는 프린터를 Pi 쪽 BT/Wi-Fi로 붙여야 진행 가능하다 — 프린터가 물리적으로 노트북에 있는 동안은 이 저장소·세션 담당 규칙(`CLAUDE.md` "노트북 세션: 프린터가 USB로 붙어 있음")대로 노트북 세션이 이어서 진행한다.
 
 M5 이후 PoC 완료 시험(WAN 차단 상태 07:00 인쇄 + 복구 후 이력, 3일 연속)으로 간다.
