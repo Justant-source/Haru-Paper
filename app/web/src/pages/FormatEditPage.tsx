@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { formatsApi } from '../api/formats'
+import { deviceApi } from '../api/device'
 import {
   DEFAULT_STYLE,
   newBlock,
   type FormatDocument,
   type Block,
   type BlockType,
+  type Row,
   type TextProps,
   type ImageProps,
   type DateHeaderProps,
@@ -17,8 +19,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { BottomSheet } from '../components/BottomSheet'
-import { IconBack, IconClose } from '../components/icons'
-import { BlockList } from '../format-editor/BlockList'
+import { IconBack } from '../components/icons'
 import { StyleForm } from '../format-editor/StyleForm'
 import { BlockStyleForm } from '../format-editor/BlockStyleForm'
 import { TextBlockForm } from '../format-editor/blocks/TextBlockForm'
@@ -27,6 +28,13 @@ import { DateHeaderBlockForm } from '../format-editor/blocks/DateHeaderBlockForm
 import { WeatherBlockForm } from '../format-editor/blocks/WeatherBlockForm'
 import { Preview } from '../format-editor/Preview'
 import { useI18n } from '../i18n'
+// 다른 에이전트들이 만드는 컴포넌트. 아직 없으면 위에 주석으로 남겨두고 먼저 코드 구조만 짜라
+// import { LayoutCanvas } from '../format-editor/LayoutCanvas'
+// import { WidgetPalette } from '../format-editor/WidgetPalette'
+
+// PrinterProfile.DEFAULT 값 (서버와 같은 값)
+// 기준: 110mm 롤, 300dpi → 1304px
+const DEFAULT_PRINTER_WIDTH_PX = 1304
 
 const BLOCK_TYPES: { type: BlockType; label: string }[] = [
   { type: 'text', label: '텍스트' },
@@ -44,10 +52,10 @@ export function FormatEditPage() {
     id
       ? null
       : {
-          schemaVersion: 1,
+          schemaVersion: 2,
           meta: { name: '', author: '', description: '' },
           style: DEFAULT_STYLE,
-          blocks: [],
+          rows: [],
         },
   )
   const [loading, setLoading] = useState(!!id)
@@ -55,11 +63,13 @@ export function FormatEditPage() {
   const [saveError, setSaveError] = useState<unknown>(null)
   const [saved, setSaved] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit')
-  const [addBlockOpen, setAddBlockOpen] = useState(false)
   const [leaveOpen, setLeaveOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
-  const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | null>(null)
+  // 슬롯 선택 상태: rowId와 slotId 쌍
+  const [selectedSlot, setSelectedSlot] = useState<{ rowId: string; slotId: string } | null>(null)
+
+  const [printerWidthPx, setPrinterWidthPx] = useState(DEFAULT_PRINTER_WIDTH_PX)
 
   const initialDocRef = useRef<FormatDocument | null>(null)
   const savedRef = useRef(true)
@@ -67,6 +77,22 @@ export function FormatEditPage() {
   useEffect(() => {
     savedRef.current = saved
   }, [saved])
+
+  // 기기 정보 로드 (프린터 폭 가져오기)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const device = await deviceApi.get()
+        if (device.printerProfile?.printableWidthPx) {
+          setPrinterWidthPx(device.printerProfile.printableWidthPx)
+        }
+      } catch (e) {
+        // 기기 로드 실패는 로깅만 하고 기본값 사용
+        console.debug('Failed to load device profile, using default printer width')
+      }
+    }
+    load()
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -148,19 +174,37 @@ export function FormatEditPage() {
     navigate('/')
   }
 
-  const addBlock = (type: BlockType) => {
-    if (!document) return
-    const blocks = [...document.blocks, newBlock(type)]
-    handleDocumentChange({ ...document, blocks })
-    setSelectedBlockIndex(blocks.length - 1)
-    setAddBlockOpen(false)
+  // 선택된 슬롯의 블록을 찾는 헬퍼
+  const findBlockInSelectedSlot = (): { block: Block; rowIndex: number; slotIndex: number } | null => {
+    if (!document || !selectedSlot) return null
+
+    for (let rowIndex = 0; rowIndex < document.rows.length; rowIndex++) {
+      const row = document.rows[rowIndex]
+      if (row.id === selectedSlot.rowId) {
+        for (let slotIndex = 0; slotIndex < row.slots.length; slotIndex++) {
+          const slot = row.slots[slotIndex]
+          if (slot.id === selectedSlot.slotId) {
+            return { block: slot.block, rowIndex, slotIndex }
+          }
+        }
+      }
+    }
+    return null
   }
 
-  const updateSelectedBlock = (patch: Partial<Block>) => {
-    if (!document || selectedBlockIndex === null) return
-    const newBlocks = [...document.blocks]
-    newBlocks[selectedBlockIndex] = { ...newBlocks[selectedBlockIndex], ...patch }
-    handleDocumentChange({ ...document, blocks: newBlocks })
+  // 선택된 슬롯의 블록을 업데이트
+  const updateSelectedBlockInSlot = (patch: Partial<Block>) => {
+    if (!document || !selectedSlot) return
+
+    const found = findBlockInSelectedSlot()
+    if (!found) return
+
+    const { rowIndex, slotIndex } = found
+    const newRows = JSON.parse(JSON.stringify(document.rows)) as Row[]
+    const updatedBlock = { ...newRows[rowIndex].slots[slotIndex].block, ...patch }
+    newRows[rowIndex].slots[slotIndex].block = updatedBlock
+
+    handleDocumentChange({ ...document, rows: newRows })
   }
 
   if (loading) {
@@ -198,8 +242,8 @@ export function FormatEditPage() {
     )
   }
 
-  const hasBlocks = document.blocks.length > 0
-  const selected = selectedBlockIndex !== null ? document.blocks[selectedBlockIndex] : undefined
+  const selectedBlockInfo = findBlockInSelectedSlot()
+  const selectedBlock = selectedBlockInfo?.block
   const saveProblem = saveError instanceof ApiError ? saveError : null
   const nameError = saveProblem?.fieldMessage('meta.name')
   const descError = saveProblem?.fieldMessage('meta.description')
@@ -267,148 +311,91 @@ export function FormatEditPage() {
         </div>
       </div>
 
-      <div className="format-edit-tabs">
-        <button
-          type="button"
-          className={`tab${activeTab === 'edit' ? ' active' : ''}`}
-          onClick={() => setActiveTab('edit')}
-        >
-          {t('editTab')}
-        </button>
-        <button
-          type="button"
-          className={`tab${activeTab === 'preview' ? ' active' : ''}`}
-          onClick={() => setActiveTab('preview')}
-        >
-          {t('previewTab')}
-        </button>
-      </div>
-
       <div className="format-edit-content">
-        {activeTab === 'edit' && (
-          <div className="format-edit-area">
-            <Card>
-              <details className="style-section">
-                <summary>전체 스타일</summary>
-                <StyleForm
-                  style={document.style || DEFAULT_STYLE}
-                  onChange={(style) => {
-                    handleDocumentChange({
-                      ...document,
-                      style,
-                    })
-                  }}
-                />
-              </details>
-            </Card>
+        <div className="format-edit-area">
+          <Card>
+            <details className="style-section">
+              <summary>전체 스타일</summary>
+              <StyleForm
+                style={document.style || DEFAULT_STYLE}
+                onChange={(style) => {
+                  handleDocumentChange({
+                    ...document,
+                    style,
+                  })
+                }}
+              />
+            </details>
+          </Card>
 
-            <div className="blocks-section">
-              <h2>블록</h2>
-
-              {!hasBlocks ? (
-                <Card className="empty-blocks">
-                  <p>블록을 추가하세요</p>
-                  <div className="add-block-buttons">
-                    {BLOCK_TYPES.map(({ type, label }) => (
-                      <Button key={type} variant="secondary" onClick={() => addBlock(type)}>
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
-                </Card>
-              ) : (
-                <>
-                  <Card>
-                    <BlockList
-                      blocks={document.blocks}
-                      selectedIndex={selectedBlockIndex}
-                      onSelect={setSelectedBlockIndex}
-                      onChange={(blocks) => {
-                        handleDocumentChange({
-                          ...document,
-                          blocks,
-                        })
-                      }}
-                    />
-                  </Card>
-
-                  <Button variant="secondary" onClick={() => setAddBlockOpen(true)}>
-                    {t('addBlock')}
-                  </Button>
-                </>
-              )}
-            </div>
-
-            {selected && selectedBlockIndex !== null && (
-              <Card>
-                <div className="sheet-head">
-                  <h2 className="sheet-title">블록 {selectedBlockIndex + 1} 편집</h2>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => setSelectedBlockIndex(null)}
-                    aria-label="닫기"
-                  >
-                    <IconClose />
-                  </button>
-                </div>
-
-                {selected.type === 'text' && (
-                  <TextBlockForm
-                    props={selected.props as unknown as TextProps}
-                    onChange={(props) => {
-                      updateSelectedBlock({ props: props as unknown as Record<string, unknown> })
-                    }}
-                  />
-                )}
-
-                {selected.type === 'image' && (
-                  <ImageBlockForm
-                    props={selected.props as unknown as ImageProps}
-                    onChange={(props) => {
-                      updateSelectedBlock({ props: props as unknown as Record<string, unknown> })
-                    }}
-                  />
-                )}
-
-                {selected.type === 'dateHeader' && (
-                  <DateHeaderBlockForm
-                    props={selected.props as unknown as DateHeaderProps}
-                    onChange={(props) => {
-                      updateSelectedBlock({ props: props as unknown as Record<string, unknown> })
-                    }}
-                  />
-                )}
-
-                {selected.type === 'weather' && (
-                  <WeatherBlockForm
-                    props={selected.props as unknown as WeatherProps}
-                    onChange={(props) => {
-                      updateSelectedBlock({ props: props as unknown as Record<string, unknown> })
-                    }}
-                  />
-                )}
-
-                <BlockStyleForm
-                  style={selected.style}
-                  onChange={(style) => {
-                    updateSelectedBlock({ style })
-                  }}
-                />
-              </Card>
-            )}
+          {/* LayoutCanvas 자리 (아직 컴포넌트가 없으면 stub으로 대체) */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p>레이아웃 캔버스 (구현 중)</p>
+            <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
+              정확히 보기
+            </Button>
           </div>
-        )}
 
-        {activeTab === 'preview' && <Preview document={document} />}
+          {/* WidgetPalette 자리 (아직 컴포넌트가 없으면 stub으로 대체) */}
+          <div style={{ marginBottom: '1rem' }}>
+            <p>블록 팔레트 (구현 중)</p>
+          </div>
+        </div>
       </div>
 
-      <BottomSheet open={addBlockOpen} title={t('addBlock')} onClose={() => setAddBlockOpen(false)}>
-        {BLOCK_TYPES.map(({ type, label }) => (
-          <button key={type} type="button" className="sheet-item" onClick={() => addBlock(type)}>
-            {label}
-          </button>
-        ))}
+      {/* 슬롯 속성 편집 BottomSheet */}
+      <BottomSheet open={!!selectedSlot} title={t('editingBlock')} onClose={() => setSelectedSlot(null)}>
+        {selectedBlock && (
+          <>
+            {selectedBlock.type === 'text' && (
+              <TextBlockForm
+                props={selectedBlock.props as unknown as TextProps}
+                onChange={(props) => {
+                  updateSelectedBlockInSlot({ props: props as unknown as Record<string, unknown> })
+                }}
+              />
+            )}
+
+            {selectedBlock.type === 'image' && (
+              <ImageBlockForm
+                props={selectedBlock.props as unknown as ImageProps}
+                onChange={(props) => {
+                  updateSelectedBlockInSlot({ props: props as unknown as Record<string, unknown> })
+                }}
+              />
+            )}
+
+            {selectedBlock.type === 'dateHeader' && (
+              <DateHeaderBlockForm
+                props={selectedBlock.props as unknown as DateHeaderProps}
+                onChange={(props) => {
+                  updateSelectedBlockInSlot({ props: props as unknown as Record<string, unknown> })
+                }}
+              />
+            )}
+
+            {selectedBlock.type === 'weather' && (
+              <WeatherBlockForm
+                props={selectedBlock.props as unknown as WeatherProps}
+                onChange={(props) => {
+                  updateSelectedBlockInSlot({ props: props as unknown as Record<string, unknown> })
+                }}
+              />
+            )}
+
+            <BlockStyleForm
+              style={selectedBlock.style}
+              onChange={(style) => {
+                updateSelectedBlockInSlot({ style })
+              }}
+            />
+          </>
+        )}
+      </BottomSheet>
+
+      {/* 미리보기 모달 */}
+      <BottomSheet open={previewOpen} title={t('exactPreview')} onClose={() => setPreviewOpen(false)}>
+        <Preview document={document} />
       </BottomSheet>
 
       <BottomSheet open={leaveOpen} title={t('leaveTitle')} onClose={() => setLeaveOpen(false)}>
