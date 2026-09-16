@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Route, Routes, Navigate } from 'react-router-dom'
+import { Route, Routes, Navigate, Outlet } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { LoginPage } from './pages/LoginPage'
 import { SignupPage } from './pages/SignupPage'
@@ -26,7 +26,13 @@ function ThemeSync() {
   return null
 }
 
-function ProtectedRoutes() {
+/**
+ * <Route>는 <Routes> 바로 아래 자식으로만 쓸 수 있다 — 함수 컴포넌트가 <Route>를
+ * 반환해서 element={<X/>}로 끼워 넣으면 React Router가 렌더 시점에 예외를 던지고
+ * 화면이 통째로 빈 채로 남는다(2026-09-16 실사용 중 발견). 인증 게이트는 <Outlet/>을
+ * 그리는 레이아웃 컴포넌트로 만들고, 실제 자식 라우트는 <Routes> 안에 직접 중첩한다.
+ */
+function RequireAuth() {
   const { status } = useAuthGuard()
 
   if (status === 'loading') {
@@ -41,20 +47,7 @@ function ProtectedRoutes() {
     return <Navigate to="/login" replace />
   }
 
-  return (
-    <Route element={<Layout />}>
-      <Route index element={<FormatListPage />} />
-      <Route path="formats/new" element={<FormatEditPage />} />
-      <Route path="formats/:id/edit" element={<FormatEditPage />} />
-      <Route path="schedules" element={<ScheduleListPage />} />
-      <Route path="print-now" element={<PrintNowPage />} />
-      <Route path="more" element={<MorePage />} />
-      <Route path="history" element={<HistoryPage />} />
-      <Route path="device" element={<DevicePage />} />
-      <Route path="settings" element={<SettingsPage />} />
-      <Route path="account" element={<AccountPage />} />
-    </Route>
-  )
+  return <Outlet />
 }
 
 export default function App() {
@@ -64,7 +57,20 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="*" element={<ProtectedRoutes />} />
+        <Route element={<RequireAuth />}>
+          <Route element={<Layout />}>
+            <Route index element={<FormatListPage />} />
+            <Route path="formats/new" element={<FormatEditPage />} />
+            <Route path="formats/:id/edit" element={<FormatEditPage />} />
+            <Route path="schedules" element={<ScheduleListPage />} />
+            <Route path="print-now" element={<PrintNowPage />} />
+            <Route path="more" element={<MorePage />} />
+            <Route path="history" element={<HistoryPage />} />
+            <Route path="device" element={<DevicePage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="account" element={<AccountPage />} />
+          </Route>
+        </Route>
       </Routes>
     </>
   )
