@@ -1,23 +1,25 @@
 package com.harupaper.server.device;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * DeviceTokenAuthFilter를 등록한다.
+ * DeviceTokenAuthFilter를 등록한다. M6부터 토큰은 DeviceRepository에서 조회한다
+ * (더 이상 .env 단일 토큰이 아니다).
  */
 @Configuration
+@RequiredArgsConstructor
 public class DeviceAuthFilterConfig {
 
-    @Bean
-    public FilterRegistrationBean<DeviceTokenAuthFilter> deviceTokenAuthFilterRegistration(
-            @Value("${haru.device-token}") String deviceToken,
-            ObjectMapper objectMapper) {
+    private final DeviceRepository deviceRepository;
+    private final ObjectMapper objectMapper;
 
-        DeviceTokenAuthFilter filter = new DeviceTokenAuthFilter(deviceToken, objectMapper);
+    @Bean
+    public FilterRegistrationBean<DeviceTokenAuthFilter> deviceTokenAuthFilterRegistration() {
+        DeviceTokenAuthFilter filter = new DeviceTokenAuthFilter(deviceRepository, objectMapper);
         FilterRegistrationBean<DeviceTokenAuthFilter> registration = new FilterRegistrationBean<>(filter);
 
         // URL 패턴: /api/device/* 로 넓게 설정하되,

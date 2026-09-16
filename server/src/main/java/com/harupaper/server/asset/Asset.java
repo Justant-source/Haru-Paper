@@ -24,6 +24,10 @@ public class Asset {
     @Id
     private String id;
 
+    /** NULL 허용 — M6 이전 레거시 행은 관리자가 claim-legacy로 채운다. */
+    @Column(name = "owner_user_id")
+    private String ownerUserId;
+
     @Column(name = "content_type", nullable = false, length = 50)
     private String contentType;
 

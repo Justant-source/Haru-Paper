@@ -26,6 +26,10 @@ public class Render {
     @Id
     private String id;
 
+    /** 렌더 시점 포맷 소유자를 복사해 둔다(이력 보존, FK 없음 — 프로젝트 관례). */
+    @Column(name = "owner_user_id")
+    private String ownerUserId;
+
     @Column(name = "format_id", nullable = false)
     private String formatId;
 

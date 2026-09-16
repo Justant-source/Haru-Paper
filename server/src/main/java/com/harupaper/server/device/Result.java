@@ -31,6 +31,13 @@ public class Result implements Persistable<String> {
     @Id
     private String id;
 
+    /** 결과를 보낸 기기와 그 소유자. FK 없음(이력 보존, 프로젝트 관례). */
+    @Column(name = "owner_user_id")
+    private String ownerUserId;
+
+    @Column(name = "device_id")
+    private String deviceId;
+
     @Column(name = "occurrence_key", length = 80)
     private String occurrenceKey;
 

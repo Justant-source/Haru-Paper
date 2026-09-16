@@ -2,5 +2,11 @@ package com.harupaper.server.device;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface DeviceRepository extends JpaRepository<Device, Integer> {
+import java.util.Optional;
+
+public interface DeviceRepository extends JpaRepository<Device, String> {
+
+    Optional<Device> findByTokenHash(String tokenHash);
+
+    Optional<Device> findByOwnerUserId(String ownerUserId);
 }

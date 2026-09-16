@@ -28,6 +28,13 @@ public class Command {
     @Id
     private String id;
 
+    /** 명령 생성 시점 요청자·대상 기기. FK 없음(이력 보존, 프로젝트 관례). */
+    @Column(name = "owner_user_id")
+    private String ownerUserId;
+
+    @Column(name = "device_id")
+    private String deviceId;
+
     /** 현재는 "print_now"뿐 */
     @Column(nullable = false, length = 20)
     private String type;

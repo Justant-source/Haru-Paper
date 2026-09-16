@@ -32,6 +32,14 @@ public class Schedule {
     @Id
     private String id;
 
+    /** NULL 허용 — M6 이전 레거시 행은 관리자가 claim-legacy로 채운다. */
+    @Column(name = "owner_user_id")
+    private String ownerUserId;
+
+    /** NULL 허용 — 사용자가 기기를 아직 안 골랐거나 레거시 행. */
+    @Column(name = "device_id")
+    private String deviceId;
+
     @Column(name = "format_id", nullable = false)
     private String formatId;
 

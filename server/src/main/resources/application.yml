@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: haru-paper-server
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never  # Flyway V2가 SPRING_SESSION* 테이블의 유일한 원본이다
+    timeout: 30d
   datasource:
     url: jdbc:mariadb://${HARU_DB_HOST:localhost}:${HARU_DB_PORT:3306}/${HARU_DB_NAME:haru_paper}
     username: ${HARU_DB_USER:haru}
@@ -23,7 +28,7 @@ spring:
       max-request-size: 30MB
 
 haru:
-  device-token: ${HARU_DEVICE_TOKEN:}
+  admin-email: ${HARU_ADMIN_EMAIL:}
   poll-interval-sec: ${HARU_POLL_INTERVAL_SEC:30}
   upload-max-mb: ${HARU_UPLOAD_MAX_MB:10}
   backup-retention-days: ${HARU_BACKUP_RETENTION_DAYS:7}
