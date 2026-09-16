@@ -1614,3 +1614,138 @@ button {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Auth Pages */
+.page-auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  background: var(--bg-page);
+  padding: 20px;
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 400px;
+}
+
+.auth-title {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 40px 0;
+  color: var(--text-primary);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-surface);
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.auth-form .field {
+  margin: 0;
+}
+
+.auth-form .field label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.auth-form .field input,
+.auth-form .field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.auth-form .field input:focus,
+.auth-form .field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(74, 55, 40, 0.1);
+}
+
+.auth-form .field-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.auth-form .field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.auth-submit {
+  margin-top: 8px;
+}
+
+.auth-hint {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.auth-hint a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.auth-hint a:hover {
+  text-decoration: underline;
+}
+
+/* Device Token & Pairing Code */
+.device-token-display,
+.pairing-code-display {
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 12px;
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
+}
+
+.device-token-display code,
+.pairing-code-display .code {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.device-token-copy {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.pairing-code-display .countdown {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.banner-info {
+  background: rgba(74, 55, 40, 0.1);
+  border-left: 3px solid var(--accent);
+  color: var(--text-primary);
+}

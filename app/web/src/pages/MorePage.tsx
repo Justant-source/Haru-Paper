@@ -22,6 +22,12 @@ export function MorePage() {
           </Link>
         </li>
         <li>
+          <Link to="/account">
+            {t('account')}
+            <IconChevron />
+          </Link>
+        </li>
+        <li>
           <Link to="/settings">
             {t('settings')}
             <IconChevron />

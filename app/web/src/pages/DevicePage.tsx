@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { deviceApi } from '../api/device'
+import { devicesApi } from '../api/devices'
 import { timeAgoKo, formatDateTimeKo } from '../lib/date'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
@@ -8,12 +9,20 @@ import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { Badge, type BadgeTone } from '../components/Badge'
 import { Toggle } from '../components/Toggle'
+import { Button } from '../components/Button'
 import { useI18n } from '../i18n'
 
 export function DevicePage() {
   const { t } = useI18n()
   const [paperToggleError, setPaperToggleError] = useState<string | null>(null)
   const [paperTogglePending, setPaperTogglePending] = useState(false)
+  const [tokenCopied, setTokenCopied] = useState(false)
+  const [issuedToken, setIssuedToken] = useState<string | null>(null)
+  const [issuedPairingCode, setIssuedPairingCode] = useState<{
+    code: string
+    expiresAt: string
+  } | null>(null)
+  const [pairingCodeCountdown, setPairingCodeCountdown] = useState<number | null>(null)
 
   const { data: device, error, refetch, isLoading } = useQuery({
     queryKey: ['device'],
@@ -33,12 +42,50 @@ export function DevicePage() {
     },
   })
 
+  const issueTokenMutation = useMutation({
+    mutationFn: () => devicesApi.getToken(),
+    onSuccess: (data) => {
+      setIssuedToken(data.token)
+    },
+  })
+
+  const issuePairingCodeMutation = useMutation({
+    mutationFn: () => devicesApi.getPairingCodes(),
+    onSuccess: (data) => {
+      setIssuedPairingCode(data)
+      const expiresAt = new Date(data.expiresAt).getTime()
+      const now = Date.now()
+      setPairingCodeCountdown(Math.max(0, Math.floor((expiresAt - now) / 1000)))
+    },
+  })
+
+  // 페어링 코드 카운트다운
+  useEffect(() => {
+    if (pairingCodeCountdown === null || pairingCodeCountdown <= 0) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      setPairingCodeCountdown(pairingCodeCountdown - 1)
+    }, 1000)
+
+    return () => clearTimeout(timer)
+  }, [pairingCodeCountdown])
+
   const handlePaperToggle = async (next: boolean) => {
     setPaperTogglePending(true)
     try {
       await setPaperStateMutation.mutateAsync(next)
     } finally {
       setPaperTogglePending(false)
+    }
+  }
+
+  const handleCopyToken = () => {
+    if (issuedToken) {
+      navigator.clipboard.writeText(issuedToken)
+      setTokenCopied(true)
+      setTimeout(() => setTokenCopied(false), 2000)
     }
   }
 
@@ -179,6 +226,68 @@ export function DevicePage() {
               onChange={handlePaperToggle}
             />
           </div>
+        </Card>
+
+        <Card>
+          <h2 className="sheet-title">{t('deviceToken')}</h2>
+          {issuedToken ? (
+            <>
+              <div className="device-token-display">
+                <code>{issuedToken}</code>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={handleCopyToken}
+                className="device-token-copy"
+              >
+                {tokenCopied ? '복사됨' : t('copyToken')}
+              </Button>
+              <div className="banner banner-warn" role="alert">
+                {t('tokenWarning')}
+              </div>
+            </>
+          ) : (
+            <>
+              <p>기기를 식별하기 위한 토큰을 발급받습니다. 이 토큰은 한 번만 표시되므로, Pi의 .env 파일에 저장해야 합니다.</p>
+              <Button
+                variant="primary"
+                onClick={() => issueTokenMutation.mutate()}
+                disabled={issueTokenMutation.isPending}
+              >
+                {issueTokenMutation.isPending ? t('issuingToken') : t('issueToken')}
+              </Button>
+            </>
+          )}
+        </Card>
+
+        <Card>
+          <h2 className="sheet-title">{t('pairingCode')}</h2>
+          {issuedPairingCode ? (
+            <>
+              <div className="pairing-code-display">
+                <div className="code">{issuedPairingCode.code}</div>
+                {pairingCodeCountdown !== null && (
+                  <div className="countdown">
+                    {t('expiresIn')}: {Math.floor(pairingCodeCountdown / 60)}분 {pairingCodeCountdown % 60}초
+                  </div>
+                )}
+              </div>
+              <div className="banner banner-info" role="alert">
+                {t('pairingCodeWarning')}
+              </div>
+            </>
+          ) : (
+            <>
+              <p>Pi와 페어링하기 위한 코드를 발급받습니다.</p>
+              <Button
+                variant="primary"
+                onClick={() => issuePairingCodeMutation.mutate()}
+                disabled={issuePairingCodeMutation.isPending}
+              >
+                {issuePairingCodeMutation.isPending ? t('issuingCode') : t('issuePairingCode')}
+              </Button>
+            </>
+          )}
         </Card>
       </div>
     </div>
