@@ -1,4 +1,5 @@
-// 포맷 문서 v1. 원본: docs/server/format-schema.md. 서버 record와 필드명을 그대로 맞춘다.
+// 포맷 문서 v2 (행/슬롯). 원본: docs/server/format-schema.md,
+// .temp/04-드래그편집기-작업지시서.md 2·3.1절. 서버 record와 필드명을 그대로 맞춘다.
 
 export type BlockType = 'text' | 'image' | 'dateHeader' | 'weather'
 export type Align = 'left' | 'center' | 'right'
@@ -70,11 +71,40 @@ export interface Block {
   style?: BlockStyle | null
 }
 
+export type SlotWidth = '1/1' | '1/2' | '1/3' | '2/3'
+
+export interface Slot {
+  id: string
+  width: SlotWidth
+  block: Block
+}
+
+export interface Row {
+  id: string
+  slots: Slot[]
+}
+
 export interface FormatDocument {
   schemaVersion: number
   meta: FormatMeta
   style?: FormatStyle
-  blocks: Block[]
+  rows: Row[]
+}
+
+/** 2슬롯 행에서 허용되는 폭 조합 3개. 리사이즈 드래그가 스냅할 대상. */
+export const TWO_SLOT_WIDTH_PAIRS: [SlotWidth, SlotWidth][] = [
+  ['1/2', '1/2'],
+  ['2/3', '1/3'],
+  ['1/3', '2/3'],
+]
+
+function uuid(): string {
+  return crypto.randomUUID()
+}
+
+/** 블록 하나를 1슬롯(1/1)짜리 새 행으로 감싼다. */
+export function newRow(block: Block): Row {
+  return { id: uuid(), slots: [{ id: uuid(), width: '1/1', block }] }
 }
 
 export interface FormatSummary {
