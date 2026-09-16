@@ -308,7 +308,7 @@ WantedBy=multi-user.target
 
 - [x] 재부팅 후 `haru-paper-agent`가 **자동 시작** — **[확인됨·실물, 2026-09-16]** 5·6절
 - [x] 서버 폴링 정상 — **[확인됨·실물, 2026-09-16]** `POST /api/device/poll` 200, `GET /api/device/snapshot` 200 (재부팅 전후 모두). 다만 "서버 앱의 기기 화면에 마지막 폴링 시각 표시"는 앱 화면으로 직접 보지는 않았다(로그로 확인) — `GET /api/device`가 문서(무인증)와 달리 401을 반환하는 문제가 있어(5.3절) 앱 화면 확인은 이 문제 해소 후로 남는다
-- [ ] V3·V4 결과로 **연결 방식 결정** ([hardware-verification.md](hardware-verification.md)) — **미착수.** 사용자가 Pi와 M832를 물리적으로 연결하지 않고 BT/Wi-Fi로만 잇겠다고 확정했으므로(2026-09-16) **V4(USB 직결)는 대상에서 제외**되고 V1~V3(BT 경로)만 남는다. V3(Pi 내장 BT 재부팅 20회 생존)는 프린터 페어링 없이도 가능하지만 이번 세션에서는 하지 않았다
+- [ ] V3·V4 결과로 **연결 방식 결정** ([hardware-verification.md](hardware-verification.md)) — **부분 완료.** 사용자가 Pi와 M832를 물리적으로 연결하지 않고 BT/Wi-Fi로만 잇겠다고 확정했으므로(2026-09-16) **V4(USB 직결)는 대상에서 제외**됐다. **V3(Pi 내장 BT 재부팅 20회 생존)는 통과 — 20/20 [확인됨·실물, 2026-09-16]**([hardware-verification.md](hardware-verification.md) 참고). 남은 건 V1·V2(프린터 옆 노트북에서 진행)뿐이다
 - [ ] 결정된 transport로 **실물 인쇄 1회** — 프린터가 Pi에 아직 없어 미착수. 현재 `HARU_PRINTER_DRIVER=fake`로 소프트웨어 경로만 살아있는 상태
 
 **현재 상태 요약**: 4개 중 2개 완료. 남은 2개는 프린터를 Pi 쪽 BT/Wi-Fi로 붙여야 진행 가능하다 — 프린터가 물리적으로 노트북에 있는 동안은 이 저장소·세션 담당 규칙(`CLAUDE.md` "노트북 세션: 프린터가 USB로 붙어 있음")대로 노트북 세션이 이어서 진행한다.

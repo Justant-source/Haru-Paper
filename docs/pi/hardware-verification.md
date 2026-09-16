@@ -48,8 +48,16 @@
 | 선행 | usbipd `networkingMode=mirrored` 적용 후 연결 끊김 재발 여부 | 노트북 WSL | §6 | 대기 (mirrored는 적용된 것으로 보이나 끊김 해소는 [미검증]) | H4·H5·M1 실물 전송의 신뢰성 |
 | H4 | 상태 조회 명령으로 용지 있음/없음을 구분할 수 있는가 (래스터 없이 조회만) | 노트북 WSL + USB | §7 | 대기 | 용지 정책 `status_query` vs `manual_flag` ([policy.md](policy.md)) |
 | H5 | 글자가 빽빽한 110mm 페이지에서 줄이 빠지는가 | 노트북 WSL + USB | §8 | 대기 | 흐름 제어 필요 여부([transport.md](transport.md), [printer-m832.md](printer-m832.md)) |
-| V3 | Pi 내장 Bluetooth(UWE5622)가 재부팅 20회 동안 매번 살아나는가 | Orange Pi (M5) | §9 | Pi 도착 후 | BT 확정 또는 Armbian 시험·USB 전환 |
-| V4 | Pi USB1에 프린터 직결 시 전압 강하·재부팅이 생기는가 (**5V 3A 어댑터 필요**, 보드 규격은 5V 2A) | Orange Pi (M5) | §9 | Pi 도착 후 | USB 직결 가능 여부 / 허브 구매 |
+| V3 | Pi 내장 Bluetooth(UWE5622)가 재부팅 20회 동안 매번 살아나는가 | Orange Pi (M5) | §9 | **[확인됨·실물, 2026-09-16] 통과 — 20/20** | BT 확정 |
+| V4 | Pi USB1에 프린터 직결 시 전압 강하·재부팅이 생기는가 (**5V 3A 어댑터 필요**, 보드 규격은 5V 2A) | Orange Pi (M5) | §9 | **대상 제외** — 사용자가 Pi-M832를 BT/Wi-Fi로만 잇기로 확정(위 문단) | — |
+
+### V3 실측 기록 [확인됨·실물, 2026-09-16]
+
+서버 세션이 `haru-pi`를 SSH로 20회 재부팅하며 매 사이클 `sudo hciconfig hci0`로 `UP RUNNING` 여부를 확인했다.
+**20/20 통과**, 소요 약 17분(예상 40~60분보다 빠름 — 이 Pi의 부팅+Wi-Fi 재연결이 평균 30초 안팎). 20회차 재부팅 후
+`haru-paper-agent`도 정상 기동해 서버 폴링(200)까지 이어지는 것을 같이 확인했다. 이걸로 **V3는 BT 확정**으로
+판정한다 — 단, V1·V2가 아직 대기 상태라 "프린터 연결 방식" 최종 결정(아래 "결정 규칙")은 V1·V2까지 나와야
+내려진다.
 
 ## 결정 규칙
 
