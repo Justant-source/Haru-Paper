@@ -218,83 +218,6 @@ public class AuthController {
         return ResponseEntity.ok(toAuthResponseDto(principal.getUser()));
     }
 
-    /**
-     * PATCH /api/account
-     * 프로필·비밀번호 변경
-     * {displayName?, bio?, currentPassword?, newPassword?}
-     *
-     * - displayName 또는 bio만 변경할 수 있음
-     * - 비밀번호 변경 시 currentPassword 필수 (검증 필수)
-     */
-    @org.springframework.web.bind.annotation.PatchMapping("/account")
-    public ResponseEntity<AuthResponseDto> updateAccount(
-            @RequestBody AccountUpdateRequestDto request,
-            @AuthenticationPrincipal UserPrincipal principal) {
-
-        if (principal == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-
-        User user = principal.getUser();
-        List<ValidationException.FieldError> errors = new ArrayList<>();
-
-        // 비밀번호 변경 요청이 있는 경우
-        if (request.newPassword != null && !request.newPassword.isBlank()) {
-            // currentPassword 필수
-            if (request.currentPassword == null || request.currentPassword.isBlank()) {
-                errors.add(new ValidationException.FieldError("currentPassword",
-                        "currentPassword is required to change password"));
-            } else if (!passwordEncoder.matches(request.currentPassword, user.getPasswordHash())) {
-                errors.add(new ValidationException.FieldError("currentPassword",
-                        "current password is incorrect"));
-            }
-
-            // 새 비밀번호 검증
-            if (request.newPassword.length() < 10) {
-                errors.add(new ValidationException.FieldError("newPassword",
-                        "password must be at least 10 characters"));
-            }
-        }
-
-        // displayName 검증
-        if (request.displayName != null && !request.displayName.isBlank()) {
-            if (request.displayName.length() > 50) {
-                errors.add(new ValidationException.FieldError("displayName",
-                        "displayName must be at most 50 characters"));
-            }
-        }
-
-        // bio 검증
-        if (request.bio != null && request.bio.length() > 300) {
-            errors.add(new ValidationException.FieldError("bio",
-                    "bio must be at most 300 characters"));
-        }
-
-        if (!errors.isEmpty()) {
-            throw new ValidationException("Account update validation failed", errors);
-        }
-
-        // 업데이트
-        if (request.displayName != null && !request.displayName.isBlank()) {
-            user.setDisplayName(request.displayName);
-        }
-
-        if (request.bio != null) {
-            user.setBio(request.bio.isBlank() ? null : request.bio);
-        }
-
-        if (request.newPassword != null && !request.newPassword.isBlank()) {
-            user.setPasswordHash(passwordEncoder.encode(request.newPassword));
-        }
-
-        user.setUpdatedAt(Instant.now());
-        User updated = userRepository.save(user);
-
-        log.info("User account updated: {}", user.getHandle());
-
-        return ResponseEntity.ok(toAuthResponseDto(updated));
-    }
-
     // Helper methods
 
     private boolean isValidEmail(String email) {
@@ -303,7 +226,8 @@ public class AuthController {
         return Pattern.matches(emailRegex, email);
     }
 
-    private AuthResponseDto toAuthResponseDto(User user) {
+    /** AccountController(별도 클래스, /api/account)도 같은 응답 DTO를 써서 여기 static으로 둔다. */
+    static AuthResponseDto toAuthResponseDto(User user) {
         return new AuthResponseDto(
                 user.getId(),
                 user.getEmail(),
