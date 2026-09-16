@@ -1,11 +1,13 @@
 package com.harupaper.server.settings;
 
+import com.harupaper.server.auth.UserPrincipal;
 import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.render.RenderScanTrigger;
 import com.harupaper.server.weather.OpenMeteoWeatherProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,10 +18,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 설정 API 컨트롤러.
- * GET /api/settings → 현재 날씨 위치 조회
- * PUT /api/settings → 날씨 위치 설정 + 캐시 무효화
- * (docs/server/api.md "설정" 절)
+ * M6: 설정 API 컨트롤러 (사용자 인증 필수).
+ *
+ * GET /api/settings → 현재 사용자의 날씨 위치 조회
+ * PUT /api/settings → 현재 사용자의 날씨 위치 설정 + 캐시 무효화
+ *
+ * docs/server/api.md "설정" 절, docs/server/weather.md 참고.
  */
 @Slf4j
 @RestController
@@ -32,12 +36,19 @@ public class SettingsController {
     private final RenderScanTrigger renderScanTrigger;
 
     /**
-     * 현재 설정 조회.
+     * GET /api/settings
+     * 현재 사용자의 설정 조회
      * 응답: {weather: {lat, lon, label}}
      */
     @GetMapping
-    public ResponseEntity<SettingsResponse> getSettings() {
-        WeatherLocation location = settingsService.getCurrent();
+    public ResponseEntity<SettingsResponse> getSettings(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        WeatherLocation location = settingsService.getWeatherLocation(userId);
         SettingsResponse response = new SettingsResponse(
                 new WeatherSettingsDto(location.lat(), location.lon(), location.label())
         );
@@ -45,13 +56,22 @@ public class SettingsController {
     }
 
     /**
-     * 설정 변경.
+     * PUT /api/settings
+     * 현재 사용자의 설정 변경
      * 요청: {weather: {lat, lon, label}}
      * lat: -90~90, lon: -180~180, label: 1~50자
      * 성공 시 날씨 캐시 무효화.
      */
     @PutMapping
-    public ResponseEntity<SettingsResponse> updateSettings(@RequestBody SettingsRequest request) {
+    public ResponseEntity<SettingsResponse> updateSettings(
+            @RequestBody SettingsRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+
         // 입력 검증
         List<ValidationException.FieldError> errors = new ArrayList<>();
 
@@ -86,12 +106,12 @@ public class SettingsController {
                 request.weather.lon,
                 request.weather.label
         );
-        settingsService.saveWeatherLocation(newLocation);
+        settingsService.saveWeatherLocation(userId, newLocation);
 
         // 날씨 캐시 무효화
         weatherProvider.clearCache();
         renderScanTrigger.requestScan();
-        log.info("Weather cache invalidated after location change");
+        log.info("Weather cache invalidated after location change for user {}", userId);
 
         // 응답
         SettingsResponse response = new SettingsResponse(
@@ -104,7 +124,6 @@ public class SettingsController {
     public static class SettingsRequest {
         public WeatherSettingsDto weather;
 
-        // Jackson deserialization을 위한 기본 생성자
         public SettingsRequest() {
         }
     }
@@ -122,7 +141,6 @@ public class SettingsController {
         public double lon;
         public String label;
 
-        // Jackson deserialization을 위한 기본 생성자
         public WeatherSettingsDto() {
         }
 

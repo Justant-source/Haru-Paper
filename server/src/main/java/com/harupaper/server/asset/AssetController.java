@@ -1,11 +1,13 @@
 package com.harupaper.server.asset;
 
+import com.harupaper.server.auth.UserPrincipal;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,7 +20,8 @@ import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Asset REST endpoints (app-facing, no authentication).
+ * M6: Asset REST endpoints (사용자 인증 필수).
+ * 소유권 스코핑: 업로드 시 owner_user_id 설정, 조회는 소유자만
  */
 @Slf4j
 @RestController
@@ -37,18 +40,31 @@ public class AssetController {
      */
     @PostMapping
     public ResponseEntity<AssetService.AssetResponse> uploadAsset(
-        @RequestParam("file") MultipartFile file) throws IOException {
+        @RequestParam("file") MultipartFile file,
+        @AuthenticationPrincipal UserPrincipal principal) throws IOException {
 
-        AssetService.AssetResponse response = assetService.uploadAsset(file);
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        AssetService.AssetResponse response = assetService.uploadAssetWithOwner(file, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /**
-     * GET /api/assets/{assetId} - Download asset file
+     * GET /api/assets/{assetId} - Download asset file (owner only or 404)
      */
     @GetMapping("/{assetId}")
-    public ResponseEntity<byte[]> getAsset(@PathVariable String assetId) throws IOException {
-        Asset asset = assetService.getAsset(assetId);
+    public ResponseEntity<byte[]> getAsset(
+            @PathVariable String assetId,
+            @AuthenticationPrincipal UserPrincipal principal) throws IOException {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        Asset asset = assetService.getAssetWithOwnerCheck(assetId, userId);
         byte[] fileBytes = assetService.getAssetFileBytes(assetId);
 
         HttpHeaders headers = new HttpHeaders();

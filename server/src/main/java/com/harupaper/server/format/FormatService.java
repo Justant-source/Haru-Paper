@@ -454,6 +454,101 @@ public class FormatService {
     }
 
     /**
+     * M6: 사용자별 포맷 목록 조회
+     */
+    public List<Format> listFormatsByOwner(String userId) {
+        return formatRepository.findByOwnerUserIdOrderByUpdatedAtDesc(userId);
+    }
+
+    /**
+     * M6: 포맷 생성 (소유권 설정)
+     */
+    public Format createFormatWithOwner(FormatDocument document, String userId) {
+        validator.validate(document);
+
+        FormatDocument normalized = normalizeDocument(document);
+        String id = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+
+        Format format = Format.builder()
+            .id(id)
+            .name(normalized.meta().name())
+            .schemaVersion(normalized.schemaVersion())
+            .body(serializeDocument(normalized))
+            .hasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(normalized))
+            .ownerUserId(userId)
+            .createdAt(now)
+            .updatedAt(now)
+            .build();
+
+        Format saved = formatRepository.save(format);
+        renderScanTrigger.requestScan();
+        return saved;
+    }
+
+    /**
+     * M6: 포맷 조회 (소유권 검증)
+     */
+    public Format getFormatWithOwnerCheck(String id, String userId) {
+        Format format = getFormat(id);
+        if (format.getOwnerUserId() == null || !format.getOwnerUserId().equals(userId)) {
+            throw new NotFoundException("format not found: " + id);
+        }
+        return format;
+    }
+
+    /**
+     * M6: 포맷 수정 (소유권 검증)
+     */
+    public Format updateFormatWithOwnerCheck(String id, FormatDocument document, String userId) {
+        Format existing = getFormatWithOwnerCheck(id, userId);
+        validator.validate(document);
+
+        FormatDocument normalized = normalizeDocument(document);
+        // Preserve forkedFrom from existing
+        FormatDocument withPreservedForkedFrom = new FormatDocument(
+            normalized.schemaVersion(),
+            new FormatMeta(
+                normalized.meta().name(),
+                normalized.meta().author(),
+                normalized.meta().description(),
+                existing.getBody() != null ? getForkedFromFromBody(existing.getBody()) : null
+            ),
+            normalized.style(),
+            normalized.blocks()
+        );
+
+        existing.setName(withPreservedForkedFrom.meta().name());
+        existing.setSchemaVersion(withPreservedForkedFrom.schemaVersion());
+        existing.setBody(serializeDocument(withPreservedForkedFrom));
+        existing.setHasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(withPreservedForkedFrom));
+        existing.setUpdatedAt(Instant.now());
+
+        Format saved = formatRepository.save(existing);
+        renderScanTrigger.requestScan();
+        return saved;
+    }
+
+    /**
+     * M6: 포맷 삭제 (소유권 검증)
+     */
+    public void deleteFormatWithOwnerCheck(String id, String userId) {
+        Format format = getFormatWithOwnerCheck(id, userId);
+
+        List<String> referencingSchedules = scheduleRepository.findAllByFormatId(id)
+            .stream()
+            .map(s -> s.getId())
+            .toList();
+
+        if (!referencingSchedules.isEmpty()) {
+            throw new ConflictException("format is referenced by schedules", referencingSchedules);
+        }
+
+        formatRepository.delete(format);
+        renderScanTrigger.requestScan();
+    }
+
+    /**
      * Temporary DTO for import/export with assets.
      */
     public record FormatDocumentWithAssets(

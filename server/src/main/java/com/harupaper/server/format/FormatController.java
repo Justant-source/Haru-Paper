@@ -1,6 +1,7 @@
 package com.harupaper.server.format;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.harupaper.server.auth.UserPrincipal;
 import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.render.RenderService;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,7 +28,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Format REST endpoints (app-facing, no authentication).
+ * M6: Format REST endpoints (사용자 인증 필수).
+ * 소유권 스코핑: 목록은 현재 사용자만, 단건 조회·수정·삭제는 소유자 아니면 404
  */
 @Slf4j
 @RestController
@@ -44,11 +47,17 @@ public class FormatController {
     }
 
     /**
-     * GET /api/formats - List all formats
+     * GET /api/formats - List formats owned by current user
      */
     @GetMapping
-    public ResponseEntity<List<FormatSummary>> listFormats() {
-        List<Format> formats = formatService.listFormats();
+    public ResponseEntity<List<FormatSummary>> listFormats(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        List<Format> formats = formatService.listFormatsByOwner(userId);
         List<FormatSummary> summaries = formats.stream()
             .map(this::toSummary)
             .toList();
@@ -59,41 +68,68 @@ public class FormatController {
      * POST /api/formats - Create new format
      */
     @PostMapping
-    public ResponseEntity<FormatDetailResponse> createFormat(@RequestBody Map<String, Object> rawBody) {
+    public ResponseEntity<FormatDetailResponse> createFormat(
+            @RequestBody Map<String, Object> rawBody,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
         FormatDocument document = formatService.getFormatValidator()
                 .validateAndParse(rawBody, false, objectMapper);
-        Format created = formatService.createFormat(document);
+        Format created = formatService.createFormatWithOwner(document, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(toDetailResponse(created));
     }
 
     /**
-     * GET /api/formats/{id} - Get format by id
+     * GET /api/formats/{id} - Get format by id (owner only or 404)
      */
     @GetMapping("/{id}")
-    public ResponseEntity<FormatDetailResponse> getFormat(@PathVariable String id) {
-        Format format = formatService.getFormat(id);
+    public ResponseEntity<FormatDetailResponse> getFormat(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        Format format = formatService.getFormatWithOwnerCheck(id, userId);
         return ResponseEntity.ok(toDetailResponse(format));
     }
 
     /**
-     * PUT /api/formats/{id} - Update format
+     * PUT /api/formats/{id} - Update format (owner only or 404)
      */
     @PutMapping("/{id}")
     public ResponseEntity<FormatDetailResponse> updateFormat(
         @PathVariable String id,
-        @RequestBody Map<String, Object> rawBody) {
+        @RequestBody Map<String, Object> rawBody,
+        @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
         FormatDocument document = formatService.getFormatValidator()
                 .validateAndParse(rawBody, false, objectMapper);
-        Format updated = formatService.updateFormat(id, document);
+        Format updated = formatService.updateFormatWithOwnerCheck(id, document, userId);
         return ResponseEntity.ok(toDetailResponse(updated));
     }
 
     /**
-     * DELETE /api/formats/{id} - Delete format
+     * DELETE /api/formats/{id} - Delete format (owner only or 404)
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteFormat(@PathVariable String id) {
-        formatService.deleteFormat(id);
+    public ResponseEntity<Void> deleteFormat(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        formatService.deleteFormatWithOwnerCheck(id, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -132,11 +168,18 @@ public class FormatController {
     }
 
     /**
-     * GET /api/formats/{id}/export - Export format with embedded assets
+     * GET /api/formats/{id}/export - Export format with embedded assets (owner only or 404)
      */
     @GetMapping("/{id}/export")
-    public ResponseEntity<Map<String, Object>> exportFormat(@PathVariable String id) throws IOException {
-        Format format = formatService.getFormat(id);
+    public ResponseEntity<Map<String, Object>> exportFormat(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserPrincipal principal) throws IOException {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        Format format = formatService.getFormatWithOwnerCheck(id, userId);
         FormatService.FormatDocumentWithAssets exported = formatService.exportFormat(id);
 
         // Build response JSON with embedded assets
@@ -159,12 +202,21 @@ public class FormatController {
     }
 
     /**
-     * GET /api/formats/{id}/preview.png - Render saved format as preview
+     * GET /api/formats/{id}/preview.png - Render saved format as preview (owner only or 404)
      */
     @GetMapping(value = "/{id}/preview.png", produces = MediaType.IMAGE_PNG_VALUE)
     public ResponseEntity<byte[]> previewSavedFormat(
         @PathVariable String id,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+        @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String userId = principal.userId();
+        // Check ownership
+        formatService.getFormatWithOwnerCheck(id, userId);
+
         if (date == null) {
             date = TimeUtils.todayInKST();
         }

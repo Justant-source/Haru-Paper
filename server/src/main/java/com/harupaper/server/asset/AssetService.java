@@ -177,6 +177,70 @@ public class AssetService {
         }
     }
 
+    /**
+     * M6: Upload asset with owner
+     */
+    public AssetResponse uploadAssetWithOwner(MultipartFile file, String userId) throws IOException {
+        // 기존 uploadAsset 로직과 동일하지만 ownerUserId 설정
+        long fileSizeBytes = file.getSize();
+        long maxBytes = uploadMaxMb * 1024 * 1024;
+        if (fileSizeBytes > maxBytes) {
+            throw new PayloadTooLargeException(
+                "file size " + fileSizeBytes + " exceeds limit " + maxBytes);
+        }
+
+        byte[] fileBytes = file.getBytes();
+        String contentType = validateAndDetermineMime(fileBytes);
+        int[] dimensions = getImageDimensions(fileBytes);
+        String sha256 = calculateSha256(fileBytes);
+
+        String assetId = UUID.randomUUID().toString();
+        String fileExtension = PNG_MIME.equals(contentType) ? "png" : "jpg";
+        String filename = assetId + "." + fileExtension;
+        String relativePath = "uploads/" + filename;
+        Path filePath = Paths.get(filesDir, relativePath);
+
+        Files.createDirectories(filePath.getParent());
+        Files.write(filePath, fileBytes);
+
+        Asset asset = Asset.builder()
+            .id(assetId)
+            .contentType(contentType)
+            .sizeBytes((int) fileSizeBytes)
+            .widthPx(dimensions[0])
+            .heightPx(dimensions[1])
+            .sha256(sha256)
+            .path(relativePath)
+            .ownerUserId(userId)
+            .createdAt(Instant.now())
+            .build();
+
+        assetRepository.save(asset);
+
+        return new AssetResponse(
+            assetId,
+            contentType,
+            dimensions[0],
+            dimensions[1],
+            (int) fileSizeBytes
+        );
+    }
+
+    /**
+     * M6: Get asset with owner check
+     */
+    public Asset getAssetWithOwnerCheck(String assetId, String userId) {
+        Asset asset = assetRepository.findById(assetId)
+            .orElseThrow(() -> new NotFoundException("asset not found: " + assetId));
+
+        // 소유권 확인 (NULL이면 레거시 에셋이므로 거부)
+        if (asset.getOwnerUserId() == null || !asset.getOwnerUserId().equals(userId)) {
+            throw new NotFoundException("asset not found: " + assetId);
+        }
+
+        return asset;
+    }
+
     // DTOs for responses
 
     public record AssetResponse(

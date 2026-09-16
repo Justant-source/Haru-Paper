@@ -325,4 +325,170 @@ public class ScheduleService {
             throw new ValidationException("Invalid daysOfWeek", errors);
         }
     }
+
+    /**
+     * M6: 사용자별 예약 목록 조회
+     */
+    public List<ScheduleResponseDto> findAllByOwner(String userId) {
+        List<Schedule> schedules = scheduleRepository.findAllByOwnerUserId(userId);
+        List<ScheduleResponseDto> result = new ArrayList<>();
+        for (Schedule schedule : schedules) {
+            result.add(toResponseDto(schedule));
+        }
+        return result;
+    }
+
+    /**
+     * M6: 예약 생성 (소유권 설정, 사용자 기기로 자동 스코핑)
+     */
+    public ScheduleResponseDto createWithOwner(CreateScheduleRequestDto request, String userId) {
+        // formatId 존재 및 소유권 확인
+        var formatOpt = formatRepository.findById(request.formatId());
+        if (formatOpt.isEmpty() || (formatOpt.get().getOwnerUserId() != null && !formatOpt.get().getOwnerUserId().equals(userId))) {
+            throw new NotFoundException("Format not found: " + request.formatId());
+        }
+
+        // 동일한 검증 수행
+        if ("recurring".equals(request.type())) {
+            if (request.daysOfWeek() == null || request.daysOfWeek().isEmpty()) {
+                throw new ValidationException("daysOfWeek is required for recurring schedule", List.of(
+                        new ValidationException.FieldError("daysOfWeek", "must have at least one day")
+                ));
+            }
+            validateRecurringDaysOfWeek(request.daysOfWeek());
+            if (request.date() != null) {
+                throw new ValidationException("date must be null for recurring schedule", List.of(
+                        new ValidationException.FieldError("date", "must be null for recurring")
+                ));
+            }
+        } else if ("once".equals(request.type())) {
+            if (request.date() == null) {
+                throw new ValidationException("date is required for once schedule", List.of(
+                        new ValidationException.FieldError("date", "must not be null for once")
+                ));
+            }
+            LocalDate dateKst = request.date();
+            LocalTime timeKst = parseTime(request.time());
+            ZonedDateTime scheduledAt = dateKst.atTime(timeKst).atZone(TimeUtils.KST);
+            if (scheduledAt.isBefore(TimeUtils.nowInKST())) {
+                throw new ValidationException("scheduled date and time is in the past", List.of(
+                        new ValidationException.FieldError("date", "must not be in the past")
+                ));
+            }
+            if (request.daysOfWeek() != null) {
+                throw new ValidationException("daysOfWeek must be null for once schedule", List.of(
+                        new ValidationException.FieldError("daysOfWeek", "must be null for once")
+                ));
+            }
+        } else {
+            throw new ValidationException("Invalid schedule type: " + request.type(), List.of(
+                    new ValidationException.FieldError("type", "must be 'recurring' or 'once'")
+            ));
+        }
+
+        String scheduleId = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+
+        Schedule schedule = Schedule.builder()
+                .id(scheduleId)
+                .formatId(request.formatId())
+                .type(request.type())
+                .daysOfWeek("recurring".equals(request.type()) ? String.join(",", request.daysOfWeek()) : null)
+                .time(parseTime(request.time()))
+                .date(request.date())
+                .enabled(request.enabled() != null ? request.enabled() : true)
+                .ownerUserId(userId)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+
+        Schedule saved = scheduleRepository.save(schedule);
+        renderScanTrigger.requestScan();
+        return toResponseDto(saved);
+    }
+
+    /**
+     * M6: 예약 수정 (소유권 검증)
+     */
+    public ScheduleResponseDto updateWithOwnerCheck(String id, CreateScheduleRequestDto request, String userId) {
+        Schedule schedule = scheduleRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Schedule not found: " + id));
+
+        // 소유권 확인
+        if (schedule.getOwnerUserId() == null || !schedule.getOwnerUserId().equals(userId)) {
+            throw new NotFoundException("Schedule not found: " + id);
+        }
+
+        // formatId 존재 및 소유권 확인
+        var formatOpt = formatRepository.findById(request.formatId());
+        if (formatOpt.isEmpty() || (formatOpt.get().getOwnerUserId() != null && !formatOpt.get().getOwnerUserId().equals(userId))) {
+            throw new NotFoundException("Format not found: " + request.formatId());
+        }
+
+        // 동일한 검증 수행
+        if ("recurring".equals(request.type())) {
+            if (request.daysOfWeek() == null || request.daysOfWeek().isEmpty()) {
+                throw new ValidationException("daysOfWeek is required for recurring schedule", List.of(
+                        new ValidationException.FieldError("daysOfWeek", "must have at least one day")
+                ));
+            }
+            validateRecurringDaysOfWeek(request.daysOfWeek());
+            if (request.date() != null) {
+                throw new ValidationException("date must be null for recurring schedule", List.of(
+                        new ValidationException.FieldError("date", "must be null for recurring")
+                ));
+            }
+        } else if ("once".equals(request.type())) {
+            if (request.date() == null) {
+                throw new ValidationException("date is required for once schedule", List.of(
+                        new ValidationException.FieldError("date", "must not be null for once")
+                ));
+            }
+            LocalDate dateKst = request.date();
+            LocalTime timeKst = parseTime(request.time());
+            ZonedDateTime scheduledAt = dateKst.atTime(timeKst).atZone(TimeUtils.KST);
+            if (scheduledAt.isBefore(TimeUtils.nowInKST())) {
+                throw new ValidationException("scheduled date and time is in the past", List.of(
+                        new ValidationException.FieldError("date", "must not be in the past")
+                ));
+            }
+            if (request.daysOfWeek() != null) {
+                throw new ValidationException("daysOfWeek must be null for once schedule", List.of(
+                        new ValidationException.FieldError("daysOfWeek", "must be null for once")
+                ));
+            }
+        } else {
+            throw new ValidationException("Invalid schedule type: " + request.type(), List.of(
+                    new ValidationException.FieldError("type", "must be 'recurring' or 'once'")
+            ));
+        }
+
+        schedule.setFormatId(request.formatId());
+        schedule.setType(request.type());
+        schedule.setDaysOfWeek("recurring".equals(request.type()) ? String.join(",", request.daysOfWeek()) : null);
+        schedule.setTime(parseTime(request.time()));
+        schedule.setDate(request.date());
+        schedule.setEnabled(request.enabled() != null ? request.enabled() : true);
+        schedule.setUpdatedAt(Instant.now());
+
+        Schedule saved = scheduleRepository.save(schedule);
+        renderScanTrigger.requestScan();
+        return toResponseDto(saved);
+    }
+
+    /**
+     * M6: 예약 삭제 (소유권 검증)
+     */
+    public void deleteWithOwnerCheck(String id, String userId) {
+        Schedule schedule = scheduleRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Schedule not found: " + id));
+
+        // 소유권 확인
+        if (schedule.getOwnerUserId() == null || !schedule.getOwnerUserId().equals(userId)) {
+            throw new NotFoundException("Schedule not found: " + id);
+        }
+
+        scheduleRepository.delete(schedule);
+        renderScanTrigger.requestScan();
+    }
 }

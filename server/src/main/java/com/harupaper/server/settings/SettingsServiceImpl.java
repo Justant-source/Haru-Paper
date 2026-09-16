@@ -4,21 +4,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 
 /**
- * 설정 서비스 + WeatherLocationProvider 구현.
- * 위치 설정을 읽고 기본값(환경변수)이 없으면 초기화한다.
- * (docs/server/weather.md 2절, docs/server/data-model.md 3절)
+ * M6: 설정 서비스 + WeatherLocationProvider 구현.
+ *
+ * 사용자별 설정을 읽고, 없으면 환경변수 기본값을 사용한다.
+ * 전역 WeatherLocationProvider.getCurrent()는 임의의(또는 가장 최근의) 사용자 설정을 가져온다.
+ * (M7 이후 완전히 사용자별로 분리)
+ *
+ * docs/server/weather.md, docs/server/data-model.md 참고.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class SettingsServiceImpl implements WeatherLocationProvider, ApplicationRunner {
+public class SettingsServiceImpl implements WeatherLocationProvider {
 
     private static final String WEATHER_LOCATION_KEY = "weather.location";
 
@@ -32,55 +34,64 @@ public class SettingsServiceImpl implements WeatherLocationProvider, Application
     private double defaultLon;
 
     /**
-     * 애플리케이션 시작 시 설정을 초기화한다.
-     * 위치 설정이 없으면 환경변수 기본값으로 만든다.
+     * 현재 설정된 날씨 위치를 반환한다.
+     * 사용자별 설정이 없으면 환경변수 기본값으로 폴백한다.
+     *
+     * TODO(M7 이후): 사용자별 날씨 위치로 완전히 분리 - 현재는 인증 컨텍스트 없이는 특정 사용자 선택 불가
      */
     @Override
-    public void run(ApplicationArguments args) throws Exception {
-        if (!settingsRepository.existsById(WEATHER_LOCATION_KEY)) {
-            WeatherLocation defaultLocation = new WeatherLocation(defaultLat, defaultLon, "서울시청");
-            saveSetting(WEATHER_LOCATION_KEY, defaultLocation);
-            log.info("Initialized weather location setting: {}", defaultLocation);
+    public WeatherLocation getCurrent() {
+        // M6에서는 단일 사용자(PoC) 기준이지만, 마이그레이션 후 데이터는 여러 사용자의 설정이 섞여 있다.
+        // TODO(M7 이후): 요청 컨텍스트에서 현재 사용자를 얻어 getWeatherLocation(userId)를 호출
+        // 지금은 환경변수 기본값만 사용한다.
+
+        try {
+            // 폴백: 환경변수 기본값
+            return new WeatherLocation(defaultLat, defaultLon, "서울시청");
+        } catch (Exception e) {
+            log.warn("Failed to get weather location, using hardcoded fallback", e);
+            return new WeatherLocation(defaultLat, defaultLon, "서울시청");
         }
     }
 
     /**
-     * 현재 설정된 날씨 위치를 반환한다.
+     * 특정 사용자의 날씨 위치 설정을 조회한다.
+     * 없으면 환경변수 기본값을 반환한다.
      */
-    @Override
-    public WeatherLocation getCurrent() {
-        return settingsRepository.findById(WEATHER_LOCATION_KEY)
+    public WeatherLocation getWeatherLocation(String userId) {
+        return settingsRepository.findByUserIdAndSettingKey(userId, WEATHER_LOCATION_KEY)
                 .map(this::parseWeatherLocation)
                 .orElseGet(() -> {
-                    // 폴백: 설정이 없으면 환경변수 기본값 반환 (run() 미실행 상황 대비)
+                    // 폴백: 환경변수 기본값
                     WeatherLocation fallback = new WeatherLocation(defaultLat, defaultLon, "서울시청");
-                    log.warn("Weather location setting not found, using fallback: {}", fallback);
+                    log.debug("Weather location setting not found for user {}, using fallback: {}", userId, fallback);
                     return fallback;
                 });
     }
 
     /**
-     * 날씨 위치 설정을 저장한다.
+     * 특정 사용자의 날씨 위치 설정을 저장한다.
      */
-    public void saveWeatherLocation(WeatherLocation location) {
-        saveSetting(WEATHER_LOCATION_KEY, location);
-        log.info("Weather location saved: {}", location);
+    public void saveWeatherLocation(String userId, WeatherLocation location) {
+        saveSetting(userId, WEATHER_LOCATION_KEY, location);
+        log.info("Weather location saved for user {}: {}", userId, location);
     }
 
     /**
-     * 특정 키로 설정을 저장한다 (내부용).
+     * 특정 키로 사용자 설정을 저장한다 (내부용).
      */
-    private void saveSetting(String key, Object value) throws RuntimeException {
+    private void saveSetting(String userId, String key, Object value) throws RuntimeException {
         try {
             String jsonValue = objectMapper.writeValueAsString(value);
             Settings setting = Settings.builder()
+                    .userId(userId)
                     .settingKey(key)
                     .value(jsonValue)
                     .updatedAt(Instant.now())
                     .build();
             settingsRepository.save(setting);
         } catch (Exception e) {
-            log.error("Failed to serialize setting: {}", key, e);
+            log.error("Failed to serialize setting {} for user {}: {}", key, userId, e.getMessage(), e);
             throw new SettingsException("Failed to save setting", e);
         }
     }
@@ -92,7 +103,7 @@ public class SettingsServiceImpl implements WeatherLocationProvider, Application
         try {
             return objectMapper.readValue(setting.getValue(), WeatherLocation.class);
         } catch (Exception e) {
-            log.error("Failed to parse weather location setting", e);
+            log.error("Failed to parse weather location setting for user {}", setting.getUserId(), e);
             throw new SettingsException("Failed to parse weather location", e);
         }
     }
