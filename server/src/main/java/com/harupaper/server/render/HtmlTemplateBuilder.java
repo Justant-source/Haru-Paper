@@ -60,7 +60,10 @@ public class HtmlTemplateBuilder {
      */
     public String buildHtml(FormatDocument document, LocalDate targetDate) {
         var profile = printerProfileProvider.getCurrentProfile();
-        var style = document.style() != null ? document.style() : FormatStyle.defaults();
+        // 저장된 포맷은 FormatService.normalizeDocument가 이미 채워 왔지만, 즉석 미리보기
+        // (POST /api/formats/preview)는 저장을 거치지 않고 바로 여기로 오므로 다시 한번
+        // 필드별 기본값을 채운다 — {"style": {}}처럼 부분적으로 빈 입력에서도 안전해야 한다.
+        var style = FormatStyle.withDefaults(document.style());
 
         // 1. 변수 치환 (targetDate 기반)
         Map<String, String> dateVariables = buildDateVariables(targetDate);

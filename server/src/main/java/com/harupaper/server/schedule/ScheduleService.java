@@ -3,6 +3,7 @@ package com.harupaper.server.schedule;
 import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.common.time.TimeUtils;
+import com.harupaper.server.device.DeviceRepository;
 import com.harupaper.server.format.FormatRepository;
 import com.harupaper.server.render.RenderScanTrigger;
 import org.springframework.stereotype.Service;
@@ -27,12 +28,14 @@ public class ScheduleService {
     private final ScheduleRepository scheduleRepository;
     private final FormatRepository formatRepository;
     private final RenderScanTrigger renderScanTrigger;
+    private final DeviceRepository deviceRepository;
 
     public ScheduleService(ScheduleRepository scheduleRepository, FormatRepository formatRepository,
-                           RenderScanTrigger renderScanTrigger) {
+                           RenderScanTrigger renderScanTrigger, DeviceRepository deviceRepository) {
         this.scheduleRepository = scheduleRepository;
         this.formatRepository = formatRepository;
         this.renderScanTrigger = renderScanTrigger;
+        this.deviceRepository = deviceRepository;
     }
 
     /**
@@ -389,6 +392,8 @@ public class ScheduleService {
         String scheduleId = UUID.randomUUID().toString();
         Instant now = Instant.now();
 
+        String deviceId = deviceRepository.findByOwnerUserId(userId).map(d -> d.getId()).orElse(null);
+
         Schedule schedule = Schedule.builder()
                 .id(scheduleId)
                 .formatId(request.formatId())
@@ -398,6 +403,7 @@ public class ScheduleService {
                 .date(request.date())
                 .enabled(request.enabled() != null ? request.enabled() : true)
                 .ownerUserId(userId)
+                .deviceId(deviceId)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();

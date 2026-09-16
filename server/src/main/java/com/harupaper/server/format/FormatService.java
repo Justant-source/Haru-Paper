@@ -158,7 +158,7 @@ public class FormatService {
      * Import format from JSON with embedded assets.
      * Returns new format with forkedFrom set.
      */
-    public Format importFormat(FormatDocumentWithAssets importedData) throws IOException {
+    public Format importFormat(FormatDocumentWithAssets importedData, String userId) throws IOException {
         // Validate schemaVersion first
         if (importedData.document().schemaVersion() > 1) {
             throw new com.harupaper.server.common.exception.ValidationException(
@@ -178,7 +178,7 @@ public class FormatService {
             for (Map.Entry<String, String> entry : importedData.assets().entrySet()) {
                 String oldAssetId = entry.getKey();
                 String dataUri = entry.getValue();
-                String newAssetId = decodeAndSaveAsset(dataUri);
+                String newAssetId = decodeAndSaveAsset(dataUri, userId);
                 assetIdMapping.put(oldAssetId, newAssetId);
             }
         }
@@ -218,6 +218,7 @@ public class FormatService {
             .schemaVersion(withForkedFrom.schemaVersion())
             .body(serializeDocument(withForkedFrom))
             .hasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(withForkedFrom))
+            .ownerUserId(userId)
             .createdAt(now)
             .updatedAt(now)
             .build();
@@ -289,17 +290,15 @@ public class FormatService {
     }
 
     private FormatDocument normalizeDocument(FormatDocument document) {
-        // Fill in default style if missing
-        FormatStyle style = document.style() != null ? document.style() : FormatStyle.defaults();
         return new FormatDocument(
             document.schemaVersion(),
             document.meta(),
-            style,
+            FormatStyle.withDefaults(document.style()),
             document.blocks()
         );
     }
 
-    private String decodeAndSaveAsset(String dataUri) throws IOException {
+    private String decodeAndSaveAsset(String dataUri, String userId) throws IOException {
         // Parse data URI: data:image/png;base64,<encoded>
         if (!dataUri.startsWith("data:")) {
             throw new UnsupportedMediaTypeAppException("invalid data URI format");
@@ -344,6 +343,7 @@ public class FormatService {
 
         Asset asset = Asset.builder()
             .id(assetId)
+            .ownerUserId(userId)
             .contentType(mimeType)
             .sizeBytes(imageBytes.length)
             .widthPx(dimensions[0])

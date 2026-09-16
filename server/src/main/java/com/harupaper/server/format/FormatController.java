@@ -137,8 +137,13 @@ public class FormatController {
      * POST /api/formats/import - Import format with embedded assets
      */
     @PostMapping("/import")
-    public ResponseEntity<FormatDetailResponse> importFormat(@RequestBody Map<String, Object> importJson)
+    public ResponseEntity<FormatDetailResponse> importFormat(
+        @RequestBody Map<String, Object> importJson,
+        @AuthenticationPrincipal UserPrincipal principal)
         throws IOException {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
         FormatDocument doc = formatService.getFormatValidator()
                 .validateAndParse(importJson, true, objectMapper);
         Object assetsObj = importJson.get("assets");
@@ -163,7 +168,7 @@ public class FormatController {
         }
 
         FormatService.FormatDocumentWithAssets importData = new FormatService.FormatDocumentWithAssets(doc, assets);
-        Format imported = formatService.importFormat(importData);
+        Format imported = formatService.importFormat(importData, principal.userId());
         return ResponseEntity.status(HttpStatus.CREATED).body(toDetailResponse(imported));
     }
 
