@@ -2,6 +2,7 @@ package com.harupaper.server.render;
 
 import com.harupaper.server.common.time.ClockProvider;
 import com.harupaper.server.common.time.TimeUtils;
+import com.harupaper.server.device.DeviceRepository;
 import com.harupaper.server.device.PrinterProfile;
 import com.harupaper.server.device.PrinterProfileProvider;
 import com.harupaper.server.format.Format;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.*;
 class RenderSchedulerDynamicReRenderTest {
 
     private RenderScheduler renderScheduler;
+    private DeviceRepository deviceRepository;
     private ScheduleRepository scheduleRepository;
     private FormatRepository formatRepository;
     private RenderRepository renderRepository;
@@ -48,6 +50,7 @@ class RenderSchedulerDynamicReRenderTest {
 
     @BeforeEach
     void setUp() {
+        deviceRepository = mock(DeviceRepository.class);
         scheduleRepository = mock(ScheduleRepository.class);
         formatRepository = mock(FormatRepository.class);
         renderRepository = mock(RenderRepository.class);
@@ -56,6 +59,7 @@ class RenderSchedulerDynamicReRenderTest {
         testClock = new TestClockProvider();
 
         renderScheduler = new RenderScheduler(
+                deviceRepository,
                 scheduleRepository,
                 formatRepository,
                 renderRepository,
@@ -64,8 +68,9 @@ class RenderSchedulerDynamicReRenderTest {
                 testClock
         );
 
-        // Default printer profile
-        when(printerProfileProvider.getCurrentProfile()).thenReturn(
+        // Default printer profile (M6: 기기별 프로필 조회, 이 테스트들은 private 로직만 검증하므로
+        // scanAndRender()를 직접 돌리지 않는다 — 아래는 만약을 대비한 기본 스텁)
+        when(printerProfileProvider.getCurrentProfile(anyString())).thenReturn(
                 new PrinterProfile("m832", 300, 110, 1300)
         );
     }

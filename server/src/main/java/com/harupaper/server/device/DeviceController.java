@@ -1,6 +1,7 @@
 package com.harupaper.server.device;
 
 import com.harupaper.server.auth.UserPrincipal;
+import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.common.security.TokenHasher;
 import com.harupaper.server.common.time.TimeUtils;
@@ -8,7 +9,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -158,28 +158,21 @@ public class DeviceController {
 
         String code = request.code().trim();
 
-        // 코드 조회
+        // 코드 조회 (없음·만료·이미 사용됨을 굳이 구분하지 않는다 — 1회용 코드라 재사용 공격
+        // 표면을 줄이려는 의도. 셋 다 404로 응답한다)
         PairingCode pairingCode = pairingCodeRepository.findById(code).orElse(null);
         if (pairingCode == null) {
-            throw new ValidationException("Invalid pairing code", List.of(
-                    new ValidationException.FieldError("code", "not found")
-            ), HttpStatus.NOT_FOUND.value());
+            throw new NotFoundException("Invalid pairing code");
         }
 
         Instant now = Instant.now();
 
-        // 만료 확인
         if (pairingCode.getExpiresAt().isBefore(now)) {
-            throw new ValidationException("Pairing code expired", List.of(
-                    new ValidationException.FieldError("code", "expired")
-            ), HttpStatus.GONE.value());
+            throw new NotFoundException("Pairing code expired");
         }
 
-        // 이미 사용됨
         if (pairingCode.getUsedAt() != null) {
-            throw new ValidationException("Pairing code already used", List.of(
-                    new ValidationException.FieldError("code", "already used")
-            ), HttpStatus.GONE.value());
+            throw new NotFoundException("Pairing code already used");
         }
 
         String userId = pairingCode.getUserId();

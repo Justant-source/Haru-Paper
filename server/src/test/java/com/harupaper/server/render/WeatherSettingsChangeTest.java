@@ -1,7 +1,9 @@
 package com.harupaper.server.render;
 
+import com.harupaper.server.auth.UserPrincipal;
 import com.harupaper.server.settings.SettingsController;
 import com.harupaper.server.settings.SettingsServiceImpl;
+import com.harupaper.server.user.User;
 import com.harupaper.server.weather.OpenMeteoWeatherProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,6 +30,7 @@ class WeatherSettingsChangeTest {
     private SettingsServiceImpl settingsService;
     private OpenMeteoWeatherProvider weatherProvider;
     private RenderScanTrigger renderScanTrigger;
+    private UserPrincipal principal;
 
     @BeforeEach
     void setUp() {
@@ -40,6 +43,18 @@ class WeatherSettingsChangeTest {
                 weatherProvider,
                 renderScanTrigger
         );
+
+        User user = User.builder()
+                .id("test-user-1")
+                .email("test@example.com")
+                .passwordHash("irrelevant")
+                .handle("tester")
+                .displayName("Tester")
+                .role("user")
+                .status("active")
+                .mustChangePassword(false)
+                .build();
+        principal = new UserPrincipal(user);
     }
 
     /**
@@ -58,12 +73,12 @@ class WeatherSettingsChangeTest {
         request.weather = new SettingsController.WeatherSettingsDto(35.1043, 129.0325, "부산시청");
 
         // 컨트롤러 호출
-        settingsController.updateSettings(request);
+        settingsController.updateSettings(request, principal);
 
         // 검증:
         // 1. settingsService.saveWeatherLocation()가 호출됨
         verify(settingsService, times(1))
-                .saveWeatherLocation(any());
+                .saveWeatherLocation(anyString(), any());
 
         // 2. weatherProvider.clearCache()가 호출됨 (캐시 무효화)
         verify(weatherProvider, times(1))
@@ -83,17 +98,17 @@ class WeatherSettingsChangeTest {
         // 1차: 서울
         SettingsController.SettingsRequest request1 = new SettingsController.SettingsRequest();
         request1.weather = new SettingsController.WeatherSettingsDto(37.5663, 126.9779, "서울시청");
-        settingsController.updateSettings(request1);
+        settingsController.updateSettings(request1, principal);
 
         // 2차: 부산
         SettingsController.SettingsRequest request2 = new SettingsController.SettingsRequest();
         request2.weather = new SettingsController.WeatherSettingsDto(35.1043, 129.0325, "부산시청");
-        settingsController.updateSettings(request2);
+        settingsController.updateSettings(request2, principal);
 
         // 3차: 대구
         SettingsController.SettingsRequest request3 = new SettingsController.SettingsRequest();
         request3.weather = new SettingsController.WeatherSettingsDto(35.8722, 128.5975, "대구시청");
-        settingsController.updateSettings(request3);
+        settingsController.updateSettings(request3, principal);
 
         // 검증: 3번 모두 재렌더 트리거됨
         verify(renderScanTrigger, times(3))
@@ -125,7 +140,7 @@ class WeatherSettingsChangeTest {
 
         SettingsController.SettingsRequest request = new SettingsController.SettingsRequest();
         request.weather = new SettingsController.WeatherSettingsDto(37.5663, 126.9779, "서울");
-        settingsController.updateSettings(request);
+        settingsController.updateSettings(request, principal);
 
         verify(renderScanTrigger).requestScan();
     }

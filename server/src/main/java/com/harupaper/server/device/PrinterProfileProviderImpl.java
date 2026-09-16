@@ -40,6 +40,7 @@ public class PrinterProfileProviderImpl implements PrinterProfileProvider {
     /**
      * 특정 사용자의 기기 프로필을 가져온다 (렌더링에서 소유자별로 호출).
      */
+    @Override
     public PrinterProfile getCurrentProfile(String ownerUserId) {
         Device device = deviceRepository.findByOwnerUserId(ownerUserId).orElse(null);
 

@@ -6,4 +6,7 @@ package com.harupaper.server.device;
  */
 public interface PrinterProfileProvider {
     PrinterProfile getCurrentProfile();
+
+    /** 특정 사용자 소유 기기의 프로필. 여러 기기가 있는 M6 이후 렌더링(사용자별)에서 쓴다. */
+    PrinterProfile getCurrentProfile(String ownerUserId);
 }
