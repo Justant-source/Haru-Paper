@@ -2,7 +2,9 @@
 
 > Pi를 받아서 `haru-paper-agent`가 부팅 시 자동으로 도는 상태까지 만드는 절차.
 > 최초 결정: [../init_plan.md](../init_plan.md) 3장·8.1·10절 M5, Q24·Q34.
-> 공식 이미지의 파일명·기본 계정·헤드리스 Wi-Fi 설정 방법은 이미지를 직접 내려받아 확인했다(4.1~4.2절). **다만 아직 실제 Orange Pi에서 부팅해 본 적은 없다** — 그 이후 단계는 [미검증]으로 남아 있다.
+> 공식 이미지의 파일명·기본 계정·헤드리스 Wi-Fi 설정 방법은 이미지를 직접 내려받아 확인했다(4.1~4.2절).
+> **2026-09-16 실물 Orange Pi Zero 2W 첫 부팅·SSH 접속 완료.** 계정 `orangepi`, 이미지 기본 비밀번호로 그대로 접속됨(마법사 강제 변경 없음, 4.2절 — 비밀번호 값은 공개 저장소에 적지 않음), 고정 IP·타임존·NTP 대기·Wi-Fi 절전 끄기까지 적용하고 재부팅으로 유지 확인(4.3~4.4절). 이후 계정을 `justant`로 rename, SSH 키 인증 전환, Tailscale 연결까지 완료(4.5절).
+> `install.sh`는 이미 존재하나(`pi/deploy/install.sh`) 실물 실행은 아직, systemd unit(6절)·overlayfs(7.1절)도 아직 적용 전이라 [미검증]으로 남아 있다.
 
 ## 1. 보드 사양 (구매 정보)
 
@@ -64,7 +66,9 @@ V3(내장 BT 재부팅 20회)에서 실패하면 7절 Armbian으로 바꾼다.
 
 [확인됨·이미지 직접 확인] 공식 이미지는 모니터 없이도 설정 가능하다.
 
-- **SSH가 기본 활성화**되어 있다(`ssh.service`가 `multi-user.target.wants`에 있음, 확인됨). 기본 계정은 **`orangepi`**(uid 1000, `sudo` 그룹). 첫 SSH 로그인 시 Armbian식 설정 마법사(`/usr/lib/orangepi/orangepi-firstlogin`, 확인됨)가 떠서 **비밀번호를 강제로 바꾼 뒤에야** 쉘을 준다 — SSH 세션 안에서 답변만 입력하면 되므로 모니터·키보드는 필요 없다.
+- **SSH가 기본 활성화**되어 있다(`ssh.service`가 `multi-user.target.wants`에 있음, 확인됨). 기본 계정은 **`orangepi`**(uid 1000, `sudo` 그룹). 이미지 안에 Armbian식 첫 로그인 마법사(`/usr/lib/orangepi/orangepi-firstlogin`)가 존재하는 것은 확인했으나, **실제 첫 SSH 로그인(2026-09-16, 실물 Orange Pi Zero 2W, IP 192.168.45.28)에서는 마법사가 뜨지 않았고 비밀번호 강제 변경도 없었다** [확인됨·실물]. 이미지 기본 비밀번호로 바로 쉘이 열렸다 — **비밀번호 값 자체는 이 공개 저장소에 적지 않는다** [절대 금지 4].
+- 이후 계정을 **`orangepi` → `justant`로 rename**하고 비밀번호도 사용자가 직접 변경했다 (4.5절). 계정/비밀번호 관리는 이 문서에 값을 남기지 않고, 접속은 노트북 WSL의 SSH 키(`~/.ssh/haru_pi_key`, 4.5절)로 한다.
+- `sudo`는 비밀번호를 요구한다(NOPASSWD 아님, 확인됨) — 이후 `install.sh`가 비대화식으로 sudo를 써야 한다면 이 점을 고려해야 한다.
 - **헤드리스 Wi-Fi 사전 설정**: 이미지에 `/boot/orangepi_first_run.txt.template`이 들어 있다(Armbian/orangepi-build 관행). SD카드를 굽자마자(노트북에서, Pi에 꽂기 전) 이 파일을 `/boot/orangepi_first_run.txt`로 복사하고 아래를 채우면 첫 부팅 때 자동으로 Wi-Fi에 붙는다 — 파일 자체의 안내문으로 확인, **실제 부팅으로 검증된 것은 아직 아님**:
 
   ```
@@ -87,32 +91,108 @@ V3(내장 BT 재부팅 20회)에서 실패하면 7절 Armbian으로 바꾼다.
 1. SD카드를 Orange Pi Zero 2W에 삽입, 전원 연결
 2. 몇 분 대기(첫 부팅 + Wi-Fi 연결 + 파일시스템 확장)
 3. 공유기 관리 페이지 또는 `arp-scan`/`nmap`으로 Pi의 IP 확인(호스트명 `orangepizero2w`로 뜰 가능성이 높음, 확정 아님)
-4. `ssh orangepi@<IP>` 접속 → 첫 로그인 마법사에서 비밀번호 설정
+4. `ssh orangepi@<IP>` 접속 → 이미지 기본 비밀번호로 로그인 (실제로는 마법사 없이 바로 됐다, 4.2절)
 5. 이후 5절 `install.sh` 절차로 진행
+
+**2026-09-16 실제로 위 1~4까지 완료함.** 이후 계정을 `justant`로 rename하고 SSH 키 인증으로 전환했다 — 4.5절 참고. 아래 4.3~4.4절의 "적용 명령"들은 원래 로그인 계정 `orangepi`로 실행한 것이고, 4.5절 이후로는 계정명이 `justant`로 바뀐 상태에서 이어졌다.
 
 ### 4.3 기본 설정
 
 | 항목 | 방법 |
 |---|---|
-| 시간대 | `timedatectl set-timezone Asia/Seoul` |
-| NTP | `timedatectl`의 `NTP service: active`, `System clock synchronized: yes` 확인 (이미지 기본 NTP 데몬 종류는 [미검증]) |
-| Tailscale | 공식 설치 스크립트로 설치 → `tailscale up` → 표시되는 URL로 **서버(`justant-server2`)·노트북·폰이 이미 들어 있는 같은 tailnet**에 등록(GitHub 계정과 tailnet 로그인 계정은 다를 수 있으니 기존 기기와 같은 tailnet인지 확인). 노드 이름 `haru-pi` [기본값] |
+| 시간대 | `timedatectl set-timezone Asia/Seoul` — [확인됨·실물] 적용 후 재부팅해도 유지됨 (2026-09-16) |
+| NTP | `timedatectl`의 `NTP service: active`, `System clock synchronized: yes` 확인 — [확인됨·실물] 이미지 기본 상태로 이미 켜져 있었고, 재부팅 직후에는 `synchronized: no`였다가 약 15초 내 `yes`로 바뀜 |
+| NTP 동기화 대기 | `sudo systemctl enable systemd-time-wait-sync.service` — [확인됨·실물] 이미지 기본값은 **disabled**였다. 활성화함(2026-09-16). 이게 없으면 `time-sync.target`은 실제 동기화와 무관하게 즉시 도달해 systemd unit의 `After=time-sync.target`(6절)이 무의미해진다 |
+| Tailscale | 공식 설치 스크립트로 설치 → `tailscale up` → 표시되는 URL로 **서버(`justant-server2`)·노트북·폰이 이미 들어 있는 같은 tailnet**에 등록. 노드 이름 `haru-pi` — [확인됨·실물, 2026-09-16] 상세는 4.5절 |
 | 서버 접근 확인 | `curl https://justant-server2.tail2b65d1.ts.net/api/health` (M2 이후) |
 | Python | Debian 12 기본 Python 3.11 + `python3-venv` |
-| NTP 동기화 대기 | `sudo systemctl enable systemd-time-wait-sync.service` — 이게 없으면 `time-sync.target`은 실제 동기화와 무관하게 즉시 도달해 systemd unit의 `After=time-sync.target`(6절)이 무의미해진다 |
+
+### 4.3.1 고정 IP [확인됨·실물, 2026-09-16]
+
+집 공유기(192.168.45.0/24) DHCP가 임대해 준 주소를 그대로 고정했다 — 새 주소를 고르지 않은 이유는 공유기 DHCP 풀과 충돌할 가능성을 낮추기 위함이다.
+
+| 항목 | 값 |
+|---|---|
+| IP | `192.168.45.28/24` |
+| 게이트웨이 | `192.168.45.1` |
+| DNS | `210.220.163.82`, `219.250.36.130` (공유기가 내려준 값 그대로 고정) |
+| NetworkManager 연결 이름 | `Orange Pi wireless 2.4G` (`nmcli -t -f NAME,TYPE,DEVICE con show`로 확인) |
+
+적용 명령:
+
+```bash
+sudo nmcli con mod "Orange Pi wireless 2.4G" \
+  ipv4.method manual \
+  ipv4.addresses 192.168.45.28/24 \
+  ipv4.gateway 192.168.45.1 \
+  ipv4.dns "210.220.163.82 219.250.36.130" \
+  connection.autoconnect yes \
+  connection.autoconnect-retries 0
+sudo nmcli con up "Orange Pi wireless 2.4G"
+```
+
+재부팅 검증: `sudo reboot` 후 SSH로 `192.168.45.28`에 재접속되고 `ip -4 addr show wlan0`에 `dynamic` 표시 없이 같은 주소가 뜨는 것을 확인함.
+
+**주의**: 공유기 DHCP 설정에서 이 주소를 별도로 예약(reservation)해 두지 않았다 — Pi가 꺼진 사이에 공유기가 `.28`을 다른 기기에 내줄 가능성은 이론상 남아 있다 [미검증]. 충돌이 의심되면 공유기 관리 페이지에서 `192.168.45.28`을 Pi의 MAC으로 예약하는 것을 검토한다.
 
 ### 4.4 Wi-Fi 안정화
 
 상시 기기의 실패 1순위는 프린터가 아니라 Wi-Fi다(전송 방식이 `bt`든 `usb`든 폴링은 항상 Wi-Fi를 탄다). 온보드 UWE5622의 장기 안정성은 8절과 마찬가지로 **[미검증]**이므로, 절전을 꺼서 실패 원인을 최소한 하나 줄인다.
 
 ```bash
-nmcli connection modify <SSID> 802-11-wireless.powersave 2   # 2 = disable
-nmcli connection modify <SSID> connection.autoconnect yes connection.autoconnect-retries 0
+nmcli connection modify "Orange Pi wireless 2.4G" 802-11-wireless.powersave 2   # 2 = disable
+nmcli connection modify "Orange Pi wireless 2.4G" connection.autoconnect yes connection.autoconnect-retries 0
 ```
+
+[확인됨·실물, 2026-09-16] 4.3.1절 고정 IP 적용과 함께 실행함. `nmcli con show "Orange Pi wireless 2.4G"`로 `802-11-wireless.powersave: 2 (disable)`, `connection.autoconnect: yes`, `autoconnect-retries: 0 (forever)` 확인. 장기 안정성(며칠~몇 주 단위 Wi-Fi 끊김 여부)은 여전히 [미검증] — 이번 확인은 설정이 적용/유지된다는 것까지만이다.
 
 - 반복해서 끊기면 8절 Armbian 전환과 별개로 USB Wi-Fi 동글 교체를 검토한다(리그 교체는 30일 리셋 사유가 아니다, [hardware-verification.md](hardware-verification.md))
 
-## 5. `install.sh` (M5에서 작성, 아직 없음)
+### 4.5 계정 rename, SSH 키, Tailscale [확인됨·실물, 2026-09-16]
+
+**계정 rename (`orangepi` → `justant`)**
+
+사용자가 로그인 계정을 `orangepi`에서 `justant`로 바꾸고 싶어해서, 로그인 세션이 열려 있는 상태에서 곧바로 `usermod -l`을 하면 "user busy"로 실패하는 문제를 피하려고 지연 실행 스크립트를 썼다:
+
+1. 현재 SSH 세션(orangepi로 접속된 상태)에서 `sudo`로 백그라운드 스크립트를 걸어두고 세션을 끝낸다.
+2. 그 스크립트가 몇 초 대기 → `pkill -u orangepi`로 남은 프로세스 정리 → `usermod -l justant -d /home/justant -m orangepi` → `groupmod -n justant orangepi` 순서로 재시도(최대 15회, 2초 간격) 실행.
+3. **`usermod -l`은 부그룹(secondary group) 멤버 목록(`/etc/group`, `/etc/gshadow`)의 사용자명 문자열을 자동으로 안 바꿔준다** — `sudo`, `docker`, `dialout`, `plugdev`, `netdev` 등 멤버 목록에 `orangepi` 문자열이 그대로 남아 있어서 rename 후 sudo가 끊길 뻔했다. `groupmod -n`으로 기본 그룹(gid 1000)을 rename한 뒤 `sed -i 's/\borangepi\b/justant/g' /etc/group /etc/gshadow`로 나머지 부그룹 멤버 목록을 정리했다. `/etc/subuid`, `/etc/subgid`(docker rootless 매핑)도 같은 이유로 `orangepi:` → `justant:`로 고쳤다.
+4. 결과 확인: `id justant` → uid=1000, gid=1000, `sudo`/`docker`/`plugdev`/`netdev` 등 그룹 전부 유지. `getent passwd orangepi` → 계정 없음(정상). 홈 디렉터리 `/home/justant`로 이동됨.
+5. 비밀번호는 rename으로 바뀌지 않는다(같은 해시가 새 계정명으로 옮겨감) — 이후 사용자가 직접 `passwd`로 `justant` 비밀번호를 바꿨고, `root` 비밀번호도 `sudo passwd root`로 직접 바꿨다. **두 비밀번호 값 모두 이 저장소에는 남기지 않는다** [절대 금지 4, 공개 저장소].
+6. GECOS 주석 필드(`getent passwd justant`의 `orangepi,,,` 부분)는 rename 후에도 옛 이름이 남아 있다 — 화면상 코멘트일 뿐 기능에는 영향 없음, 필요하면 `chfn`으로 정리 가능 [미검증·선택사항, 정리 안 함].
+
+**SSH 키 인증 전환**
+
+비밀번호를 대화·커밋에 남기지 않기 위해, 노트북 WSL에서 전용 키를 만들어 등록했다:
+
+- 키: `~/.ssh/haru_pi_key` (ed25519, 노트북 WSL에만 있음, 저장소에 커밋 안 됨)
+- 등록: 사용자가 새 `justant` 비밀번호로 직접 `ssh justant@192.168.45.28 '... >> ~/.ssh/authorized_keys'`를 실행해 공개키를 추가 — **비밀번호는 이 대화 세션에도, 어떤 명령 실행 기록에도 남기지 않았다.**
+- 확인: `ssh -i ~/.ssh/haru_pi_key justant@192.168.45.28 'whoami'` → `justant`, 비밀번호 없이 접속됨.
+- `sudo`는 여전히 비밀번호를 요구한다(이 전환은 SSH 로그인만 키 기반으로 바꾼 것이고, sudo 인증은 별개다).
+
+**Tailscale**
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh   # apt로 tailscale + tailscale-archive-keyring 설치
+sudo tailscale up --hostname=haru-pi
+```
+
+- 설치 자체는 문제없이 끝남(arm64 `.deb`, 버전 1.102.4).
+- `tailscale up`을 여러 번 겹쳐 실행하면(재시도하며 timeout으로 죽이는 식) 매번 이전 로그인 시도가 취소되고 URL이 안 나온다 — **한 번만 백그라운드로 띄우고 죽이지 않은 채 로그로 URL이 뜨길 기다려야 한다.** stdout이 파이프로 나갈 때 완전 버퍼링되는 문제도 있어서 `stdbuf -oL -eL`로 줄 단위 버퍼링을 강제했다.
+- 사용자가 브라우저에서 로그인 URL을 열어 승인 → 연결 확인됨:
+
+  ```
+  tailscale status
+  100.117.239.83  haru-pi              ...  linux    -
+  100.81.189.92   justant-server2      ...  linux    -   (온라인)
+  100.109.66.57   laptop-77ohs9p       ...  windows  -   (온라인, 이 노트북)
+  ```
+
+  Pi(`haru-pi`, tailnet IP `100.117.239.83`)가 서버(`justant-server2`)·노트북과 **같은 tailnet에서 서로 온라인**으로 확인됨. 이제 물리적으로 노트북이 아닌 **서버(`justant-server2`)에서도 Tailscale을 통해 Pi에 SSH 접속이 가능하다** — 다만 이 저장소 `CLAUDE.md`의 "노트북 세션 → `/pi`, `/docs/pi`" 담당 규칙은 프린터가 물리적으로 노트북에 USB로 붙어 있다는 전제로 정해둔 것이라, Pi의 네트워크 도달성과는 별개다. 담당을 서버 세션으로 옮기려면 `CLAUDE.md`를 사용자가 직접(또는 요청해서) 고쳐야 한다 — 이번 세션에서는 고치지 않았다.
+
+## 5. `install.sh` — 이미 작성됨 (`pi/deploy/install.sh`, `pi/deploy/haru-paper-agent.service`)
+
+[미검증] 이 절의 아래 목록은 원래 계획(스펙)이고, 실제 `pi/deploy/install.sh` 내용을 오늘 이 목록과 한 줄씩 대조하지는 않았다 — 이번 세션은 Pi OS/네트워크 설정(4절)만 다뤘다. 실물 Pi에서 `install.sh`를 아직 실행해 보지 않았으므로 M5 통과 조건(9절)의 "재부팅 후 자동 시작" 확인은 여전히 남아 있다.
 
 `/pi/deploy/install.sh`. **여러 번 실행해도 안전(idempotent)**해야 한다. 할 일:
 
