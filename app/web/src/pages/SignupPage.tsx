@@ -8,7 +8,8 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Button } from '../components/Button'
 import { useI18n } from '../i18n'
 
-const HANDLE_REGEX = /^[a-z0-9-]{3,20}$/
+// 서버 검증(AuthController.HANDLE_PATTERN)과 정확히 맞춘다 — 하이픈으로 시작/끝나면 안 된다.
+const HANDLE_REGEX = /^[a-z0-9](?:[a-z0-9-]{1,18}[a-z0-9])?$/
 
 export function SignupPage() {
   const { t } = useI18n()

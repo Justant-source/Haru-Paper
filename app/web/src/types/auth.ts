@@ -11,12 +11,14 @@ export interface LoginRequest {
 }
 
 export interface AuthResponse {
-  id: string
+  userId: string
   email: string
   handle: string
   displayName: string
   bio?: string
   role?: string
+  status?: string
+  mustChangePassword?: boolean
 }
 
 export interface AccountUpdateRequest {

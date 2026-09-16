@@ -10,7 +10,7 @@ export interface PairingCodeResponse {
 }
 
 export interface MyDeviceResponse {
-  id: string
-  name?: string
-  lastPollAt?: string
+  deviceId: string | null
+  name: string | null
+  paired: boolean
 }

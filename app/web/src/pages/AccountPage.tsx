@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '../api/auth'
 import { accountApi } from '../api/account'
 import type { AccountUpdateRequest } from '../types/auth'
@@ -14,6 +14,7 @@ import { ApiError } from '../types/problem'
 export function AccountPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
@@ -37,7 +38,8 @@ export function AccountPage() {
 
   const updateMutation = useMutation({
     mutationFn: (body: AccountUpdateRequest) => accountApi.update(body),
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['auth', 'me'], updated)
       setFieldErrors({})
       setGeneralError(null)
       setCurrentPassword('')
@@ -67,6 +69,7 @@ export function AccountPage() {
   const logoutMutation = useMutation({
     mutationFn: () => authApi.logout(),
     onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ['auth', 'me'] })
       navigate('/login')
     },
     onError: (error) => {
@@ -114,6 +117,11 @@ export function AccountPage() {
 
       <ErrorBanner error={error} />
       <ErrorBanner error={generalError ? new Error(generalError) : null} />
+      {user?.mustChangePassword && (
+        <div className="banner banner-warn" role="alert">
+          관리자가 발급한 임시 비밀번호로 로그인했습니다. 아래에서 새 비밀번호로 바꿔주세요.
+        </div>
+      )}
 
       <div className="stack">
         <Card>

@@ -98,19 +98,15 @@ export function DevicePage() {
     )
   }
 
-  if (!device?.lastPollAt) {
-    return (
-      <div className="page page-with-header">
-        <PageHeader title={t('device')} />
-        <ErrorBanner error={error} onRetry={() => refetch()} />
-        <EmptyState message="아직 Pi가 연결되지 않았습니다." />
-      </div>
-    )
-  }
-
-  const pollDiffMs = Date.now() - new Date(device.lastPollAt).getTime()
+  // Pi가 한 번도 poll하지 않은 상태(아직 아무도 페어링 안 한 최초 상태 — 로그인한
+  // 사용자라면 전부 여기 해당한다)에서도 토큰 발급·페어링 코드 카드는 항상 보여야 한다.
+  // 이게 없으면 M6의 온보딩 흐름(앱에서 토큰 발급 → Pi에 붙여넣기) 자체가 화면에서
+  // 도달 불가능해진다 — 2026-09-16 정적 코드 감사에서 발견.
+  const lastPollAt = device?.lastPollAt ?? null
+  const hasPolled = lastPollAt !== null
+  const pollDiffMs = lastPollAt !== null ? Date.now() - new Date(lastPollAt).getTime() : 0
   const pollDiffMin = Math.floor(pollDiffMs / 1000 / 60)
-  const isOldPoll = pollDiffMin >= 2
+  const isOldPoll = hasPolled && pollDiffMin >= 2
 
   const getStatusTone = (state: string): BadgeTone => {
     switch (state) {
@@ -152,8 +148,8 @@ export function DevicePage() {
     }
   }
 
-  const isPaperStateDisabled = device.paperPolicy !== 'manual_flag'
-  const currentPaperLoaded = device.paperState?.loaded ?? false
+  const isPaperStateDisabled = device?.paperPolicy !== 'manual_flag'
+  const currentPaperLoaded = device?.paperState?.loaded ?? false
 
   return (
     <div className="page page-with-header">
@@ -163,70 +159,76 @@ export function DevicePage() {
       <ErrorBanner error={paperToggleError ? new Error(paperToggleError) : null} />
 
       <div className="stack">
-        <Card>
-          <h2 className="sheet-title">Pi 마지막 폴링</h2>
-          <p>
-            {formatDateTimeKo(device.lastPollAt)} ({timeAgoKo(device.lastPollAt)})
-          </p>
-          {isOldPoll && (
-            <div className="banner banner-warn" role="status">
-              2분 이상 응답이 없습니다.
-            </div>
-          )}
-        </Card>
+        {!hasPolled && <EmptyState message="아직 Pi가 연결되지 않았습니다. 아래에서 토큰을 발급받아 Pi에 등록하세요." />}
 
-        <Card>
-          <h2 className="sheet-title">프린터 프로필</h2>
-          {device.printerProfile ? (
-            <dl>
-              <div>
-                <dt>모델</dt>
-                <dd>{device.printerProfile.model}</dd>
-              </div>
-              <div>
-                <dt>DPI</dt>
-                <dd>{device.printerProfile.dpi}</dd>
-              </div>
-              <div>
-                <dt>용지 너비</dt>
-                <dd>{device.printerProfile.paperWidthMm}mm</dd>
-              </div>
-              <div>
-                <dt>인쇄 가능 폭</dt>
-                <dd>{device.printerProfile.printableWidthPx}px</dd>
-              </div>
-            </dl>
-          ) : (
-            <p>아직 연결된 적 없음</p>
-          )}
-          {device.printerStatus && (
-            <div>
-              <h3 className="sheet-title">프린터 상태</h3>
-              <Badge tone={getStatusTone(device.printerStatus.state)}>
-                {getStatusLabel(device.printerStatus.state)}
-              </Badge>
-              {device.printerStatus.detail ? <p>{device.printerStatus.detail}</p> : null}
-            </div>
-          )}
-        </Card>
+        {lastPollAt !== null && (
+          <>
+            <Card>
+              <h2 className="sheet-title">Pi 마지막 폴링</h2>
+              <p>
+                {formatDateTimeKo(lastPollAt)} ({timeAgoKo(lastPollAt)})
+              </p>
+              {isOldPoll && (
+                <div className="banner banner-warn" role="status">
+                  2분 이상 응답이 없습니다.
+                </div>
+              )}
+            </Card>
 
-        <Card>
-          <h2 className="sheet-title">용지 정책</h2>
-          <p>{device.paperPolicy || '정책 없음'}</p>
-          <p>{getPolicyDescription(device.paperPolicy)}</p>
-          <div className="row">
-            <div>
-              <div>용지 장착됨</div>
-              {isPaperStateDisabled && <p>현재 정책에서는 사용하지 않습니다</p>}
-            </div>
-            <Toggle
-              label="용지 장착됨"
-              checked={currentPaperLoaded}
-              disabled={isPaperStateDisabled || paperTogglePending}
-              onChange={handlePaperToggle}
-            />
-          </div>
-        </Card>
+            <Card>
+              <h2 className="sheet-title">프린터 프로필</h2>
+              {device!.printerProfile ? (
+                <dl>
+                  <div>
+                    <dt>모델</dt>
+                    <dd>{device!.printerProfile.model}</dd>
+                  </div>
+                  <div>
+                    <dt>DPI</dt>
+                    <dd>{device!.printerProfile.dpi}</dd>
+                  </div>
+                  <div>
+                    <dt>용지 너비</dt>
+                    <dd>{device!.printerProfile.paperWidthMm}mm</dd>
+                  </div>
+                  <div>
+                    <dt>인쇄 가능 폭</dt>
+                    <dd>{device!.printerProfile.printableWidthPx}px</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p>아직 연결된 적 없음</p>
+              )}
+              {device!.printerStatus && (
+                <div>
+                  <h3 className="sheet-title">프린터 상태</h3>
+                  <Badge tone={getStatusTone(device!.printerStatus.state)}>
+                    {getStatusLabel(device!.printerStatus.state)}
+                  </Badge>
+                  {device!.printerStatus.detail ? <p>{device!.printerStatus.detail}</p> : null}
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <h2 className="sheet-title">용지 정책</h2>
+              <p>{device!.paperPolicy || '정책 없음'}</p>
+              <p>{getPolicyDescription(device!.paperPolicy)}</p>
+              <div className="row">
+                <div>
+                  <div>용지 장착됨</div>
+                  {isPaperStateDisabled && <p>현재 정책에서는 사용하지 않습니다</p>}
+                </div>
+                <Toggle
+                  label="용지 장착됨"
+                  checked={currentPaperLoaded}
+                  disabled={isPaperStateDisabled || paperTogglePending}
+                  onChange={handlePaperToggle}
+                />
+              </div>
+            </Card>
+          </>
+        )}
 
         <Card>
           <h2 className="sheet-title">{t('deviceToken')}</h2>

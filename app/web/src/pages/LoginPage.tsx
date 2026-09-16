@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '../api/auth'
 import type { LoginRequest } from '../types/auth'
 import { ApiError } from '../types/problem'
@@ -12,6 +12,7 @@ export function LoginPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const from = (location.state as any)?.from?.pathname || '/'
 
   const [email, setEmail] = useState('')
@@ -21,8 +22,10 @@ export function LoginPage() {
 
   const loginMutation = useMutation({
     mutationFn: (body: LoginRequest) => authApi.login(body),
-    onSuccess: () => {
-      navigate(from)
+    onSuccess: (user) => {
+      queryClient.setQueryData(['auth', 'me'], user)
+      // 관리자가 임시 비밀번호를 발급한 계정은 로그인 직후 비밀번호부터 바꾸게 한다.
+      navigate(user.mustChangePassword ? '/account' : from)
     },
     onError: (error) => {
       setGeneralError(null)
