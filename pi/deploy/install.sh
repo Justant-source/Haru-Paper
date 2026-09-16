@@ -43,15 +43,15 @@ else
 fi
 
 # plugdev, bluetooth 그룹에 추가
+# (수정: 원래 `[ $? -eq 4 ]`로 "이미 그룹에 속함"을 판정했으나, usermod의 실패 종료코드는
+#  배포판마다 다르고 "그룹이 없음"은 6이다. 그룹 존재 여부를 직접 확인하는 방식으로 바꿨다.
+#  2026-09-16 서버 세션 install.sh 감사에서 발견)
 for group in plugdev bluetooth; do
-    if sudo usermod -a -G "$group" haru 2>/dev/null || [ $? -eq 4 ]; then
-        # 그룹이 없으면 생성 후 추가
-        if ! grep -q "^$group:" /etc/group; then
-            log_info "그룹 '$group' 생성 중..."
-            sudo groupadd "$group" 2>/dev/null || true
-        fi
-        sudo usermod -a -G "$group" haru || log_warn "그룹 '$group' 추가 실패"
+    if ! grep -q "^$group:" /etc/group; then
+        log_info "그룹 '$group' 생성 중..."
+        sudo groupadd "$group" 2>/dev/null || log_warn "그룹 '$group' 생성 실패"
     fi
+    sudo usermod -a -G "$group" haru || log_warn "사용자 'haru'를 그룹 '$group'에 추가 실패"
 done
 
 # 3. 저장소 클론 또는 업데이트
@@ -71,18 +71,25 @@ else
     fi
 fi
 
+# 저장소 소유권을 서비스 계정 'haru'로 변경한다.
+# (수정: sudo git clone 직후 저장소가 root 소유라 아래 venv 생성·pip install·.env 복사가
+#  sudo 없이 실패했다(set -euo pipefail로 스크립트 전체가 죽음). haru-paper-agent.service가
+#  User=haru로 도는 것과 일관되게, root 상승 없이 서비스 계정이 직접 쓰도록 소유권을 옮긴다.
+#  2026-09-16 서버 세션 install.sh 감사에서 발견)
+sudo chown -R haru:haru "$REPO_PATH"
+
 # 4. Python venv 생성 및 의존성 설치
 log_info "Step 4/12: Python venv 및 의존성 설치"
 VENV_PATH="$REPO_PATH/pi/.venv"
 
 if [ ! -d "$VENV_PATH" ]; then
     log_info "venv 생성 중..."
-    python3 -m venv "$VENV_PATH"
+    sudo -u haru python3 -m venv "$VENV_PATH"
 fi
 
 log_info "의존성 설치 중 (pip install -r requirements.txt)..."
-"$VENV_PATH/bin/pip" install --upgrade pip setuptools wheel
-"$VENV_PATH/bin/pip" install -r "$REPO_PATH/pi/requirements.txt"
+sudo -u haru "$VENV_PATH/bin/pip" install --upgrade pip setuptools wheel
+sudo -u haru "$VENV_PATH/bin/pip" install -r "$REPO_PATH/pi/requirements.txt"
 
 # 5. udev 규칙 설치
 log_info "Step 5/12: udev 규칙 설정 (M832 USB 0483:5740)"
@@ -107,8 +114,8 @@ ENV_EXAMPLE="$REPO_PATH/pi/.env.example"
 if [ ! -f "$ENV_FILE" ]; then
     if [ -f "$ENV_EXAMPLE" ]; then
         log_info ".env 파일을 .env.example에서 복사 중..."
-        cp "$ENV_EXAMPLE" "$ENV_FILE"
-        chmod 600 "$ENV_FILE"
+        sudo -u haru cp "$ENV_EXAMPLE" "$ENV_FILE"
+        sudo -u haru chmod 600 "$ENV_FILE"
 
         log_error ""
         log_error "=== .env 파일 설정이 필요합니다 ==="
