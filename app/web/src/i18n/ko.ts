@@ -97,6 +97,24 @@ export const ko = {
   pairingCodeWarning: 'Pi에서 haru-agent pair 명령을 지원하기 전에는 위의 토큰 발급을 사용하세요.',
   expiresIn: '남은 시간',
   tokenIssued: '발급됨',
+  // 드래그 에디터 (6번 에이전트가 채워 넣음)
+  layoutCanvasEmpty: '아래에서 위젯을 끌어와 추가하세요',
+  addWidgetHint: '위젯을 선택해 추가하세요',
+  dragToReorder: '드래그해서 순서를 바꾸세요',
+  dragToDelete: '휴지통으로 끌어 삭제하세요',
+  dragToResize: '드래그해서 폭을 조정하세요',
+  widgetTypeText: '텍스트',
+  widgetTypeImage: '이미지',
+  widgetTypeDateHeader: '날짜 헤더',
+  widgetTypeWeather: '날씨',
+  trashZoneLabel: '여기로 끌면 삭제',
+  undoDelete: '되돌리기',
+  deletedToast: '삭제됨',
+  exactPreview: '정확히 보기',
+  editingBlock: '블록 편집',
+  widthHalfHalf: '1/2 · 1/2',
+  widthTwoThirdOneThird: '2/3 · 1/3',
+  widthOneThirdTwoThird: '1/3 · 2/3',
 } as const
 
 export type MessageKey = keyof typeof ko

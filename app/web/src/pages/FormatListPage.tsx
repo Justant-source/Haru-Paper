@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { formatsApi } from '../api/formats'
 import type { FormatDocument } from '../types/format'
-import { DEFAULT_STYLE, newBlock } from '../types/format'
+import { DEFAULT_STYLE, newBlock, newRow } from '../types/format'
 import { ApiError } from '../types/problem'
 import { formatDateTimeKo } from '../lib/date'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -38,10 +38,10 @@ export function FormatListPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const newDoc: FormatDocument = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         meta: { name: '새로운 포맷', author: '', description: '' },
         style: DEFAULT_STYLE,
-        blocks: [newBlock('dateHeader')],
+        rows: [newRow(newBlock('dateHeader'))],
       }
       return formatsApi.create(newDoc)
     },
