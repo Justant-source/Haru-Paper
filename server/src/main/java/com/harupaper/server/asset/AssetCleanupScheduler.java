@@ -3,8 +3,9 @@ package com.harupaper.server.asset;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.harupaper.server.format.Format;
 import com.harupaper.server.format.FormatDocument;
+import com.harupaper.server.format.FormatDocumentSupport;
 import com.harupaper.server.format.FormatRepository;
-import com.harupaper.server.format.Block;
+import com.harupaper.server.widget.WidgetInstance;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -110,19 +111,14 @@ public class AssetCleanupScheduler {
         List<Format> allFormats = formatRepository.findAll();
         for (Format format : allFormats) {
             try {
-                // v1 포맷은 자동으로 up-convert되어 rows를 반환한다
-                FormatDocument doc = com.harupaper.server.format.FormatDocumentSupport.readDocument(format.getBody(), objectMapper);
-                if (doc.rows() != null) {
-                    for (com.harupaper.server.format.Row row : doc.rows()) {
-                        if (row.slots() != null) {
-                            for (com.harupaper.server.format.Slot slot : row.slots()) {
-                                Block block = slot.block();
-                                if (block != null && "image".equals(block.type()) && block.props() != null) {
-                                    Object assetIdObj = block.props().get("assetId");
-                                    if (assetIdObj instanceof String assetId) {
-                                        referencedAssets.add(assetId);
-                                    }
-                                }
+                // v1·v2 포맷은 자동으로 up-convert되어 widgets를 반환한다
+                FormatDocument doc = FormatDocumentSupport.readDocument(format.getBody(), objectMapper);
+                if (doc.widgets() != null) {
+                    for (WidgetInstance widget : doc.widgets()) {
+                        if ("image".equals(widget.type()) && widget.props() != null) {
+                            Object assetIdObj = widget.props().get("assetId");
+                            if (assetIdObj instanceof String assetId) {
+                                referencedAssets.add(assetId);
                             }
                         }
                     }

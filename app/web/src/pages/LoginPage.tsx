@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '../api/auth'
@@ -7,6 +7,7 @@ import { ApiError } from '../types/problem'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Button } from '../components/Button'
 import { useI18n } from '../i18n'
+import { getXsrfToken } from '../lib/xsrf'
 
 export function LoginPage() {
   const { t } = useI18n()
@@ -19,6 +20,15 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [generalError, setGeneralError] = useState<string | null>(null)
+
+  // CSRF 쿠키(XSRF-TOKEN)는 서버에 한 번이라도 요청해야 내려온다. 새 브라우저에서 /login을 바로 열면
+  // 그 전에 /api를 부른 적이 없어 첫 로그인 POST가 403으로 실패한다(2026-09-18 실측) — 아무 GET이나
+  // 한 번 보내 쿠키를 받아 둔다. 401 응답이어도 쿠키는 내려오므로 결과는 무시한다.
+  useEffect(() => {
+    if (!getXsrfToken()) {
+      fetch('/api/auth/me', { credentials: 'include' }).catch(() => {})
+    }
+  }, [])
 
   const loginMutation = useMutation({
     mutationFn: (body: LoginRequest) => authApi.login(body),

@@ -1,0 +1,28 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "USD",
+          "symbol": "ZZZZ",
+          "exchangeTimezoneName": "America/New_York",
+          "regularMarketPrice": null,
+          "shortName": "Empty Fixture"
+        },
+        "timestamp": [1704211200, 1704297600],
+        "indicators": {
+          "quote": [
+            {
+              "open": [null, null],
+              "high": [null, null],
+              "low": [null, null],
+              "close": [null, null],
+              "volume": [null, null]
+            }
+          ]
+        }
+      }
+    ],
+    "error": null
+  }
+}

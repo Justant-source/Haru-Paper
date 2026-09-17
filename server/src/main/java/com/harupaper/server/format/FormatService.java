@@ -10,6 +10,8 @@ import com.harupaper.server.common.exception.UnsupportedMediaTypeAppException;
 import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.render.RenderScanTrigger;
 import com.harupaper.server.schedule.ScheduleRepository;
+import com.harupaper.server.widget.WidgetInstance;
+import com.harupaper.server.widget.WidgetRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -41,6 +43,7 @@ public class FormatService {
     private final FormatValidator validator;
     private final ObjectMapper objectMapper;
     private final RenderScanTrigger renderScanTrigger;
+    private final WidgetRegistry widgetRegistry;
     private final String filesDir;
     private final long uploadMaxMb;
 
@@ -50,6 +53,7 @@ public class FormatService {
                         FormatValidator validator,
                         ObjectMapper objectMapper,
                         RenderScanTrigger renderScanTrigger,
+                        WidgetRegistry widgetRegistry,
                         @Value("${haru.files-dir}") String filesDir,
                         @Value("${haru.upload-max-mb:10}") long uploadMaxMb) {
         this.formatRepository = formatRepository;
@@ -58,6 +62,7 @@ public class FormatService {
         this.validator = validator;
         this.objectMapper = objectMapper;
         this.renderScanTrigger = renderScanTrigger;
+        this.widgetRegistry = widgetRegistry;
         this.filesDir = filesDir;
         this.uploadMaxMb = uploadMaxMb;
     }
@@ -75,15 +80,15 @@ public class FormatService {
      * Returns new format with forkedFrom set.
      */
     public Format importFormat(FormatDocumentWithAssets importedData, String userId) throws IOException {
-        // FormatController가 검증(validateAndParse, schemaVersion 2만 허용) 전에 이미
-        // FormatDocumentSupport.upConvertRawImportIfNeeded로 v1→v2를 끝냈다 — 여기 도달하는
-        // document는 항상 schemaVersion 2다.
-        if (importedData.document().schemaVersion() != 2) {
+        // FormatController가 검증(validateAndParse, schemaVersion 3만 허용) 전에 이미
+        // FormatDocumentSupport.upConvertRawImportIfNeeded로 v1·v2→v3를 끝냈다 — 여기 도달하는
+        // document는 항상 schemaVersion 3다.
+        if (importedData.document().schemaVersion() != 3) {
             throw new com.harupaper.server.common.exception.ValidationException(
                 "unsupported schemaVersion",
                 List.of(new com.harupaper.server.common.exception.ValidationException.FieldError(
                     "schemaVersion",
-                    "unsupported schemaVersion: " + importedData.document().schemaVersion() + " (only 2 supported)"
+                    "unsupported schemaVersion: " + importedData.document().schemaVersion() + " (only 3 supported)"
                 ))
             );
         }
@@ -122,7 +127,7 @@ public class FormatService {
                 forkedFrom
             ),
             remappedDoc.style(),
-            remappedDoc.rows()
+            remappedDoc.widgets()
         );
 
         // Validate and create format
@@ -135,7 +140,7 @@ public class FormatService {
             .name(withForkedFrom.meta().name())
             .schemaVersion(withForkedFrom.schemaVersion())
             .body(serializeDocument(withForkedFrom))
-            .hasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(withForkedFrom))
+            .hasDynamicBlocks(widgetRegistry.hasDynamic(withForkedFrom.widgets()))
             .ownerUserId(userId)
             .createdAt(now)
             .updatedAt(now)
@@ -154,22 +159,15 @@ public class FormatService {
         FormatDocument doc = deserializeDocument(format.getBody());
 
         Map<String, String> assets = new HashMap<>();
-        if (doc.rows() != null) {
-            for (Row row : doc.rows()) {
-                if (row.slots() != null) {
-                    for (Slot slot : row.slots()) {
-                        Block block = slot.block();
-                        if (block != null && "image".equals(block.type()) && block.props() != null) {
-                            Object assetIdObj = block.props().get("assetId");
-                            if (assetIdObj instanceof String assetId) {
-                                if (!assets.containsKey(assetId)) {
-                                    Asset asset = assetRepository.findById(assetId)
-                                        .orElseThrow(() -> new NotFoundException("asset not found: " + assetId));
-                                    String dataUri = assetToDataUri(asset);
-                                    assets.put(assetId, dataUri);
-                                }
-                            }
-                        }
+        if (doc.widgets() != null) {
+            for (WidgetInstance widget : doc.widgets()) {
+                if ("image".equals(widget.type()) && widget.props() != null) {
+                    Object assetIdObj = widget.props().get("assetId");
+                    if (assetIdObj instanceof String assetId && !assets.containsKey(assetId)) {
+                        Asset asset = assetRepository.findById(assetId)
+                            .orElseThrow(() -> new NotFoundException("asset not found: " + assetId));
+                        String dataUri = assetToDataUri(asset);
+                        assets.put(assetId, dataUri);
                     }
                 }
             }
@@ -213,7 +211,7 @@ public class FormatService {
             document.schemaVersion(),
             document.meta(),
             FormatStyle.withDefaults(document.style()),
-            document.rows()
+            document.widgets()
         );
     }
 
@@ -314,26 +312,19 @@ public class FormatService {
     private void requireEmbeddedAssets(FormatDocument document, Map<String, String> assets) {
         Map<String, String> embedded = assets != null ? assets : Map.of();
         List<com.harupaper.server.common.exception.ValidationException.FieldError> errors = new java.util.ArrayList<>();
-        if (document.rows() == null) {
+        if (document.widgets() == null) {
             return;
         }
-        for (int i = 0; i < document.rows().size(); i++) {
-            Row row = document.rows().get(i);
-            if (row.slots() == null) {
+        for (int i = 0; i < document.widgets().size(); i++) {
+            WidgetInstance widget = document.widgets().get(i);
+            if (!"image".equals(widget.type()) || widget.props() == null) {
                 continue;
             }
-            for (int j = 0; j < row.slots().size(); j++) {
-                Slot slot = row.slots().get(j);
-                Block block = slot.block();
-                if (block == null || !"image".equals(block.type()) || block.props() == null) {
-                    continue;
-                }
-                Object assetIdObj = block.props().get("assetId");
-                if (assetIdObj instanceof String assetId && !embedded.containsKey(assetId)) {
-                    errors.add(new com.harupaper.server.common.exception.ValidationException.FieldError(
-                            "rows[" + i + "].slots[" + j + "].block.props.assetId",
-                            "assetId must be present in assets (reissued on import)"));
-                }
+            Object assetIdObj = widget.props().get("assetId");
+            if (assetIdObj instanceof String assetId && !embedded.containsKey(assetId)) {
+                errors.add(new com.harupaper.server.common.exception.ValidationException.FieldError(
+                        "widgets[" + i + "].props.assetId",
+                        "assetId must be present in assets (reissued on import)"));
             }
         }
         if (!errors.isEmpty()) {
@@ -347,31 +338,26 @@ public class FormatService {
             return document;
         }
 
-        List<Row> remappedRows = document.rows().stream().map(row -> {
-            List<Slot> remappedSlots = row.slots().stream().map(slot -> {
-                Block block = slot.block();
-                if (block != null && "image".equals(block.type()) && block.props() != null) {
-                    Object assetIdObj = block.props().get("assetId");
-                    if (assetIdObj instanceof String oldAssetId) {
-                        String newAssetId = assetIdMapping.get(oldAssetId);
-                        if (newAssetId != null) {
-                            Map<String, Object> newProps = new HashMap<>(block.props());
-                            newProps.put("assetId", newAssetId);
-                            Block newBlock = new Block(block.type(), newProps, block.style());
-                            return new Slot(slot.id(), slot.width(), newBlock);
-                        }
+        List<WidgetInstance> remappedWidgets = document.widgets().stream().map(widget -> {
+            if ("image".equals(widget.type()) && widget.props() != null) {
+                Object assetIdObj = widget.props().get("assetId");
+                if (assetIdObj instanceof String oldAssetId) {
+                    String newAssetId = assetIdMapping.get(oldAssetId);
+                    if (newAssetId != null) {
+                        Map<String, Object> newProps = new HashMap<>(widget.props());
+                        newProps.put("assetId", newAssetId);
+                        return new WidgetInstance(widget.id(), widget.type(), widget.size(), newProps);
                     }
                 }
-                return slot;
-            }).toList();
-            return new Row(row.id(), remappedSlots);
+            }
+            return widget;
         }).toList();
 
         return new FormatDocument(
             document.schemaVersion(),
             document.meta(),
             document.style(),
-            remappedRows
+            remappedWidgets
         );
     }
 
@@ -406,7 +392,7 @@ public class FormatService {
             .name(normalized.meta().name())
             .schemaVersion(normalized.schemaVersion())
             .body(serializeDocument(normalized))
-            .hasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(normalized))
+            .hasDynamicBlocks(widgetRegistry.hasDynamic(normalized.widgets()))
             .ownerUserId(userId)
             .createdAt(now)
             .updatedAt(now)
@@ -446,13 +432,13 @@ public class FormatService {
                 existing.getBody() != null ? getForkedFromFromBody(existing.getBody()) : null
             ),
             normalized.style(),
-            normalized.rows()
+            normalized.widgets()
         );
 
         existing.setName(withPreservedForkedFrom.meta().name());
         existing.setSchemaVersion(withPreservedForkedFrom.schemaVersion());
         existing.setBody(serializeDocument(withPreservedForkedFrom));
-        existing.setHasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(withPreservedForkedFrom));
+        existing.setHasDynamicBlocks(widgetRegistry.hasDynamic(withPreservedForkedFrom.widgets()));
         existing.setUpdatedAt(Instant.now());
 
         Format saved = formatRepository.save(existing);

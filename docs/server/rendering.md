@@ -2,6 +2,7 @@
 
 > 결정 원본: [`../init_plan.md`](../init_plan.md) Q10(서버가 용지 PNG 렌더), 6.3·6.4절, 8.2절.
 > 렌더러 구현 방식(Playwright for Java + Chromium), 폰트, 주기·정리 규칙은 **[기본값]**. 브라우저 동작 세부는 **[미검증]**으로 표시하고 M2에서 확인한다.
+> **2026-09-18(위젯 그리드 v3)**: 포맷 문서가 위젯 목록으로 바뀌면서 `HtmlTemplateBuilder`는 "각 위젯을 그리고(→ `WidgetRegistry`에 등록된 `Widget` 구현) 4열 그리드로 조립"(→ `WidgetPageBuilder`)하는 역할만 한다. 날씨·에셋 같은 위젯별 데이터 조회는 이 문서가 아니라 [`widgets.md`](widgets.md)(각 위젯 구현·데이터 제공자)로 옮겨졌다 — 이 문서는 그리드 조립·Chromium 파이프라인·폰트·정리 규칙만 다룬다.
 
 ## 1. 경계
 
@@ -24,33 +25,24 @@
 ## 2. 파이프라인
 
 ```
-포맷 JSON + 에셋 + 설정
-  → (1) 변수 치환(targetDate)
-  → (2) 동적 데이터 조회(날씨, Java에서)
-  → (3) 서버 템플릿으로 HTML 생성(모든 텍스트 이스케이프, 이미지·폰트 인라인)
-  → (4) Chromium 스크린샷(JS 끔, 네트워크 차단)
-  → (5) Java에서 8비트 그레이스케일 변환 + 폭 검증
-  → (6) renders/{renderId}.png 저장 + sha256 + renders 행
-  → (6.5) 1-bpp PBM(P4) 변환·저장 [확인됨·코드, 2026-09-17 승인] — 아래 참고
+포맷 JSON(위젯 목록) + 에셋 + 프린터 프로필
+  → (0) FormatDocumentSupport.readDocument() — v1·v2 저장본은 여기서 v3로 up-convert
+  → (1) 위젯마다: WidgetRegistry.find(type) → Widget.renderHtml(instance, ctx)
+        (변수 치환·동적 데이터 조회·이스케이프는 각 위젯 구현 안에서 일어난다 — widgets.md)
+  → (2) WidgetPageBuilder.build() — 위젯 HTML 조각들을 4열 그리드 한 장(HTML)으로 조립
+  → (3) Chromium 스크린샷(JS 끔, 네트워크 차단)
+  → (4) Java에서 8비트 그레이스케일 변환 + 폭 검증
+  → (5) renders/{renderId}.png 저장 + sha256 + renders 행
+  → (5.5) 1-bpp PBM(P4) 변환·저장 [확인됨·코드, 2026-09-17 승인] — 아래 참고
 ```
 
-### (1) 변수 치환
+### (0)·(1) 위젯 조립 (`HtmlTemplateBuilder`, `WidgetPageBuilder`)
 
-- `text` 블록의 `{{date}}`, `{{weekday}}`, `dateHeader`의 `pattern` 토큰을 **targetDate(KST)** 로 치환([`format-schema.md`](format-schema.md) 6절).
-- 예약 렌더는 occurrence 날짜, 지금 인쇄는 KST 오늘, 미리보기는 `?date=` 또는 KST 오늘.
-
-### (2) 동적 데이터
-
-- 날씨는 **Java 코드가 HTML을 만들기 전에** 조회한다([`weather.md`](weather.md)). Chromium은 네트워크를 쓰지 않는다.
-- 조회 실패해도 렌더 전체를 실패시키지 않는다(날씨 블록에 실패 표시).
-
-### (3) HTML 생성 [기본값]
-
-- 템플릿 엔진: Thymeleaf(자동 이스케이프) 또는 동등한 이스케이프 보장 방식. **사용자 텍스트를 HTML로 해석하는 경로가 없어야 한다.**
-- 줄바꿈: `white-space: pre-wrap`. 한글 줄바꿈: `word-break: keep-all; overflow-wrap: anywhere`.
-- 이미지: 에셋 파일을 읽어 `data:` URI로 인라인. 폭 = 본문 폭 × `widthPercent`, 비율 유지, `style.align`으로 정렬.
-- 구분선(`divider`): 블록 사이 `border-top`(`line` = 실선, `dashed` = 점선), 두께 [기본값] 0.3mm.
-- CSS는 템플릿에 고정된 것만. 포맷의 스타일 값은 화이트리스트 검증을 통과한 숫자·enum만 CSS로 옮긴다.
+- `HtmlTemplateBuilder.buildHtml(document, targetDate, profile, ownerUserId)`가 문서의 `widgets[]`를 순회하며 위젯마다 `WidgetRegistry.find(instance.type())`로 구현을 찾고, `WidgetRenderContext`(대상 날짜·프린터 프로필·소유자·고른 크기·박스 px·기본 글자 크기)를 만들어 `Widget.renderHtml()`을 부른다.
+- 등록되지 않은 type(옛 문서 손상 등)이거나 렌더 중 예외가 나면 **그 위젯 칸만** `WidgetHtml.errorBox`로 대체하고 나머지 위젯은 정상 렌더한다 — 위젯 하나의 실패가 인쇄 전체를 막지 않는다([`widgets.md`](widgets.md) 1.1절 구현 규칙 ②).
+- 변수 치환(`{{date}}`/`{{weekday}}`/`dateHeader.pattern`)·동적 데이터 조회(날씨·아침편지·증시)·HTML 이스케이프는 전부 **각 위젯 구현 안에서** 일어난다 — 상세는 [`widgets.md`](widgets.md). 이 문서(`HtmlTemplateBuilder`)는 더 이상 그 로직을 갖지 않는다(2026-09-18 위젯 그리드 도입 전에는 여기 있었다).
+- `WidgetPageBuilder.build(style, profile, cells)`가 조각들을 4열 CSS 그리드(`grid-auto-flow: row dense`, 간격 `GridSpec.GAP_MM` 고정)로 조립한 완성 HTML 문서를 만든다. 고정 크기 위젯은 `contain: size; overflow: hidden`으로 박스를 넘는 내용을 자른다.
+- 줄바꿈·이스케이프·정렬 같은 위젯 내부 CSS는 각 위젯이 스스로 만든다(공통 템플릿 차원의 규칙이 아니다). 포맷 전체 `style`(`fontFamily`/`baseFontSizePt`/`lineHeight`/`marginMm`)만 `WidgetPageBuilder`가 페이지 공통 CSS로 적용한다 — `blockGapMm`·`divider`는 v3에서 무시된다([`format-schema.md`](format-schema.md) 3.1.2절).
 
 ### 단위 환산
 
@@ -64,7 +56,7 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 - 본문 폭 px = `printableWidthPx − (marginMm.left + marginMm.right) 환산값`
 - 반올림 규칙 [기본값]: 여백·간격은 `Math.round`, 글자 크기는 소수 px 그대로(CSS가 처리)
 
-### (4) Chromium 스크린샷 [기본값]
+### (3) Chromium 스크린샷 [기본값]
 
 - **Playwright for Java**. `Browser`는 애플리케이션 시작 시 1개 띄워 재사용하고, 렌더마다 `BrowserContext`를 새로 만들고 닫는다.
 - 컨텍스트 옵션: `setJavaScriptEnabled(false)`, `setViewportSize(printableWidthPx, 100)`, `setDeviceScaleFactor(1)`.
@@ -74,18 +66,18 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 - 렌더 1건 타임아웃 30초 [기본값]. 동시 렌더는 **1개(직렬 큐)** [기본값] — 사용자 1명 규모, 메모리 절약.
 - 최대 높이 [기본값]: 1000mm 환산 px(300dpi 기준 11,811px). 넘으면 렌더 실패(500, `detail`에 이유).
 
-### (5) 그레이스케일 변환
+### (4) 그레이스케일 변환
 
 - Chromium PNG는 RGB(A)다. Java에서 `BufferedImage.TYPE_BYTE_GRAY`로 변환해 8비트 그레이스케일 PNG로 저장 [기본값]. 투명 영역은 흰색으로 합성.
 - **폭이 정확히 `printableWidthPx`인지 검증**한다. 다르면 실패 처리(조용히 리사이즈하지 않는다).
 
-### (6) 저장
+### (5) 저장
 
 - `haru-files/renders/{renderId}.png`, 파일 sha256, `renders` 행([`data-model.md`](data-model.md)). 파일 쓰기 후 행 커밋.
 
-### (6.5) PBM(1-bpp) 변환 [확인됨·코드, 2026-09-17 승인]
+### (5.5) PBM(1-bpp) 변환 [확인됨·코드, 2026-09-17 승인]
 
-- `PbmConverter`(`server/render`)가 (6)에서 저장한 그레이스케일 PNG를 다시 디코드해 Floyd–Steinberg 오차확산으로 흑백 양자화하고, PBM P4(`"P4\n{width} {height}\n"` 헤더 + raw 비트맵, 1=검정 MSB-first, 행마다 `ceil(width/8)` 바이트)로 패킹한다.
+- `PbmConverter`(`server/render`)가 (5)에서 저장한 그레이스케일 PNG를 다시 디코드해 Floyd–Steinberg 오차확산으로 흑백 양자화하고, PBM P4(`"P4\n{width} {height}\n"` 헤더 + raw 비트맵, 1=검정 MSB-first, 행마다 `ceil(width/8)` 바이트)로 패킹한다.
 - `haru-files/renders/{renderId}.pbm`에 저장하고 sha256을 `renders.pbm_sha256`·`renders.pbm_path`에 함께 커밋한다(`V3__render_pbm.sql`). **PBM 생성이 실패해도 PNG 렌더 자체는 실패시키지 않는다** [기본값] — 실패하면 두 컬럼이 `null`로 남고, 스냅샷의 `urlPbm`·`sha256Pbm`도 그 렌더에 한해 `null`이 된다.
 - `RenderCleanupScheduler`가 렌더를 정리할 때 `.pbm` 파일도 같이 지운다.
 - **편집본 미리보기**(`POST /api/formats/preview`, `renderEphemeral`)는 PNG 바이트만 즉시 반환하고 파일·행을 남기지 않으므로 PBM도 만들지 않는다. 저장된 포맷 미리보기(`kind=preview`, `GET /api/formats/{id}/preview.png`)는 다른 kind와 같은 저장 경로(`doRender`/`savRender`)를 타므로 PBM도 같이 만들어진다 — 용도상 불필요하지만 해는 없다.
@@ -108,7 +100,7 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
    - 최신 렌더가 없거나, `format_updated_at < formats.updated_at`(포맷이 바뀜)이거나, `profile_key`가 다르면 → 렌더
 4. **동적 포맷**(`has_dynamic_blocks = true`)은 occurrence **약 60분 전**에 한 번 더 렌더
    - 조건: occurrence까지 60분 이하로 남았고, 최신 렌더의 `rendered_at`이 `occurrence − 60분`보다 이전
-   - 날씨 설정(위치)이 바뀌어도 동적 포맷은 다시 렌더
+   - `has_dynamic_blocks`의 판정 원본은 **(2026-09-18)** `WidgetRegistry.hasDynamic(document.widgets())`다 — 위젯 중 `dynamic=true`(`morningLetter`·`stockChart`·`weather`, [`widgets.md`](widgets.md) 3절)가 하나라도 있으면 동적 포맷이다. 날씨 위치는 이제 포맷 자체(`weather` 위젯의 `props.location`)에 들어 있으므로, 위치를 바꾸려면 포맷을 수정해야 하고(그러면 `formats.updated_at`이 바뀌어 3단계 조건으로도 재렌더된다) 별도의 "설정 변경 시 재렌더" 트리거는 없다(레거시 `/api/settings`는 렌더에 영향을 주지 않는다, [`weather.md`](weather.md) 2절)
 
 즉시 렌더(스케줄러를 거치지 않음):
 - **미리보기** `GET /api/formats/{id}/preview.png` → `kind=preview`

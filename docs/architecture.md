@@ -29,7 +29,8 @@
 - **m832를 아는 코드는 `/pi/printer/m832`뿐이다.** 서버와 앱은 Pi가 보고한 [프린터 프로필](#35-프린터-프로필printer-profile)만 안다
 - **서버가 그레이스케일 PNG를 렌더**한다. 좌우 정렬 보정, 헤드 폭 패딩, M832 헤더·꼬리 조립, 전송은 Pi(기기) 드라이버 몫이다. 흑백 변환(디더링)은 원칙적으로 기기 몫이지만, **2단계 MCU 기기(ESP32)를 위해 서버가 프로필 폭 기준 1-bpp(PBM P4)도 낸다**(3.4, 2026-09-17 사용자 승인) — 디더링은 프린터에 무관한 범용 처리이고, 프린터 명령·상수는 여전히 서버에 없다
 - **스케줄 원본은 서버, 실행은 Pi**다. Pi는 예약 규칙과 렌더 PNG를 캐시해 두고 **인터넷이 끊겨도 스스로 인쇄**한다
-- **포맷은 JSON 블록 + 화이트리스트 스타일 속성뿐**이다. 임의 HTML/CSS/JS는 받지 않는다(서버 Chromium의 SSRF·JS 실행 방지)
+- **포맷은 JSON 위젯 목록 + 화이트리스트 스타일 속성뿐**이다. 임의 HTML/CSS/JS는 받지 않는다(서버 Chromium의 SSRF·JS 실행 방지)
+- **위젯을 아는 코드는 `/server/src/main/java/com/harupaper/server/widget/**`뿐이다**(2026-09-18 위젯 그리드 도입). 위젯 종류·크기·설정 스키마는 `GET /api/widgets`가 내려주는 `WidgetDescriptor`뿐이고, 앱은 그 응답만 보고 카탈로그·설정 폼을 자동 생성한다 — 위젯 종류를 앱 코드에 하드코딩하지 않는다. 상세: [`server/widgets.md`](server/widgets.md)
 
 ### 1.2 네트워크·배치
 
@@ -58,43 +59,38 @@
 
 ### 3.1 포맷(Format) — 카드와 같은 것
 
-- 인쇄물 한 장. 블록을 위에서 아래로 쌓아 만든다. 저장해 두고 여러 예약에서 재사용한다
+- 인쇄물 한 장. **위젯을 순서대로 나열해 만든다** — 배치(4열 그리드)는 서버 코드가 자동으로 한다. 저장해 두고 여러 예약에서 재사용한다
 - **가져오기(import)** 하면 내 라이브러리에 새 포맷이 생기고 `meta.forkedFrom`에 출처를 남긴다(fork). 이후 자유롭게 수정
 - 단위는 **mm/pt** — 프린터 dpi와 무관하게 정의하고 렌더 시 프로필 dpi로 환산
-- 전체 `style`과 블록별 `style`(각 슬롯의 `block.style`)을 분리 — 나중에 "내 스타일 입히기"를 스타일 덮어쓰기로 구현
-- 첫 블록 타입: `text`, `image`, `dateHeader`, `weather`
-- 텍스트 변수: `{{date}}`, `{{weekday}}` — 값은 렌더 대상 날짜(`targetDate`) 기준
+- 전체 `style` 하나만 있다(v2까지 있던 위젯별 `style`은 없다 — 위젯별 값은 그 위젯의 `props`로 들어간다)
+- 위젯 6종(2026-09-18 기준): `dateHeader`, `text`, `image`, `morningLetter`(고도원의 아침편지), `stockChart`(미국 증시 일봉), `weather`. 종류는 서버 `GET /api/widgets`가 내려주는 카탈로그로 늘어난다 — 새 위젯을 추가해도 이 문서·앱을 고칠 필요가 없다([`server/widgets.md`](server/widgets.md))
+- 텍스트 변수: `{{date}}`, `{{weekday}}`(`text` 위젯) — 값은 렌더 대상 날짜(`targetDate`) 기준
 - 이미지는 서버 내부에서 업로드 파일(`assetId`)로 저장하고, **내보내기 파일에만** `assets`에 data URI로 내장
 
-요약 예시(**스키마 v2** — 행/슬롯. 2026-09-16 드래그 편집기 도입으로 v1의 평평한 `blocks` 배열에서 전환됐다. 서버는 v2만 저장·검증하고, v1 문서는 읽을 때 자동으로 v2로 up-convert한다):
+요약 예시(**스키마 v3** — 위젯 그리드. 2026-09-18에 v2의 행/슬롯 드래그 편집기를 폐기하고 전환됐다. 서버는 v3만 저장·검증하고, v1·v2 문서는 읽을 때 자동으로 v3로 up-convert한다):
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "meta": { "name": "아침 브리핑", "author": "justant", "description": "", "forkedFrom": null },
   "style": { "fontFamily": "Pretendard", "baseFontSizePt": 11, "lineHeight": 1.4,
              "marginMm": { "top": 3, "right": 3, "bottom": 8, "left": 3 }, "blockGapMm": 3, "divider": "none" },
-  "rows": [
-    { "id": "row-1", "slots": [
-      { "id": "slot-1", "width": "1/1", "block": { "type": "dateHeader", "props": { "pattern": "YYYY년 M월 D일 dddd" }, "style": { "align": "center", "fontSizePt": 16, "bold": true } } }
-    ] },
-    { "id": "row-2", "slots": [
-      { "id": "slot-2a", "width": "2/3", "block": { "type": "text", "props": { "text": "{{date}} {{weekday}}\n오늘의 할 일" }, "style": { "align": "left" } } },
-      { "id": "slot-2b", "width": "1/3", "block": { "type": "weather", "props": { "fields": ["tempMin", "tempMax"] } } }
-    ] },
-    { "id": "row-3", "slots": [
-      { "id": "slot-3", "width": "1/1", "block": { "type": "image", "props": { "assetId": "a1b2", "widthPercent": 100 } } }
-    ] }
+  "widgets": [
+    { "id": "uuid-1", "type": "dateHeader", "size": "4x1", "props": { "pattern": "YYYY년 M월 D일 dddd" } },
+    { "id": "uuid-2", "type": "morningLetter", "size": "4xauto", "props": { "showComment": true } },
+    { "id": "uuid-3", "type": "weather", "size": "2x4",
+      "props": { "location": { "label": "경기도 성남시 분당구", "lat": 37.3827, "lon": 127.1189 } } },
+    { "id": "uuid-4", "type": "stockChart", "size": "2x4", "props": { "ticker": "AAPL", "days": 14 } }
   ]
 }
 ```
 
-- **행(row)**: 순서 있는 배열, 1~30개. 각 행은 슬롯 1~2개.
-- **슬롯(slot)**: 1슬롯 행은 폭 `"1/1"`만, 2슬롯 행은 `("1/2","1/2")`·`("2/3","1/3")`·`("1/3","2/3")` 조합만 허용. 슬롯마다 블록 정확히 1개(`null` 불가).
-- 블록 타입·props·스타일 화이트리스트는 v1과 동일하다(`text`/`image`/`dateHeader`/`weather`).
+- **위젯(widget)**: 순서 있는 배열, 1~20개. 각 위젯은 `{id, type, size, props}`. `type`은 카탈로그에 등록된 위젯 종류, `size`는 그 위젯이 허용하는 크기 중 하나(4열 그리드, `4x1`/`4x2`/`2x4`/`4x4`/`4x6`/`4xauto`), `props`는 위젯마다 다른 설정값(카탈로그의 `fields` 스키마로 검증)이다.
+- 배치는 문서 순서대로 왼쪽→오른쪽, 넘치면 다음 줄(`grid-auto-flow: row dense` — 앞줄 빈칸은 뒤의 작은 위젯이 메운다). 앱 배치도와 서버 렌더가 같은 CSS 규칙을 쓴다.
 
-> **스키마 상세(블록별 props, 스타일 화이트리스트, 검증 규칙, up-convert, 가져오기/내보내기 형식)의 원본은
-> [`server/format-schema.md`](server/format-schema.md)다.** 이 절은 요약이다.
+> **스키마 상세(그리드 규격, 루트/위젯 필드 제약, up-convert, 가져오기/내보내기 형식)의 원본은
+> [`server/format-schema.md`](server/format-schema.md)다. 위젯 프레임워크와 위젯별 표(fields·데이터 출처·실패 표시)는
+> [`server/widgets.md`](server/widgets.md)다.** 이 절은 요약이다.
 
 ### 3.2 예약(Schedule)
 
@@ -234,6 +230,8 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | PUT/DELETE | `/api/schedules/{id}` | 수정(켜기/끄기 포함) / 삭제 | 세션 |
 | POST | `/api/print-now` | `{formatId, paperConfirmed}` → 명령 생성 | 세션 |
 | GET | `/api/history` | 실행 결과 목록(내 것만) | 세션 |
+| GET | `/api/widgets` | 위젯 카탈로그(종류·크기·설정 스키마, 2026-09-18 신설) | 세션 |
+| GET | `/api/widgets/locations` | 대한민국 시·군·구 285개(`weather` 위젯 위치 선택용, 2026-09-18 신설) | 세션 |
 | GET | `/api/device` | Pi 마지막 폴링 시각, 프린터 프로필·상태, 용지 정책, 수동 용지 상태 | 세션 |
 | PUT | `/api/device/paper-state` | `{loaded}` — H4 실패 시 폴백용 수동 상태 | 세션 |
 | GET/PATCH | `/api/devices/me` | 기기 요약 조회 / 이름 변경 | 세션 |
@@ -253,7 +251,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | 요청 | 본문 | 응답 |
 |---|---|---|
 | `GET /api/formats` | — | `200 [{id, name, author, forkedFrom, hasDynamicBlocks, updatedAt}]` |
-| `POST /api/formats` | 포맷 문서 `{schemaVersion: 2, meta, style, rows}` (`assets` 없음) | `201 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
+| `POST /api/formats` | 포맷 문서 `{schemaVersion: 3, meta, style, widgets}` (`assets` 없음) | `201 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
 | `GET /api/formats/{id}` | — | `200 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
 | `PUT /api/formats/{id}` | 포맷 문서 | `200` 위와 같음 |
 | `DELETE /api/formats/{id}` | — | `204`. 예약이 참조 중이면 `409` [기본값] |
@@ -306,7 +304,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 - `online`: `lastPollAt`이 폴링 주기의 3배(90초) 이내면 `true` [기본값]
 - `printerStatus`는 [4.3 poll 요청](#43-pi용-authorization-bearer-haru_device_token)의 `{state, detail}` 그대로, `paperPolicy`는 poll 요청의 최상위 `paperPolicy` 그대로
 - `paperState`는 **어디서나 `{loaded, updatedAt, updatedBy}` 3필드 레코드 하나**(`DeviceDto.PaperState`)다 [확인됨·코드] — `GET /api/device` 응답과 poll 응답 모두 이 레코드를 쓰고, `@JsonInclude` 필터가 없어 `updatedBy`가 항상 직렬화된다(poll 응답에서는 `null`일 수 있음)
-- `weather` 기본값: `{label: "서울시청", lat: 37.5663, lon: 126.9779}`
+- `weather` 기본값: `{label: "서울시청", lat: 37.5663, lon: 126.9779}` — **2026-09-18부터 이 API는 레거시다.** 날씨 위치는 이제 포맷의 `weather` 위젯 `props.location`에 들어 있고, 이 설정은 렌더에 쓰이지 않는다([`server/weather.md`](server/weather.md) 2절)
 
 ### 4.3 Pi용 (`Authorization: Bearer <기기별 토큰>`, DB 해시 — [`server/auth.md`](server/auth.md) 4절)
 
@@ -479,7 +477,7 @@ Pi가 명령의 `renderId` PNG를 받아 `sha256` 검증·정책 확인 후 인�
 | 용어 | 뜻 |
 |---|---|
 | 포맷(Format) | 인쇄물 한 장의 정의. JSON 블록 + 스타일. 카드와 같은 말 |
-| 블록(Block) | 포맷을 이루는 단위: `text`, `image`, `dateHeader`, `weather` |
+| 위젯(Widget) | 포맷을 이루는 단위(2026-09-18 이전엔 "블록"). 서버 `Widget` 구현 1개 = 위젯 1종. 지금 6종(`dateHeader`, `text`, `image`, `morningLetter`, `stockChart`, `weather`), [`server/widgets.md`](server/widgets.md) |
 | 가져오기/내보내기 | 포맷을 `assets` 내장 JSON 파일로 주고받기. 가져오면 fork(출처 기록) |
 | 예약(Schedule) | 포맷을 언제 인쇄할지: `recurring`(요일+시각) / `once`(날짜+시각) |
 | occurrence | 예약이 만들어 내는 한 번의 실행 시점. key = `{scheduleId}@{날짜}T{시각}` |
@@ -499,7 +497,7 @@ Pi가 명령의 `renderId` PNG를 받아 `sha256` 검증·정책 확인 후 인�
 
 | 확장 | 방향 | 상태 |
 |---|---|---|
-| 레이아웃·위젯 엔진(M7) | 사용자 스크립트가 블록 JSON을 반환하는 샌드박스(`haru-widget-runner`, Node) | 포맷 스키마 v2(행/슬롯) 완료. 러너는 [미구현] — `.temp/03` 5절 |
+| 레이아웃·위젯 엔진(M7) | 위젯 그리드(포맷 스키마 v3) + 위젯 6종, **사용자 스크립트**가 블록 JSON을 반환하는 샌드박스(`haru-widget-runner`, Node)는 별개 후속 과제 | 포맷 스키마 v3(위젯 그리드) + 위젯 6종 구현·로컬 검증 완료(2026-09-18), 운영 배포·실물 인쇄 [미검증]. 사용자 스크립트 러너는 [미구현] — `.temp/03` 5절 |
 | 작가·글·구독·피드(M8) | `@haru/posts` 위젯, RSS/Atom/JSON Feed 등록 | 미착수 — `.temp/03` 6절 |
 | 위젯 에디터·마켓(M9) | `/studio/widgets/:id`, 게시·설치·업데이트 | 미착수 — `.temp/03` 7절 |
 | 외부 공개(M10) | 공인 도메인 + TLS, Tailscale 밖 노출(사용자 승인 필요) | 미착수 — `.temp/03` 8절 |

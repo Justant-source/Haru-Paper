@@ -7,6 +7,7 @@ import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.device.PrinterProfileProvider;
 import com.harupaper.server.format.Format;
 import com.harupaper.server.format.FormatDocument;
+import com.harupaper.server.format.FormatDocumentSupport;
 import com.harupaper.server.format.FormatRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,7 +65,7 @@ public class RenderServiceImpl implements RenderService {
     @Override
     public byte[] renderEphemeral(FormatDocument document, LocalDate targetDate, String ownerUserId) {
         var profile = printerProfileProvider.getCurrentProfile(ownerUserId);
-        String html = htmlTemplateBuilder.buildHtml(document, targetDate, profile);
+        String html = htmlTemplateBuilder.buildHtml(document, targetDate, profile, ownerUserId);
         byte[] pngBytes = playwrightRenderer.captureScreenshot(html, profile.printableWidthPx());
         return grayscaleConverter.convertToGrayscale(pngBytes, profile.printableWidthPx());
     }
@@ -128,17 +129,14 @@ public class RenderServiceImpl implements RenderService {
         // format 소유자의 기기 프로필을 쓴다(멀티유저) — 여러 기기가 있으면 사용자마다 다를 수 있다.
         var profile = printerProfileProvider.getCurrentProfile(format.getOwnerUserId());
 
-        // 포맷 문서 역직렬화
-        FormatDocument document;
-        try {
-            document = objectMapper.readValue(format.getBody(), FormatDocument.class);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to deserialize format body", e);
-        }
+        // 포맷 문서 역직렬화. v1·v2 저장본도 자동으로 v3(위젯 그리드)로 up-convert된다 —
+        // 여기서 objectMapper.readValue를 직접 쓰면 옛 저장본의 예약 렌더가 전부 실패한다
+        // (.temp/07-위젯그리드-작업지시서.md 3.3절 마지막 문단).
+        FormatDocument document = FormatDocumentSupport.readDocument(format.getBody(), objectMapper);
 
         // 1. HTML 생성 (변수 치환, 동적 데이터 조회 포함) — 위에서 구한 profile을 그대로 써서
         // Chromium 스크린샷 폭·CSS px 변환이 서로 다른 프로필을 기준으로 어긋나지 않게 한다.
-        String html = htmlTemplateBuilder.buildHtml(document, targetDate, profile);
+        String html = htmlTemplateBuilder.buildHtml(document, targetDate, profile, format.getOwnerUserId());
 
         // 2. Chromium 스크린샷 (PNG 반환)
         byte[] pngBytes = playwrightRenderer.captureScreenshot(html, profile.printableWidthPx());

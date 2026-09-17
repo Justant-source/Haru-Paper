@@ -25,6 +25,8 @@
 | `ScheduleController` | `/api/schedules`, `/api/schedules/{id}` | 세션 |
 | `PrintNowController` | `POST /api/print-now` | 세션 |
 | `HistoryController` | `GET /api/history` | 세션 |
+| `WidgetController` | `GET /api/widgets`(위젯 카탈로그: grid + descriptors, 2026-09-18 신설) | 세션 |
+| `KoreaLocationController` | `GET /api/widgets/locations`(대한민국 시·군·구 285개, 2026-09-18 신설) | 세션 |
 | `DeviceController`(단수, 앱+무인증 혼재) | `GET /api/device`(세션), `PUT /api/device/paper-state`(세션), `POST /api/device/pair`(**없음** — 코드가 인증) | 혼재 |
 | `DeviceManagementController`(복수 `/api/devices`) | `GET/PATCH /api/devices/me`, `POST /api/devices/me/token`, `POST /api/devices/pairing-codes` | 세션 |
 | `SettingsController` | `GET/PUT /api/settings` | 세션 |
@@ -60,11 +62,14 @@ M6부터 이메일/비밀번호 로그인 + HttpOnly 세션 쿠키(Spring Sessio
   "detail": "format document is invalid",
   "instance": "/api/formats",
   "errors": [
-    { "path": "rows[0].slots[0].block.type", "message": "unknown block type: html" },
+    { "path": "widgets[0].type", "message": "unknown widget type: html" },
+    { "path": "widgets[2].props.ticker", "message": "does not match pattern" },
     { "path": "style.fontFamily", "message": "must be one of [Pretendard, Noto Sans KR]" }
   ]
 }
 ```
+
+- 위젯(v3)의 오류 경로 형식은 **[`format-schema.md`](format-schema.md) 3.3절**: `widgets[i].type`·`widgets[i].size`·`widgets[i].props.<key>`(예: `widgets[2].props.ticker`). 앱은 `widgets[i]`의 인덱스를 저장 요청을 보낸 시점의 위젯 id 순서로 되짚어 해당 위젯 카드에 표시한다(`app/web/src/widget-editor/fieldErrors.ts`).
 
 | 상태 | 언제 |
 |---|---|
@@ -84,16 +89,25 @@ Pi가 한 번도 poll하지 않았으면 `devices.printer_profile`이 없다. �
 
 ## 5. 앱용 엔드포인트 구현 메모
 
-### 포맷
+### 위젯 카탈로그 (2026-09-18 신설)
+
+| 요청 | 구현 |
+|---|---|
+| `GET /api/widgets` | `{grid: {columns, rowUnitMm, gapMm, maxWidgets}, widgets: [WidgetDescriptor…]}` — 등록 순서대로, `catalog=false`도 포함. 응답 형태·위젯별 표는 [`widgets.md`](widgets.md) 2절 |
+| `GET /api/widgets/locations` | `[{sido, name, label, lat, lon}]` — `weather` 위젯의 위치 선택기가 쓰는 대한민국 시·군·구 285개. [`widgets.md`](widgets.md) 3.6절 |
+
+### 포맷 (v3, 위젯 그리드)
+
+포맷 문서 본문은 이제 `{schemaVersion: 3, meta, style, widgets: [...]}` 형태다 — 예시·필드는 [`format-schema.md`](format-schema.md) 3절, 오류 경로 예시는 4절.
 
 | 요청 | 구현 |
 |---|---|
 | `GET /api/formats` | 요약 목록: `[{id, name, author, forkedFrom, hasDynamicBlocks, updatedAt}]`(규약), `updatedAt` 내림차순 [기본값] |
-| `POST /api/formats` | 본문 = 포맷 문서. 엄격 검증(`assets` 있으면 422, 없는 `assetId` 422) → 201 `{id, document, hasDynamicBlocks, createdAt, updatedAt}` |
-| `GET /api/formats/{id}` | `{id, document, hasDynamicBlocks, createdAt, updatedAt}` |
+| `POST /api/formats` | 본문 = 포맷 문서(`{schemaVersion: 3, meta, style, widgets}`, `assets` 없음). 엄격 검증(`assets` 있으면 422, 없는 `assetId` 422, 위젯 검증은 [`format-schema.md`](format-schema.md) 3.3절) → 201 `{id, document, hasDynamicBlocks, createdAt, updatedAt}` |
+| `GET /api/formats/{id}` | `{id, document, hasDynamicBlocks, createdAt, updatedAt}` — `document`는 저장된 스키마 버전과 무관하게 **항상 v3**(v1·v2 저장본은 조회 시 up-convert됨, [`format-schema.md`](format-schema.md) 4절) |
 | `PUT /api/formats/{id}` | 전체 교체. 나중에 쓴 쪽이 이김 [기본값]. `meta.forkedFrom`은 클라이언트 값 무시하고 기존 값 유지 |
 | `DELETE /api/formats/{id}` | 참조하는 `schedules`가 있으면 409. 없으면 삭제 + 렌더 행·파일 정리 → 204 |
-| `POST /api/formats/import` | [`format-schema.md`](format-schema.md) 5절 순서 그대로. 요청 본문 최대 30MB [기본값](에셋 base64 포함) → 201 |
+| `POST /api/formats/import` | [`format-schema.md`](format-schema.md) 7절 순서 그대로(**v1·v2·v3 허용**, 1·2는 검증 전에 v3로 변환). 요청 본문 최대 30MB [기본값](에셋 base64 포함) → 201 |
 | `GET /api/formats/{id}/export` | `assets` 내장 JSON, `Content-Disposition: attachment; filename="<name>.haru-format.json"` |
 | `GET /api/formats/{id}/preview.png` | 저장된 포맷(소유자만, 아니면 404). 쿼리 `date=YYYY-MM-DD`(선택, 기본 KST 오늘). **그 포맷 소유자의 기기 프로필(기기 없으면 기본 프로필)**로 즉시 렌더(`kind=preview`) → `image/png`. 같은 (포맷 `updated_at`, date, profile_key) 렌더가 10분 안에 있으면 재사용 [기본값]. **(2026-09-17)** 이전에는 "아무 기기나 하나"인 전역 폴백 프로필로 렌더했다 — 멀티유저에서 다른 사용자 기기의 폭으로 잘못 렌더될 수 있던 것을 소유자 기준으로 고쳤다(`PrinterProfileProvider.getCurrentProfile(ownerUserId)`) |
 | `POST /api/formats/preview` | **저장하지 않은 편집본** 미리보기. 본문 = 포맷 문서(`assets` 없음), 쿼리 `date` 선택. `POST /api/formats`와 같은 엄격 검증(실패 422) → **요청한 로그인 사용자 소유 기기의 프로필**(기기 없으면 기본 프로필)로 렌더 → `200 image/png`. **`formats`·`renders` 행과 렌더 파일을 남기지 않는다**(PNG 바이트를 바로 응답) [기본값]. 앱 편집기가 입력이 멈춘 뒤 1초 디바운스로 부른다. **(2026-09-17)** `renderEphemeral`이 `ownerUserId` 인자를 받도록 바뀌어, 이전의 "아무 기기나 하나" 전역 폴백 프로필 대신 요청자 자신의 기기 프로필을 쓴다(세션 인증은 이 절 헤더대로 기존과 동일하게 필수 — 미로그인 401) |
@@ -155,10 +169,11 @@ Pi가 한 번도 poll하지 않았으면 `devices.printer_profile`이 없다. �
 - `paperState` = `{loaded, updatedAt, updatedBy}` — `loaded`는 DB 컬럼 `devices.paper_state_manual`, `updatedAt`은 `devices.paper_state_updated_at`, `updatedBy`는 `devices.paper_state_updated_by`
 - `PUT /api/device/paper-state` 본문 `{loaded}` → `paper_state_manual` 갱신 → 200 `{loaded, updatedAt, updatedBy: "app"}`. `manual_flag` 정책에서 프린터 오류 결과(`failed`, `skipped_printer_offline`)를 받아 서버가 끌 때는 `updatedBy: "server"`로 기록 [기본값]
 
-### 설정
+### 설정 — **2026-09-18부터 레거시(렌더 미사용)**
 
 - `GET /api/settings` → `{weather: {lat, lon, label}}`
-- `PUT /api/settings` → 같은 형태. `lat` −90~90, `lon` −180~180, `label` 1~50자. 바뀌면 날씨 캐시 무효화 + 동적 포맷 재렌더 트리거
+- `PUT /api/settings` → 같은 형태. `lat` −90~90, `lon` −180~180, `label` 1~50자
+- API 자체는 그대로 동작하지만(엔드포인트 폐기는 이번 변경 범위 밖), **날씨 위치는 이제 `weather` 위젯의 `props.location`에 들어 있어 이 값은 렌더에 쓰이지 않는다**([`weather.md`](weather.md) 2절). 앱 설정 화면도 이 카드를 지웠다([`app/screens.md`](../app/screens.md) (7)).
 
 ## 6. Pi용 엔드포인트 구현 메모
 
@@ -275,8 +290,9 @@ curl -N -H "Authorization: Bearer $DEVICE_TOKEN" "$BASE/api/device/events"
 | 1-1 | 로그인 없이 `GET /api/formats` | 401 |
 | 2 | `POST /api/assets`(`-F file=@test.png`, 세션+CSRF) | 201, `assetId` |
 | 3 | 11MB 파일 업로드 / `.gif` 업로드 | 413 / 415 |
-| 4 | 행/슬롯 구조(v2)에 블록 4종(text·image·dateHeader·weather)으로 `POST /api/formats` | 201, `id` |
-| 5 | `rows[0].slots[0].block.type="html"` 또는 스타일 키 `color` | 422, `errors[].path` 포함 |
+| 4 | 위젯 그리드(v3)에 위젯 4종(dateHeader·text·morningLetter·weather)으로 `POST /api/formats` | 201, `id` |
+| 5 | `widgets[0].type="html"` 또는 모르는 props 키 | 422, `errors[].path` 포함(예: `widgets[0].type`, `widgets[2].props.ticker`) |
+| 5-1 | `GET /api/widgets` / `GET /api/widgets/locations` | 200, 위젯 6종 descriptor 포함 / 285개 위치 |
 | 6 | `GET /api/formats/{id}`, `PUT`로 이름 변경 | 200, 변경 반영 |
 | 7 | `GET /api/formats/{id}/preview.png -o p.png` | PNG, **폭 = `printableWidthPx`(기본 1300)**, 한글·날짜 변수 정상(육안) |
 | 8 | export → 파일 그대로 import | 201, **새 id**, `meta.forkedFrom` 채워짐, `assetId` 새 값 |
@@ -285,7 +301,7 @@ curl -N -H "Authorization: Bearer $DEVICE_TOKEN" "$BASE/api/device/events"
 | 11 | 예약이 참조 중인 포맷 `DELETE` | 409 |
 | 12 | 토큰 없이 `POST /api/device/poll` | 401 |
 | 13 | 세션 없이 `GET /api/device` | 401(M6부터 세션 필요, PoC 시절의 "200 앱용 무인증"에서 바뀜) |
-| 13-1 | 편집본으로 `POST /api/formats/preview` / 잘못된 블록 타입 | `200 image/png`(DB 행·파일 증가 없음) / 422 |
+| 13-1 | 편집본으로 `POST /api/formats/preview` / 모르는 위젯 타입 | `200 image/png`(DB 행·파일 증가 없음) / 422 |
 | 13-2 | `GET /api/assets/{assetId}` (2번에서 받은 id) | 200, 원본 `Content-Type` |
 | 14 | 토큰으로 poll(`snapshotHash: null`) | 200, `snapshotChanged: true` |
 | 15 | `GET /api/device/snapshot` → `renders[0].url` 다운로드 | PNG `sha256` = 스냅샷 값 |
@@ -294,5 +310,5 @@ curl -N -H "Authorization: Bearer $DEVICE_TOKEN" "$BASE/api/device/events"
 | 18 | `POST /api/device/results`(그 `commandId` 결과) 두 번 | 1회차 `accepted`, 2회차 `duplicates`, `/api/history`에 1건만, 명령 `done` |
 | 19 | 명령 생성 후 10분 동안 결과 없음 | 이후 poll에 실리지 않음(`expired`) |
 | 20 | `PUT /api/device/paper-state {loaded:true}` → poll | `paperState.loaded: true` |
-| 21 | `PUT /api/settings`로 위치 변경 → 날씨 포맷 미리보기 | 새 위치 기준 값(또는 [`weather.md`](weather.md) 실패 표시) |
+| 21 | `weather` 위젯(`props.location` 다른 시·군·구)을 넣은 포맷 미리보기 | 그 위치 기준 값(또는 [`weather.md`](weather.md) 실패 표시). `PUT /api/settings`는 더 이상 이 결과에 영향을 주지 않는다(레거시) |
 | 22 | 백업 컨테이너 1회 실행 | 백업 파일 생성([`deploy.md`](deploy.md)) |

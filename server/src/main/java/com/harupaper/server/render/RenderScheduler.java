@@ -10,6 +10,7 @@ import com.harupaper.server.format.FormatDocumentSupport;
 import com.harupaper.server.format.FormatRepository;
 import com.harupaper.server.schedule.Schedule;
 import com.harupaper.server.schedule.ScheduleRepository;
+import com.harupaper.server.widget.WidgetRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -46,6 +47,7 @@ public class RenderScheduler {
     private final RenderService renderService;
     private final PrinterProfileProvider printerProfileProvider;
     private final ClockProvider clockProvider;
+    private final WidgetRegistry widgetRegistry;
 
     @Scheduled(fixedDelay = 300000)  // 5분 = 300,000ms
     @Transactional
@@ -84,8 +86,11 @@ public class RenderScheduler {
                             }
                         }
 
-                        // 동적 포맷: occurrence 60분 전에 다시 렌더
-                        if (FormatDocumentSupport.hasDynamicBlocks(parseFormatDocument(format))) {
+                        // 동적 포맷: occurrence 60분 전에 다시 렌더. 위젯 종류·dynamic 플래그는
+                        // WidgetRegistry(스프링 빈)만 알고 있다 — FormatDocumentSupport는 순수
+                        // 변환 헬퍼로만 남겨 뒀다(.temp/07-위젯그리드-작업지시서.md 6절).
+                        com.harupaper.server.format.FormatDocument document = parseFormatDocument(format);
+                        if (document != null && widgetRegistry.hasDynamic(document.widgets())) {
                             if (shouldRenderBeforeOccurrence(format, targetDate, schedule.getTime(), currentProfileKey)) {
                                 try {
                                     renderService.renderForScheduled(format.getId(), targetDate);
@@ -230,15 +235,14 @@ public class RenderScheduler {
     }
 
     /**
-     * Format.body (JSON)을 FormatDocument로 파싱. v1은 자동 up-convert된다.
+     * Format.body (JSON)을 FormatDocument로 파싱. v1·v2는 자동으로 v3로 up-convert된다.
      */
     private com.harupaper.server.format.FormatDocument parseFormatDocument(Format format) {
         try {
             com.fasterxml.jackson.databind.ObjectMapper mapper =
                     new com.fasterxml.jackson.databind.ObjectMapper();
             mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
-            // v1 포맷은 FormatDocumentSupport.readDocument에서 자동 up-convert된다
-            return com.harupaper.server.format.FormatDocumentSupport.readDocument(format.getBody(), mapper);
+            return FormatDocumentSupport.readDocument(format.getBody(), mapper);
         } catch (Exception e) {
             log.warn("Failed to parse format document: {}", format.getId());
             return null;

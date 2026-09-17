@@ -35,9 +35,10 @@
 | [`server/auth.md`](server/auth.md) | M6: 세션 로그인·가입, 역할, 기기별 토큰·페어링 코드, 소유권 스코핑, 관리자 API |
 | [`server/api.md`](server/api.md) | 컨트롤러별 경로·인증, 오류 형식, 멱등, curl 시나리오 |
 | [`server/data-model.md`](server/data-model.md) | MariaDB 테이블(Flyway V1~V3 적용됨, V4 파일 작성·미적용), 파일 저장 |
-| [`server/format-schema.md`](server/format-schema.md) | **포맷 JSON 스키마 v2(행/슬롯) 원본** |
-| [`server/rendering.md`](server/rendering.md) | 포맷 → HTML → Chromium → 그레이스케일 PNG, 샌드박스, 1-bpp(PBM) 구현됨[확인됨·코드] |
-| [`server/weather.md`](server/weather.md) | 날씨 블록: Open-Meteo, 기본 위치 |
+| [`server/format-schema.md`](server/format-schema.md) | **포맷 JSON 스키마 v3(위젯 그리드) 원본** |
+| [`server/widgets.md`](server/widgets.md) | **위젯 프레임워크**(구현 규칙, 새 위젯 추가 절차) + 위젯 6종 표(fields·데이터 출처·실패 표시) |
+| [`server/rendering.md`](server/rendering.md) | 포맷 → 위젯 조립(4열 그리드) → Chromium → 그레이스케일 PNG, 샌드박스, 1-bpp(PBM) 구현됨[확인됨·코드] |
+| [`server/weather.md`](server/weather.md) | 날씨: Open-Meteo, 위치는 날씨 위젯 설정값(2026-09-18부터) |
 | [`server/deploy.md`](server/deploy.md) | Docker compose, 포트·`tailscale serve`, 백업, `.env`, 일회성 운영 작업(V4 백필·`claim-legacy`·소유권 엄격 모드) |
 
 ### `docs/app/*` (담당: 서버 세션)
@@ -46,10 +47,10 @@
 |---|---|
 | [`app/web.md`](app/web.md) | 웹앱 스택(React+TS+Vite PWA), 인증 흐름, API 클라이언트 |
 | [`app/screens.md`](app/screens.md) | 화면 11개: 표시 요소, 동작, 호출 API |
-| [`app/editor.md`](app/editor.md) | 드래그 기반 레이아웃 편집기(schemaVersion 2, dnd-kit) |
+| [`app/editor.md`](app/editor.md) | 위젯 그리드 편집기(schemaVersion 3, 서버 카탈로그 기반 자동 생성 폼) |
 | [`app/native.md`](app/native.md) | `/app/android`, `/app/ios` 예약, 네이티브 기술 후보(미정) |
 
-## 2. 현재 상태 (2026-09-18)
+## 2. 현재 상태 (2026-09-18, 위젯 그리드 반영)
 
 이 표가 바뀌면 [`../CLAUDE.md`](../CLAUDE.md)의 "현재 상태" 표도 같이 고친다.
 
@@ -64,7 +65,7 @@
 | M4 | Pi 에이전트(폴링·스케줄러·대기열) | 코드 있음(`pi/agent/`), Pi에서 상시 구동 중. **2026-09-18에 배포 따라잡음** [확인됨·실물] — Pi(`haru-pi`)가 `581899e`에서 원격 `74a5384`까지 `git pull --ff-only && systemctl restart`로 갱신됐다(`docs/pi/setup.md` 5.4절). 용지 게이트 fail-closed·fake 무성 폴백 제거·중복 인쇄 수정(`623a8dc`), 유예 내 재시도·"지금 인쇄" 실행기·결과 업로드(`8b7194b`), 시계 동기화 게이트·`last_tick_at` 되돌아보기·보낸 바이트 순환 삭제(`51a6a8d`), SSE 깨우기 채널이 모두 반영됐다. `HARU_PAPER_POLICY=unverified`는 그대로 유지(절대금지 1). 재기동 로그로 poll·scheduler tick·SSE 연결(`GET /api/device/events` 200, `ready` 수신) 정상 확인. 단위 테스트(`pi/tests`)는 284개 전부 통과([`pi/agent.md`](pi/agent.md) 참고) |
 | M5 | Pi 실물 설치, 연결 방식 결정 | **완료(4/4).** 재부팅 자동시작·서버 폴링·transport=`bt` 확정에 이어, `pi/transport/bt.py` 구현(콜드 ACL 워크어라운드 포함) + Pi ↔ M832 페어링 + 실물 인쇄 1회(텍스트+그레이데이션+체커보드, 사용자 육안 확인) 전부 [확인됨·실물, 2026-09-17]. `HARU_PRINTER_DRIVER=m832` 상시. **단, 이 인쇄는 `M832Printer`+`BtTransport` 직접 호출로 이뤄졌고, 앱 "지금 인쇄" → 에이전트 실행기 → 서버 결과 업로드로 이어지는 체인은 여전히 [미검증]**([pi/agent.md](pi/agent.md) 11절) |
 | M6 | 계정·기기 소유(세션 로그인, 기기별 토큰, 페어링 코드, 관리자) | 구현 완료. 문서는 `server/auth.md`·`app/web.md`·`app/screens.md`에 반영. **단 통과 조건은 미충족** — `.temp/03` 4.5절의 "관리자가 레거시 데이터를 claim"(V4 백필 적용 → `claim-legacy` 실행) 중 **V4 백필은 2026-09-18 서버 재배포(Flyway 자동 적용)로 완료**됐다(`null_renders=0` 확인, `server/deploy.md` 7.1절) — 단 계획된 신중한 절차(사전 백업 등)가 아니라 SSE 배포의 부수 효과로 적용됐다는 점을 문서에 남겼다. **`claim-legacy`는 아직 실행되지 않았다**(레거시 포맷 24건 남음, `HARU_OWNERSHIP_STRICT=false` 그대로). `CLAUDE.md` "통과 조건을 만족하기 전에 다음 마일스톤으로 넘어가지 않는다" 규칙상 M6은 아직 통과 전이다 |
-| M7 | 레이아웃·위젯 엔진 | **부분.** 포맷 스키마 v2(행/슬롯)와 드래그 편집기(dnd-kit)는 구현됨. `haru-widget-runner`(Node 샌드박스)는 **미구현** |
+| M7 | 레이아웃·위젯 엔진 | **부분.** 2026-09-18: 포맷 스키마 v2(행/슬롯)+드래그 편집기(dnd-kit)를 **폐기**하고 **위젯 그리드(스키마 v3) + 위젯 6종**(`dateHeader`/`text`/`image`/`morningLetter`/`stockChart`/`weather`)으로 교체 — 구현·로컬 검증 완료(서버 단위 테스트 195개, 앱 tsc/lint/build, Playwright e2e). **운영 배포·실물 인쇄는 [미검증]**(로컬 임시 스택 검증만). 사용자 스크립트를 실행하는 `haru-widget-runner`(Node 샌드박스, 별개 후속 과제)는 **미구현** |
 | M8 | 작가·글·구독·피드 | 미착수 |
 | M9 | 위젯 에디터·마켓 | 미착수 |
 | M10 | 외부 공개 준비 | 미착수 |

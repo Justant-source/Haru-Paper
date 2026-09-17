@@ -4,9 +4,9 @@
 
 > 표기: **[확인됨]**/**[확인됨·코드]** 실제 확인 / **[미검증]** 확인 전 / **[추정]** 자료 기반 추론 / **[기본값]** 사용자에게 따로 묻지 않고 정한 값(바꿔도 됨, 바꾸면 이 문서를 고친다)
 
-## 현재 상태 (2026-09-17)
+## 현재 상태 (2026-09-18)
 
-M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유권)까지 구현 완료. M7(레이아웃·위젯)은 포맷 스키마 v2(행/슬롯) + 드래그 편집기까지만 됐고 `haru-widget-runner`는 **미구현**. M8~M10은 미착수(`.temp/03-플랫폼-작업지시서-v1.0.md` 참고).
+M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유권)까지 구현 완료. M7(레이아웃·위젯)은 포맷 스키마 **v3(위젯 그리드)** + 위젯 6종(`dateHeader`/`text`/`image`/`morningLetter`/`stockChart`/`weather`) 구현·로컬 검증 완료. **운영 배포·실물 인쇄는 [미검증]**. 사용자 스크립트를 실행하는 `haru-widget-runner`(별개 후속 과제)는 **미구현**. M8~M10은 미착수(`.temp/03-플랫폼-작업지시서-v1.0.md` 참고).
 
 ## 읽는 순서
 
@@ -15,11 +15,12 @@ M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유�
 3. [`../architecture.md`](../architecture.md): 전체 구조, 경계, **API 규약 원본**
 4. [`deploy.md`](deploy.md): compose, 노출(`tailscale serve`), 백업
 5. [`auth.md`](auth.md): **M6** 세션 인증·CSRF·기기 토큰·페어링 코드·관리자 API
-6. [`format-schema.md`](format-schema.md): 포맷 스키마 **v2**(행/슬롯) 원본
-7. [`data-model.md`](data-model.md): MariaDB 테이블(V1~V3 적용됨, V4 파일 작성·미적용), Flyway, 파일 저장
-8. [`api.md`](api.md): 컨트롤러 13개, 인증, 에러 형식, 멱등, snapshotHash, curl 시나리오
-9. [`rendering.md`](rendering.md): 포맷 → HTML → Chromium → PNG, 렌더 스케줄러
-10. [`weather.md`](weather.md): Open-Meteo, 날씨 블록
+6. [`format-schema.md`](format-schema.md): 포맷 스키마 **v3**(위젯 그리드) 원본
+7. [`widgets.md`](widgets.md): **위젯 프레임워크**·위젯 6종 표(2026-09-18 신설)
+8. [`data-model.md`](data-model.md): MariaDB 테이블(V1~V3 적용됨, V4 파일 작성·미적용), Flyway, 파일 저장
+9. [`api.md`](api.md): 컨트롤러 15개, 인증, 에러 형식, 멱등, snapshotHash, curl 시나리오
+10. [`rendering.md`](rendering.md): 포맷 → 위젯 조립 → Chromium → PNG, 렌더 스케줄러
+11. [`weather.md`](weather.md): Open-Meteo, 날씨 위젯
 
 ## 서버가 맡는 것 / 모르는 것
 
@@ -27,10 +28,10 @@ M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유�
 |---|---|
 | 계정·세션·기기 소유권([`auth.md`](auth.md)) | M832 프로토콜(헤더, 래스터, 정렬보정) |
 | 포맷·에셋·예약·명령·결과 저장(사용자별) | Pi의 transport(BT 확정, USB는 M1) |
-| 프린터 프로필 폭으로 **그레이스케일 PNG**(+1-bpp PBM, 구현됨) 렌더 | 용지 감지 방식의 세부 |
-| 날씨 조회, 앱 API, Pi 동기화 API(폴링) | 사용자 위젯 스크립트(M7, 미구현 — `/server/runner`가 맡을 예정) |
+| 위젯 6종 렌더 조립 → 프린터 프로필 폭으로 **그레이스케일 PNG**(+1-bpp PBM, 구현됨) | 용지 감지 방식의 세부 |
+| 날씨·아침편지·증시 조회, 앱 API, Pi 동기화 API(폴링) | 사용자 위젯 스크립트(별개 후속 과제, 미구현 — `/server/runner`가 맡을 예정) |
 
-좌우 정렬 보정, 1304dot 패딩, M832 헤더·꼬리 조립, 전송은 **Pi 드라이버 몫**이다. 서버는 `printerProfile.printableWidthPx` 폭의 그레이스케일 PNG(+ 승인·구현된 1-bpp PBM, 배포·기기 연동은 [미검증])까지만 만든다.
+좌우 정렬 보정, 1304dot 패딩, M832 헤더·꼬리 조립, 전송은 **Pi 드라이버 몫**이다. **위젯을 아는 코드는 `/server/.../widget/**`뿐이다**([`widgets.md`](widgets.md)) — 앱과 서버의 다른 부분은 `WidgetDescriptor`만 안다. 서버는 `printerProfile.printableWidthPx` 폭의 그레이스케일 PNG(+ 승인·구현된 1-bpp PBM, 배포·기기 연동은 [미검증])까지만 만든다.
 
 ## M2·M6 통과 기록
 

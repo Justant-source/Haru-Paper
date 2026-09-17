@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { schedulesApi } from '../api/schedules'
 import { formatsApi } from '../api/formats'
 import type { Schedule, ScheduleCreateRequest, ScheduleType, DayOfWeekCode } from '../types/schedule'
@@ -16,11 +16,31 @@ import { BottomSheet } from '../components/BottomSheet'
 import { Toggle } from '../components/Toggle'
 import { useI18n } from '../i18n'
 import { track } from '../lib/analytics'
+import '../styles/format-flow.css'
+
+const WEEKDAYS: DayOfWeekCode[] = ['MON', 'TUE', 'WED', 'THU', 'FRI']
+const WEEKEND: DayOfWeekCode[] = ['SAT', 'SUN']
+
+const QUICK_DAY_SETS: { label: string; days: DayOfWeekCode[] }[] = [
+  { label: '매일', days: ALL_DAYS },
+  { label: '평일', days: WEEKDAYS },
+  { label: '주말', days: WEEKEND },
+]
+
+/** 서버로 보낼 때는 항상 MON..SUN 순서로 정렬한다(토글 클릭 순서와 무관하게). */
+function sortDays(days: DayOfWeekCode[]): DayOfWeekCode[] {
+  return ALL_DAYS.filter((d) => days.includes(d))
+}
+
+function sameDaySet(a: DayOfWeekCode[], b: DayOfWeekCode[]): boolean {
+  return a.length === b.length && b.every((d) => a.includes(d))
+}
 
 export function ScheduleListPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [showForm, setShowForm] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null)
@@ -31,7 +51,7 @@ export function ScheduleListPage() {
   const [noFormatHint, setNoFormatHint] = useState(false)
 
   const [formType, setFormType] = useState<ScheduleType>('recurring')
-  const [selectedDays, setSelectedDays] = useState<DayOfWeekCode[]>(['MON', 'TUE', 'WED', 'THU', 'FRI'])
+  const [selectedDays, setSelectedDays] = useState<DayOfWeekCode[]>(ALL_DAYS)
   const [formDate, setFormDate] = useState(todayKstDateString())
   const [formTime, setFormTime] = useState('07:00')
   const [formFormatId, setFormFormatId] = useState<string>('')
@@ -42,7 +62,7 @@ export function ScheduleListPage() {
     queryFn: () => schedulesApi.list(),
   })
 
-  const { data: formats } = useQuery({
+  const { data: formats, isFetching: formatsFetching } = useQuery({
     queryKey: ['formats'],
     queryFn: () => formatsApi.list(),
   })
@@ -123,7 +143,7 @@ export function ScheduleListPage() {
 
   const resetForm = () => {
     setFormType('recurring')
-    setSelectedDays(['MON', 'TUE', 'WED', 'THU', 'FRI'])
+    setSelectedDays(ALL_DAYS)
     setFormDate(todayKstDateString())
     setFormTime('07:00')
     setFormFormatId('')
@@ -147,6 +167,37 @@ export function ScheduleListPage() {
     setEditingSchedule(null)
     setShowForm(true)
   }
+
+  // 포맷 목록에서 "예약하기"로 들어오면(?formatId=) 그 포맷이 선택된 채로 새 예약 시트를 연다.
+  // 쿼리는 열고 나서 곧바로 지운다(뒤로 가기·새로고침 때 다시 열리지 않게). 없는 id는 조용히 무시.
+  useEffect(() => {
+    const formatId = searchParams.get('formatId')
+    if (!formatId || !formats) return
+
+    const found = formats.some((f) => f.id === formatId)
+    // 편집 화면에서 방금 만든 포맷은 옛 캐시 목록에 없을 수 있다 — 목록을 다시 받는 중이면 기다린다.
+    // (안 그러면 stale 목록으로 판단해 쿼리만 지우고 시트를 안 연다, 2026-09-18 실측)
+    if (!found && formatsFetching) return
+
+    if (found) {
+      resetForm()
+      setEditingSchedule(null)
+      setFormFormatId(formatId)
+      setNoFormatHint(false)
+      setShowForm(true)
+    }
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('formatId')
+        return next
+      },
+      { replace: true },
+    )
+    // formats가 로드된 뒤 한 번만 처리한다 — searchParams 변경으로 다시 돌지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formats, formatsFetching])
 
   const handleEditSchedule = (schedule: Schedule) => {
     if (!formats || formats.length === 0) {
@@ -190,7 +241,7 @@ export function ScheduleListPage() {
     }
 
     if (formType === 'recurring') {
-      body.daysOfWeek = selectedDays
+      body.daysOfWeek = sortDays(selectedDays)
     } else {
       body.date = formDate
     }
@@ -282,6 +333,19 @@ export function ScheduleListPage() {
       {formType === 'recurring' && (
         <div className="field">
           <span id="schedule-days-label">요일 선택</span>
+          <div className="quick-day-chips" role="group" aria-label="빠른 선택">
+            {QUICK_DAY_SETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                className={`quick-day-chip ${sameDaySet(selectedDays, preset.days) ? 'active' : ''}`}
+                aria-pressed={sameDaySet(selectedDays, preset.days)}
+                onClick={() => setSelectedDays(preset.days)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
           <div className="day-toggles" role="group" aria-labelledby="schedule-days-label">
             {ALL_DAYS.map((day) => (
               <button
@@ -437,19 +501,39 @@ export function ScheduleListPage() {
         <div className="schedule-list">
           {schedules.map((schedule) => (
             <Card key={schedule.id} className="schedule-item">
-              <div className="schedule-info">
-                <div className="schedule-time">{schedule.time}</div>
-                <div className="schedule-days">
-                  {schedule.type === 'recurring' && schedule.daysOfWeek
-                    ? schedule.daysOfWeek.map((d) => DAY_LABELS_KO[d]).join(' ')
-                    : schedule.date
-                      ? onceDateLabel(schedule.date)
-                      : null}
+              <div className="schedule-main">
+                <img
+                  className="schedule-thumb"
+                  src={formatsApi.previewUrl(schedule.formatId)}
+                  alt=""
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+                <div className="schedule-info">
+                  <div className="schedule-time">{schedule.time}</div>
+                  <div className="schedule-days">
+                    {schedule.type === 'recurring' && schedule.daysOfWeek
+                      ? schedule.daysOfWeek.map((d) => DAY_LABELS_KO[d]).join(' ')
+                      : schedule.date
+                        ? onceDateLabel(schedule.date)
+                        : null}
+                  </div>
+                  {formats?.some((f) => f.id === schedule.formatId) ? (
+                    <button
+                      type="button"
+                      className="schedule-format-link"
+                      onClick={() => navigate(`/formats/${schedule.formatId}/edit`)}
+                    >
+                      {formatName(schedule.formatId)}
+                    </button>
+                  ) : (
+                    <div className="schedule-format">{formatName(schedule.formatId)}</div>
+                  )}
+                  {schedule.nextOccurrenceAt && (
+                    <div className="schedule-next">다음: {formatDateTimeKo(schedule.nextOccurrenceAt)}</div>
+                  )}
                 </div>
-                <div className="schedule-format">{formatName(schedule.formatId)}</div>
-                {schedule.nextOccurrenceAt && (
-                  <div className="schedule-next">다음: {formatDateTimeKo(schedule.nextOccurrenceAt)}</div>
-                )}
               </div>
               <div className="schedule-controls">
                 <Toggle

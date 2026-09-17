@@ -74,7 +74,7 @@ class RenderServiceImplOwnerTest {
         ReflectionTestUtils.setField(renderService, "filesDir", tempDir.toString());
 
         when(printerProfileProvider.getCurrentProfile(nullable(String.class))).thenReturn(PrinterProfile.DEFAULT);
-        when(htmlTemplateBuilder.buildHtml(any(), any(), any())).thenReturn("<html></html>");
+        when(htmlTemplateBuilder.buildHtml(any(), any(), any(), any())).thenReturn("<html></html>");
         when(playwrightRenderer.captureScreenshot(any(), anyInt())).thenReturn(fakePngBytes());
         when(grayscaleConverter.convertToGrayscale(any(), anyInt())).thenReturn(fakePngBytes());
         when(pbmConverter.convertToPbm(any())).thenReturn(new byte[]{1, 2, 3});
@@ -144,7 +144,8 @@ class RenderServiceImplOwnerTest {
         format.setOwnerUserId(ownerUserId);
         format.setName("Test Format");
         format.setSchemaVersion(2);
-        format.setBody("{\"schemaVersion\":2,\"meta\":{\"name\":\"t\"},\"style\":null,\"rows\":[]}");
+        format.setBody("{\"schemaVersion\":3,\"meta\":{\"name\":\"t\"},\"style\":null,"
+                + "\"widgets\":[{\"id\":\"w1\",\"type\":\"text\",\"size\":\"4xauto\",\"props\":{\"text\":\"t\"}}]}");
         format.setHasDynamicBlocks(false);
         format.setCreatedAt(Instant.now());
         format.setUpdatedAt(Instant.now());

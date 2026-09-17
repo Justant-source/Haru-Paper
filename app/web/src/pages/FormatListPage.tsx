@@ -2,7 +2,6 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { formatsApi } from '../api/formats'
-import { emptyDocument } from '../types/format'
 import { ApiError } from '../types/problem'
 import { formatDateTimeKo } from '../lib/date'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -10,12 +9,14 @@ import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
+import { Badge } from '../components/Badge'
 import { BottomSheet } from '../components/BottomSheet'
 import { IconKebab } from '../components/icons'
 import { useI18n } from '../i18n'
-import { track } from '../lib/analytics'
+import '../styles/format-flow.css'
 
 type SheetState =
+  | { type: 'new' }
   | { type: 'menu'; id: string }
   | { type: 'confirm'; id: string }
   | { type: 'notice'; title: string; message: string }
@@ -32,19 +33,6 @@ export function FormatListPage() {
   const { data: formats, isLoading, error, refetch } = useQuery({
     queryKey: ['formats'],
     queryFn: () => formatsApi.list(),
-  })
-
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      // 자리 표시용 — 새 포맷 만들기 흐름은 A2가 교체한다(.temp/07)
-      const newDoc = emptyDocument('새로운 포맷')
-      return formatsApi.create(newDoc)
-    },
-    onSuccess: (result) => {
-      track('format_create')
-      queryClient.invalidateQueries({ queryKey: ['formats'] })
-      navigate(`/formats/${result.id}/edit`)
-    },
   })
 
   const deleteMutation = useMutation({
@@ -116,18 +104,22 @@ export function FormatListPage() {
   const menuFormat = sheet?.type === 'menu' ? formats?.find((f) => f.id === sheet.id) : undefined
   const isEmpty = !formats || formats.length === 0
 
+  const openNewSheet = () => setSheet({ type: 'new' })
+
+  // 목록 화면은 서버에 아무것도 저장하지 않는다 — 서버는 위젯 1개 이상·필수 설정값을 요구하므로
+  // 첫 저장은 편집 화면(A1)이 template 쿼리를 읽어 buildTemplate()으로 조립한 뒤 한다.
+  const startTemplate = (template: 'morning' | 'empty') => {
+    closeSheet()
+    navigate(`/formats/new?template=${template}`)
+  }
+
   return (
     <div className="page page-with-header">
       <PageHeader
         title={t('tabFormat')}
         action={
-          <Button
-            variant="primary"
-            className="btn-pill"
-            onClick={() => createMutation.mutate()}
-            disabled={createMutation.isPending}
-          >
-            {createMutation.isPending ? t('creating') : t('newFormat')}
+          <Button variant="primary" className="btn-pill" onClick={openNewSheet}>
+            {t('newFormat')}
           </Button>
         }
       />
@@ -136,43 +128,55 @@ export function FormatListPage() {
 
       {isLoading ? (
         <p>{t('loading')}</p>
+      ) : isEmpty ? (
+        <div className="stack">
+          <EmptyState message={t('formatsEmpty')} actionLabel={t('newFormat')} onAction={openNewSheet} />
+          <div className="format-list-footer">
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importMutation.isPending}
+            >
+              {importMutation.isPending ? t('importing') : t('import')}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="stack">
-          <Button
-            variant="secondary"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importMutation.isPending}
-          >
-            {importMutation.isPending ? t('importing') : t('import')}
-          </Button>
-
-          {isEmpty ? (
-            <EmptyState
-              message={t('formatsEmpty')}
-              actionLabel={t('newFormat')}
-              onAction={() => createMutation.mutate()}
-            />
-          ) : (
           <div className="format-list">
             {formats.map((format) => (
-              <Card key={format.id}>
+              <Card key={format.id} className="format-card">
                 <div className="row">
-                  <img
-                    className="format-thumb"
-                    src={formatsApi.previewUrl(format.id)}
-                    alt=""
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
-                  />
+                  <button
+                    type="button"
+                    className="format-card-main"
+                    onClick={() => navigate(`/formats/${format.id}/edit`)}
+                  >
+                    <img
+                      className="format-thumb"
+                      src={formatsApi.previewUrl(format.id)}
+                      alt=""
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
 
-                  <div className="stack grow">
-                    <div className="format-name">{format.name}</div>
-                    {format.forkedFrom && (
-                      <div className="entry-time">{t('forkedFrom')}: {format.forkedFrom.author}</div>
-                    )}
-                    <div className="entry-time">{formatDateTimeKo(format.updatedAt)}</div>
-                  </div>
+                    <div className="format-card-info">
+                      <div className="format-name">{format.name}</div>
+                      {(format.hasDynamicBlocks || format.forkedFrom) && (
+                        <div className="format-card-meta">
+                          {format.hasDynamicBlocks && <Badge tone="neutral">매일 갱신</Badge>}
+                          {format.forkedFrom && (
+                            <span className="entry-time">
+                              {t('forkedFrom')}: {format.forkedFrom.author}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div className="entry-time">{formatDateTimeKo(format.updatedAt)}</div>
+                    </div>
+                  </button>
 
                   <button
                     type="button"
@@ -186,7 +190,17 @@ export function FormatListPage() {
               </Card>
             ))}
           </div>
-          )}
+
+          <div className="format-list-footer">
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importMutation.isPending}
+            >
+              {importMutation.isPending ? t('importing') : t('import')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -199,6 +213,26 @@ export function FormatListPage() {
         tabIndex={-1}
         aria-hidden="true"
       />
+
+      <BottomSheet open={sheet?.type === 'new'} title="새 포맷" onClose={closeSheet}>
+        <div className="template-choices">
+          <button
+            type="button"
+            className="template-choice"
+            onClick={() => startTemplate('morning')}
+          >
+            <div className="template-choice-head">
+              <span className="template-choice-title">아침 브리핑</span>
+              <Badge tone="ok">추천</Badge>
+            </div>
+            <p className="template-choice-desc">날짜 · 고도원의 아침편지 · 오늘의 날씨 · 미국 증시를 한 장에</p>
+          </button>
+          <button type="button" className="template-choice" onClick={() => startTemplate('empty')}>
+            <span className="template-choice-title">빈 포맷</span>
+            <p className="template-choice-desc">위젯을 직접 골라 담기</p>
+          </button>
+        </div>
+      </BottomSheet>
 
       <BottomSheet
         open={sheet?.type === 'menu'}
@@ -215,16 +249,16 @@ export function FormatListPage() {
         >
           {t('edit')}
         </button>
-        {sheet?.type === 'menu' && (
-          <a
-            className="sheet-item"
-            href={formatsApi.exportUrl(sheet.id)}
-            download
-            onClick={closeSheet}
-          >
-            {t('export')}
-          </a>
-        )}
+        <button
+          type="button"
+          className="sheet-item"
+          onClick={() => {
+            if (sheet?.type === 'menu') navigate(`/schedules?formatId=${sheet.id}`)
+            closeSheet()
+          }}
+        >
+          예약하기
+        </button>
         <button
           type="button"
           className="sheet-item"
@@ -235,6 +269,16 @@ export function FormatListPage() {
         >
           {t('tabPrintNow')}
         </button>
+        {sheet?.type === 'menu' && (
+          <a
+            className="sheet-item"
+            href={formatsApi.exportUrl(sheet.id)}
+            download
+            onClick={closeSheet}
+          >
+            {t('export')}
+          </a>
+        )}
         <button
           type="button"
           className="sheet-item danger"

@@ -26,7 +26,7 @@
 | M1 드라이버 · M4 에이전트 | 코드 있음, Pi에서 상시 구동 중. **2026-09-18에 배포 따라잡음** [확인됨·실물] — Pi가 `581899e`(12커밋 뒤)에서 `74a5384`까지 `git pull --ff-only`로 갱신, `systemctl restart`. 용지 게이트 fail-closed(`623a8dc`), 재시도·명령 실행기·결과 업로드(`8b7194b`), 시계 게이트·되돌아보기·순환 삭제(`51a6a8d`), SSE 깨우기 채널이 전부 반영됐다. 재기동 로그로 poll·scheduler tick·SSE 연결 정상 확인(`docs/pi/setup.md` 5.4절). `HARU_PAPER_POLICY=unverified` 유지(절대금지 1). M1의 "실물 1회"는 M5로 이월 |
 | M5 Pi 실물 | **완료(4/4).** Pi ↔ M832 페어링, `pi/transport/bt.py`(콜드 ACL 워크어라운드 포함), 실물 인쇄 1회 육안 확인(드라이버·전송 계층 직접 호출 — 앱 "지금 인쇄"를 통한 에이전트 실행기→서버 업로드 체인은 [미검증]). `HARU_PRINTER_DRIVER=m832` 상시 |
 | M6 계정·기기 | 구현 완료(세션 로그인, 기기별 토큰, 페어링 코드, 관리자). **통과 조건 미충족** — V4 백필은 2026-09-18 서버 재배포의 Flyway 자동 적용으로 완료(`null_renders=0` 확인, `docs/server/deploy.md` 7.1절)됐으나 **레거시 claim은 아직 미실행**(`null_formats=24`), 통과 전에는 M7 이후로 넘어가지 않는다 |
-| M7 레이아웃·위젯 | 부분 — 포맷 스키마 v2(행/슬롯) + 드래그 편집기 구현. `haru-widget-runner`는 **미구현** |
+| M7 레이아웃·위젯 | 부분 — 2026-09-18: 포맷 스키마를 **v3(위젯 그리드)**로 교체(v2 행/슬롯·드래그 편집기 폐기), 위젯 6종(`dateHeader`/`text`/`image`/`morningLetter`/`stockChart`/`weather`) 구현·로컬 검증 완료. **운영 배포·실물 인쇄는 [미검증]**. 사용자 스크립트 러너 `haru-widget-runner`는 **미구현** |
 | M8~M10 | 미착수 |
 | 하드웨어 | V1·V2·V3 통과 → `bt` 확정, V4 제외. H4(용지 감지) 부분 진행(findpaper 응답 재현, 용지 반영 미확정)·H5(줄 누락) 대기. 서버 1-bpp(PBM) 출력 구현됨[확인됨·코드] — 배포·기기 연동은 [미검증] |
 
@@ -37,6 +37,7 @@
 - **서버는 그레이스케일 PNG를 렌더**하고, 좌우 정렬 보정·헤드 폭 패딩·비트 패킹·헤더/꼬리 조립·전송은 Pi 드라이버 몫이다.
   디더링(흑백 변환)은 원칙적으로 기기 몫이지만, **2단계 MCU 기기를 위해 서버가 프로필 폭 기준 1-bpp(PBM P4)도 낸다**(2026-09-17 승인, 구현됨[확인됨·코드] — `docs/architecture.md` 3.4). 디더링은 프린터 무관한 범용 처리이고, 프린터 상수는 여전히 서버에 없다
 - **스케줄의 원본은 서버, 실행은 Pi**다. Pi는 예약 규칙과 렌더를 캐시해 두고 인터넷이 끊겨도 스스로 인쇄한다
+- **위젯을 아는 코드는 `/server/src/main/java/com/harupaper/server/widget/**`뿐이다**(2026-09-18 위젯 그리드 도입). 서버의 다른 부분과 앱은 `GET /api/widgets`가 내려주는 `WidgetDescriptor`만 안다 — 위젯 종류를 앱 코드에 하드코딩하지 않는다(`docs/server/widgets.md`)
 - API 규약의 원본은 `docs/architecture.md`다. 서버·Pi·앱 문서는 이를 링크하고, 다르게 정의하지 않는다
 - **(M7 계획, 미구현) 사용자 스크립트(위젯)를 아는 코드는 `/server/runner`(Node, `haru-widget-runner` 컨테이너)뿐이다.** JVM은 사용자 번들을 직접 실행하지 않고 러너의 내부 HTTP만 호출한다. 러너는 호스트 포트를 열지 않는다
 
@@ -115,8 +116,9 @@
 | `docs/server/auth.md` | M6: 세션 로그인·가입, 역할, 기기별 토큰·페어링 코드, 소유권 스코핑, 관리자 API |
 | `docs/server/api.md` | 컨트롤러별 경로·인증, 오류 형식, 멱등, curl 시나리오 |
 | `docs/server/data-model.md` | 테이블(Flyway V1·V2), 파일 저장 |
-| `docs/server/format-schema.md` | **포맷 JSON 스키마 v2(행/슬롯) 원본** |
-| `docs/server/rendering.md` / `weather.md` / `deploy.md` | 렌더러·샌드박스(+PBM 구현됨) / 날씨 / compose·`tailscale serve`·백업·일회성 운영 작업(V4 백필·`claim-legacy`) |
+| `docs/server/format-schema.md` | **포맷 JSON 스키마 v3(위젯 그리드) 원본** |
+| `docs/server/widgets.md` | **위젯 프레임워크**·위젯 6종 표(fields·데이터 출처·실패 표시), 새 위젯 추가 절차 |
+| `docs/server/rendering.md` / `weather.md` / `deploy.md` | 렌더러·샌드박스(+PBM 구현됨) / 날씨(위치는 날씨 위젯 설정값) / compose·`tailscale serve`·백업·일회성 운영 작업(V4 백필·`claim-legacy`) |
 | `docs/app/README.md` | 앱 목차·현재 상태 |
-| `docs/app/web.md` / `screens.md` / `editor.md` / `native.md` | 스택·구조·인증 / 화면 11개 / 드래그 편집기(v2) / 네이티브 예약 |
-| `.temp/01`·`02`·`03`·`04`·`05`·`06` | 진행 중 계획: Orange Pi PoC v1.4 / ESP32 v1.4(USB 호스트 확정) / 플랫폼 M6~M10 / 드래그 편집기 / Pi 잔여 과제 설계(구현 완료, 코드 주석이 인용 중) / 서버·앱 잔여 과제 설계(A-2~A-4 소유권 엄격 모드 전환 남음). 완료된 항목은 docs로, 끝나면 삭제 |
+| `docs/app/web.md` / `screens.md` / `editor.md` / `native.md` | 스택·구조·인증 / 화면 11개 / 위젯 그리드 편집기(v3) / 네이티브 예약 |
+| `.temp/01`·`02`·`03`·`05`·`06` | 진행 중 계획: Orange Pi PoC v1.4 / ESP32 v1.4(USB 호스트 확정) / 플랫폼 M6~M10 / Pi 잔여 과제 설계(구현 완료, 코드 주석이 인용 중) / 서버·앱 잔여 과제 설계(A-2~A-4 소유권 엄격 모드 전환 남음, 과제 B는 위젯 그리드 전환으로 무효). 완료된 항목은 docs로, 끝나면 삭제 |

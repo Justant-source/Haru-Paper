@@ -34,8 +34,8 @@
 | `id` | CHAR(36) PK | |
 | `owner_user_id` | CHAR(36) NULL | M6. FK → `users.id` ON DELETE CASCADE. NULL = 레거시(claim-legacy 대상) |
 | `name` | VARCHAR(100) NOT NULL | `body.meta.name` 복사본(목록 조회용) |
-| `schema_version` | INT NOT NULL | `body.schemaVersion` |
-| `body` | JSON NOT NULL | 포맷 문서 전체(`assets` 제외, [`format-schema.md`](format-schema.md)). API 응답 필드 `document` |
+| `schema_version` | INT NOT NULL | `body.schemaVersion`. **2026-09-18부터 새로 쓰는 값은 3**(위젯 그리드, [`format-schema.md`](format-schema.md)) — 옛 v1(1)·v2(2) 저장본은 행이 그대로 남아 있고, 읽을 때 애플리케이션이 v3로 변환한다(`FormatDocumentSupport.readDocument`). **DB 마이그레이션은 없다** — 이 열의 값 자체는 그 포맷이 마지막으로 저장됐을 때의 스키마 버전이고, 다시 저장되면 3으로 바뀐다 |
+| `body` | JSON NOT NULL | 포맷 문서 전체(`assets` 제외, [`format-schema.md`](format-schema.md)). API 응답 필드 `document`. v3는 `{schemaVersion, meta, style, widgets}` — 옛 `rows`/`blocks` 필드는 v1·v2 행에만 남아 있다 |
 | `has_dynamic_blocks` | BOOLEAN NOT NULL | `weather` 블록 존재 여부(렌더 스케줄러용) |
 | `created_at` | DATETIME(3) NOT NULL | UTC |
 | `updated_at` | DATETIME(3) NOT NULL | UTC. 렌더 최신 여부 판단 기준 |

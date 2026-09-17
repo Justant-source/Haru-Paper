@@ -1,0 +1,187 @@
+/*
+ * A2(포맷 목록·예약 흐름) 전용 스타일. .temp/07-위젯그리드-작업지시서.md 7.2절.
+ * src/index.css는 A1 소유라 건드리지 않는다 — 색·간격·반경은 거기 정의된 CSS 변수를 그대로 읽는다.
+ * FormatListPage.tsx · ScheduleListPage.tsx에서만 import 한다.
+ */
+
+/* ── 포맷 목록: 카드 본문 클릭 영역 ───────────────────────────────── */
+
+.format-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.format-card .row {
+  align-items: center;
+  gap: 0;
+  padding-right: var(--space-2);
+}
+
+.format-card-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  min-height: var(--tap);
+}
+
+.format-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.format-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ── 포맷 목록: 가져오기(덜 눈에 띄게) ────────────────────────────── */
+
+.format-list-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--space-2);
+}
+
+.link-btn {
+  min-height: var(--tap);
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── "새 포맷" 바텀시트: 템플릿 선택 ──────────────────────────────── */
+
+.template-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.template-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--space-3);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease);
+}
+
+.template-choice:hover {
+  border-color: var(--accent);
+}
+
+.template-choice-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.template-choice-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.template-choice-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── 예약 목록: 빠른 요일 선택 칩 ─────────────────────────────────── */
+
+.quick-day-chips {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.quick-day-chip {
+  min-height: 32px;
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--ease), color var(--ease), border-color var(--ease);
+}
+
+.quick-day-chip.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+html[data-theme='dark'] .quick-day-chip.active {
+  color: #2c241c;
+}
+
+/* ── 예약 목록: 카드 썸네일 + 포맷 이름 링크 ──────────────────────── */
+
+.schedule-item {
+  align-items: center;
+}
+
+.schedule-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.schedule-thumb {
+  width: 36px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.schedule-format-link {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 32px;
+  margin: 0 0 4px -4px;
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 14px;
+  text-decoration: underline;
+  text-align: left;
+  cursor: pointer;
+}

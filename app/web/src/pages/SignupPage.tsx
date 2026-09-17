@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '../api/auth'
@@ -7,6 +7,7 @@ import { ApiError } from '../types/problem'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Button } from '../components/Button'
 import { useI18n } from '../i18n'
+import { getXsrfToken } from '../lib/xsrf'
 
 // 서버 검증(AuthController.HANDLE_PATTERN)과 정확히 맞춘다 — 하이픈으로 시작/끝나면 안 된다.
 const HANDLE_REGEX = /^[a-z0-9](?:[a-z0-9-]{1,18}[a-z0-9])?$/
@@ -21,6 +22,13 @@ export function SignupPage() {
   const [displayName, setDisplayName] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [generalError, setGeneralError] = useState<string | null>(null)
+
+  // /login과 같은 이유(LoginPage 참고): 첫 요청 전에는 CSRF 쿠키가 없어 가입 POST가 403이 된다.
+  useEffect(() => {
+    if (!getXsrfToken()) {
+      fetch('/api/auth/me', { credentials: 'include' }).catch(() => {})
+    }
+  }, [])
 
   const signupMutation = useMutation({
     mutationFn: (body: SignupRequest) => authApi.signup(body),

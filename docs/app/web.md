@@ -1,7 +1,8 @@
 # 웹앱 (`/app/web`)
 
-> 담당: 서버 세션 / 마일스톤: M3(스캐폴드) + M6(인증) + M7 일부(드래그 편집기) / 기준: [../init_plan.md](../init_plan.md) 8.3절, `.temp/03` M6
+> 담당: 서버 세션 / 마일스톤: M3(스캐폴드) + M6(인증) + M7 일부(위젯 그리드 편집기) / 기준: [../init_plan.md](../init_plan.md) 8.3절, `.temp/03` M6
 > 표기: **[확인됨·코드]** = 코드에서 확인 / **[기본값]** = 따로 묻지 않고 정한 값 / **[미검증]** = 확인 전
+> **2026-09-18**: 드래그 기반 레이아웃 편집기(`format-editor/`, `@dnd-kit/*`)를 폐기하고 위젯 그리드 편집기(`widget-editor/`)로 교체했다. 이 문서의 폴더 구조·API 표·포맷 스키마 절은 그 변경을 반영했다.
 
 ## 1. 역할
 
@@ -73,26 +74,32 @@ app/web/
     │   ├── devices.ts        # 기기 토큰 발급, 페어링 코드 발급, 내 기기 조회
     │   ├── device.ts         # 기기 상태·용지 정책(Pi 프린터 프로필)
     │   ├── formats.ts, assets.ts, schedules.ts, printNow.ts, history.ts, settings.ts
-    ├── types/                # format.ts(schemaVersion 2 rows/slots), auth.ts, devices.ts, device.ts 등
+    ├── types/                # format.ts(schemaVersion 3, widgets[]), widget.ts(WidgetDescriptor·PropField 등),
+    │                         # auth.ts, devices.ts, device.ts 등
     ├── pages/                # 화면 11개 (screens.md 번호와 1:1)
-    │   ├── LoginPage.tsx, SignupPage.tsx     # 인증 게이트 밖
-    │   ├── FormatListPage.tsx, FormatEditPage.tsx   # 편집은 드래그 편집기(editor.md)
-    │   ├── ScheduleListPage.tsx   # 목록 + 편집 시트
+    │   ├── LoginPage.tsx, SignupPage.tsx     # 인증 게이트 밖. 진입 시 CSRF 쿠키 선요청(editor.md 아님, screens.md (0))
+    │   ├── FormatListPage.tsx, FormatEditPage.tsx   # 편집은 위젯 그리드 편집기(editor.md)
+    │   ├── ScheduleListPage.tsx   # 목록 + 편집 시트, ?formatId=로 자동 열림
     │   ├── PrintNowPage.tsx
     │   ├── MorePage.tsx      # 이력·기기·계정·설정으로 가는 더보기 메뉴
     │   ├── HistoryPage.tsx
     │   ├── DevicePage.tsx    # 기기 상태 + 토큰·페어링 코드 발급 UI
     │   ├── AccountPage.tsx   # 표시 이름·소개·비밀번호 변경
-    │   └── SettingsPage.tsx
-    ├── format-editor/        # 드래그 편집기 — 상세는 editor.md
-    │   ├── blocks/           # text, image, dateHeader, weather 블록 폼
-    │   ├── LayoutEditor.tsx, LayoutCanvas.tsx, WidgetPalette.tsx, SlotContent.tsx
-    │   ├── StyleForm.tsx, BlockStyleForm.tsx
-    │   └── Preview.tsx       # 편집 중 문서를 POST /api/formats/preview(1초 디바운스)로 렌더해 표시
+    │   └── SettingsPage.tsx  # 날씨 위치 카드 없음(2026-09-18 제거, 위치는 날씨 위젯 설정으로 이동)
+    ├── widget-editor/        # 위젯 그리드 편집기(2026-09-18, 드래그 편집기 대체) — 상세는 editor.md
+    │   ├── fields/            # kind별 입력기(String/Integer/Boolean/Enum/KoreaLocation/Unsupported) + LocationPickerSheet
+    │   ├── PlacementGrid.tsx, WidgetBox.tsx, WidgetList.tsx, AddWidgetSheet.tsx, WidgetSettingsSheet.tsx
+    │   ├── SizeSelector.tsx, WidgetIcon.tsx, widgetSummary.ts, gridMath.ts
+    │   ├── useWidgetActions.ts, fieldErrors.ts
+    │   ├── FormatEditHeader.tsx, FormatEditLoadingState.tsx, FormatEditSheets.tsx
+    │   └── PreviewSection.tsx  # 편집 중 문서를 POST /api/formats/preview(1초 디바운스)로 렌더해 표시
+    ├── styles/                # format-flow.css(포맷 목록·예약 화면 전용 스타일, index.css와 분리)
     ├── components/           # 공용 UI (버튼, 시트, 빈 상태, 오류 배너, 하단 탭 Layout)
     └── lib/                  # date.ts(KST 포맷), theme.ts, analytics.ts(로컬 이벤트 로그), xsrf.ts,
-                               # layout-math.ts(mmToPx/ptToPx — 서버 HtmlTemplateBuilder와 동일 공식, editor.md 참고)
+                               # format-templates.ts(새 포맷 템플릿 조립, editor.md 참고)
 ```
+
+**폐기된 것(2026-09-18)**: `format-editor/`(옛 드래그 편집기 전체 — `LayoutEditor`/`LayoutCanvas`/`WidgetPalette`/`SlotContent`/`StyleForm`/`BlockStyleForm`/블록별 폼/`Preview.tsx`), `lib/layout-math.ts`, `@dnd-kit/*` 의존성(`package.json`에서 제거). 대체된 코드는 위 `widget-editor/`.
 
 ## 6. API 클라이언트
 
@@ -116,27 +123,29 @@ app/web/
 | PUT/DELETE | `/api/schedules/{id}` | 예약 편집·켜기/끄기, 삭제 |
 | POST | `/api/print-now` | 지금 인쇄 |
 | GET | `/api/history` | 이력 |
-| GET | `/api/device` | 기기, 지금 인쇄(용지 정책 표시), 포맷 편집(프린터 폭 조회) |
+| GET | `/api/device` | 기기, 지금 인쇄(용지 정책 표시) |
 | PUT | `/api/device/paper-state` | 기기(수동 "용지 장착됨") |
 | POST | `/api/devices/me/token` | 기기(토큰 발급, 1회 표시) |
 | POST | `/api/devices/pairing-codes` | 기기(페어링 코드 발급) |
 | GET | `/api/devices/me` | 기기(내 기기 이름·연결 여부) |
-| GET/PUT | `/api/settings` | 설정 |
+| GET | `/api/widgets` | 포맷 편집(위젯 카탈로그, 2026-09-18 신설) |
+| GET | `/api/widgets/locations` | 포맷 편집(날씨 위젯 위치 선택기, 2026-09-18 신설) |
+| GET/PUT | `/api/settings` | (레거시, 2026-09-18부터 어느 화면도 안 씀 — [../server/api.md](../server/api.md) "설정") |
 | GET | `/api/health` | 공통(연결 확인) |
 
 - 앱은 `/api/device/poll`, `/api/device/snapshot`, `/api/device/renders/*`, `/api/device/results`(Pi 전용, `Authorization: Bearer` 기기 토큰)를 **호출하지 않는다**.
 
-## 7. 포맷 스키마 (v2, 행/슬롯)
+## 7. 포맷 스키마 (v3, 위젯 그리드)
 
-- **원본은 [../server/format-schema.md](../server/format-schema.md)**. 편집기 구현 상세는 [editor.md](editor.md). 최상위 타입은 `app/web/src/types/format.ts`(`FormatDocument{schemaVersion:2, meta, style, rows}`).
+- **원본은 [../server/format-schema.md](../server/format-schema.md), 위젯별 표는 [../server/widgets.md](../server/widgets.md)**. 편집기 구현 상세는 [editor.md](editor.md). 최상위 타입은 `app/web/src/types/format.ts`(`FormatDocument{schemaVersion:3, meta, style, widgets}`), 위젯 카탈로그 타입은 `app/web/src/types/widget.ts`.
 - 요지:
-  - 최상위: `schemaVersion: 2`, `meta`(name, author, description, forkedFrom), `style`(전체 스타일), `rows[]`
-  - `rows[].slots[]`: 슬롯 1개(폭 `1/1`) 또는 2개(`1/2`+`1/2` / `2/3`+`1/3` / `1/3`+`2/3`)
-  - 블록 4종: `text`, `image`, `dateHeader`, `weather`. 단위 mm/pt. 임의 HTML/CSS/JS 입력란은 **만들지 않는다**
-  - 블록 스타일 화이트리스트: `align`, `fontSizePt`, `bold`, `marginTopMm`, `marginBottomMm`
+  - 최상위: `schemaVersion: 3`, `meta`(name, author, description, forkedFrom), `style`(전체 스타일), `widgets[]`(1~20개)
+  - `widgets[]`: `{id, type, size, props}`. `type`·`size`·`props` 스키마는 **앱 코드가 아니라 `GET /api/widgets` 카탈로그**가 정한다 — 종류를 하드코딩하지 않는다
+  - 배치는 4열 CSS 그리드가 자동으로 한다(`grid-auto-flow: row dense`). 단위 mm/pt. 임의 HTML/CSS/JS 입력란은 **만들지 않는다**
+  - 위젯별 `style`은 없다(v2까지는 있었다) — 위젯별 설정값은 `props`로 들어간다
   - `dateHeader.props.pattern` 토큰: `YYYY`/`MM`/`DD`/`M`/`D`/`dddd`/`ddd`(길이 순으로 치환)
   - `assets`(이미지 data URI)는 **내보내기 파일에만** 들어간다. 편집 중에는 `assetId`로 참조
-- 앱은 스키마 검증을 **서버에 맡긴다** [기본값]: 저장·미리보기 시 서버 422 `application/problem+json` 응답의 `errors[].path`/`errors[].message`를 폼에 표시([../architecture.md](../architecture.md) 4.1). 앱 쪽 검증은 입력 편의(필수값, 숫자 범위) 수준만.
+- 앱은 스키마 검증을 **서버에 맡긴다** [기본값]: 저장·미리보기 시 서버 422 `application/problem+json` 응답의 `errors[].path`(`widgets[i].props.<key>`)/`errors[].message`를 폼에 표시([../architecture.md](../architecture.md) 4.1). 앱 쪽 검증은 입력 편의(필수값, 숫자 범위) 수준만.
 
 ## 8. 빌드와 배포
 

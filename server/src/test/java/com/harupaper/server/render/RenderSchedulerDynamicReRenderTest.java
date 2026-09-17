@@ -6,10 +6,10 @@ import com.harupaper.server.device.DeviceRepository;
 import com.harupaper.server.device.PrinterProfile;
 import com.harupaper.server.device.PrinterProfileProvider;
 import com.harupaper.server.format.Format;
-import com.harupaper.server.format.FormatDocumentSupport;
 import com.harupaper.server.schedule.Schedule;
 import com.harupaper.server.schedule.ScheduleRepository;
 import com.harupaper.server.format.FormatRepository;
+import com.harupaper.server.widget.WidgetRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -47,6 +47,7 @@ class RenderSchedulerDynamicReRenderTest {
     private PrinterProfileProvider printerProfileProvider;
     private ClockProvider clockProvider;
     private TestClockProvider testClock;
+    private WidgetRegistry widgetRegistry;
 
     @BeforeEach
     void setUp() {
@@ -57,6 +58,7 @@ class RenderSchedulerDynamicReRenderTest {
         renderService = mock(RenderService.class);
         printerProfileProvider = mock(PrinterProfileProvider.class);
         testClock = new TestClockProvider();
+        widgetRegistry = mock(WidgetRegistry.class);
 
         renderScheduler = new RenderScheduler(
                 deviceRepository,
@@ -65,7 +67,8 @@ class RenderSchedulerDynamicReRenderTest {
                 renderRepository,
                 renderService,
                 printerProfileProvider,
-                testClock
+                testClock,
+                widgetRegistry
         );
 
         // Default printer profile (M6: 기기별 프로필 조회, 이 테스트들은 private 로직만 검증하므로
