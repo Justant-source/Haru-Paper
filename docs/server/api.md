@@ -168,8 +168,9 @@ Pi가 한 번도 poll하지 않았으면 `devices.printer_profile`이 없다. �
 1. `device` 행 갱신(`last_poll_at`, `agent_version`, `printer_profile`, `printer_status`, `paper_policy`)
 2. 프로필이 이전과 다르면(`profile_key` 변경) 렌더 스케줄러 트리거
 3. 현재 스냅샷의 `snapshotHash` 계산(6.1절) → `snapshotChanged = (요청 hash != 현재 hash)`
-4. 만료 처리(`created_at + 10분 < 지금`인 `pending`·`delivered` → `expired`) 후, 남은 `pending`·`delivered`를 `commands[]`로 싣고 `pending`은 `delivered`로 표시
-5. 응답:
+4. 만료 처리(`created_at + 10분 < 지금`인 `pending`·`delivered` → `expired`) — 이 단계는 poll한 기기로 좁히지 않고 **전역**으로 스캔한다(페어링만 되고 한 번도 poll하지 않은 기기의 명령이 영영 만료되지 않고 `pending`으로 남는 것을 막기 위해서다). 상태만 `expired`로 바꿀 뿐 다른 사용자에게 아무것도 노출하지 않으므로 전역 스캔이어도 소유권 경계를 침범하지 않는다
+5. 남은 `pending`·`delivered`를 **이 기기의 소유자(`owner_user_id`)로 스코핑**해 `commands[]`로 싣고 `pending`은 `delivered`로 표시(2026-09-17, [확인됨·코드: `DeviceSyncService.processPoll()`, `CommandRepository.findAllByOwnerUserIdAndStatusIn`] — 이전에는 전역 조회라 다른 사용자의 "지금 인쇄"가 이 기기로도 내려갔다, IDOR류 버그). **`device_id`가 아니라 `owner_user_id`로 거르는 이유**: "지금 인쇄"는 기기 페어링 전에도 만들 수 있고(`PrintNowController`가 기기가 없으면 `device_id`를 NULL로 둔다), `device_id`로 거르면 그 명령이 나중에 페어링해도 영영 전달되지 않고 10분 뒤 조용히 `expired`가 된다. `devices.owner_user_id`가 UNIQUE(1인 1기기)이므로 소유자 스코핑은 기기 스코핑과 보안상 동등하다
+6. 응답:
 
 ```json
 {
@@ -245,13 +246,20 @@ Pi는 응답을 못 받았으면 같은 묶음을 그대로 다시 보내면 된
 BASE=https://justant-server2.tail2b65d1.ts.net   # tailscale serve 적용 전에는 http://127.0.0.1:<HARU_WEB_BIND 포트>
 JAR=cookies.txt
 
-# 0. 가입 → 로그인(세션 쿠키 저장) → CSRF 토큰 쿠키 읽기 → 이후 쓰기 요청에 헤더로 되돌려 보낸다
-curl -sS -c "$JAR" -X POST "$BASE/api/auth/signup" -H 'Content-Type: application/json' \
+# 0. CSRF 쿠키 먼저 받기 → 가입 → 로그인(세션 쿠키 저장) → CSRF 토큰 다시 읽기
+#    /api/auth/signup·login은 permitAll(로그인 없이 호출 가능)이지만 CSRF 검사는 받는다 —
+#    SecurityConfig의 CSRF 면제는 기기 Bearer 경로(DEVICE_BEARER_PATHS)뿐이다.
+#    쿠키 없이 바로 POST하면 첫 가입 요청부터 403이다.
+curl -sS -c "$JAR" "$BASE/api/health" >/dev/null
+CSRF=$(grep XSRF-TOKEN "$JAR" | awk '{print $NF}')
+curl -sS -c "$JAR" -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" -X POST "$BASE/api/auth/signup" -H 'Content-Type: application/json' \
   -d '{"email":"test@example.com","password":"1234567890","handle":"tester","displayName":"테스터"}'
-curl -sS -c "$JAR" -b "$JAR" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' \
+curl -sS -c "$JAR" -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' \
   -d '{"email":"test@example.com","password":"1234567890"}'
+# 로그인으로 세션이 바뀌면 CSRF 토큰도 새로 발급된다 — 다시 읽는다
 CSRF=$(grep XSRF-TOKEN "$JAR" | awk '{print $NF}')
 # 이후 POST/PUT/PATCH/DELETE에는 -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" 를 붙인다(GET은 필요 없음)
+# (이 비밀번호는 시험용 더미다. 실제 계정이면 argv에 남지 않게 stdin으로 넘긴다 — deploy.md 7절 4단계)
 
 # 1. 기기 토큰 발급(Pi TOKEN — 응답의 token 필드는 이번 한 번만 표시된다)
 TOKEN=$(curl -sS -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" -X POST "$BASE/api/devices/me/token" | jq -r .token)

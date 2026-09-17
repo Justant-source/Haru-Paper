@@ -127,6 +127,11 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 
 **멀티유저 수정(2026-09-17, `RenderCleanupScheduler`, [확인됨·코드])**: "현재 `profile_key`"는 기기 전체에서 공통인 값이 아니다 — 사용자마다 기기(프로필)가 다를 수 있으므로, 렌더 하나하나에 대해 **"그 렌더를 만들 당시의 소유자(`Render.ownerUserId`)가 지금 쓰는 기기 프로필"**을 기준으로 "현재"를 판단한다(`currentProfileKeyFor`, `printerProfileProvider.getCurrentProfile(ownerUserId)`를 소유자별로 캐시해 실행 1회당 기기 수만큼만 조회). `RenderScheduler`(4절)가 기기별로 순회하며 소유자별 프로필을 쓰는 것과 같은 원칙이다. `owner_user_id`가 `NULL`인 레거시 렌더(claim-legacy 전)는 `PrinterProfileProviderImpl.getCurrentProfile(null)`이 DB 조회 없이 `PrinterProfile.DEFAULT`로 폴백해 처리하므로, 그 렌더는 `profileKey`가 `DEFAULT.profileKey()`와 같을 때만 "최신 유지" 대상이 된다.
 
+**알려진 제약 2건(둘 다 [확인됨·코드], 아직 안 고침)**:
+
+- **`kind=command` 정리는 비활성**이다. `RenderCleanupScheduler.cleanupRenders()`의 2단계(`kind=command`: 명령이 `done`/`expired`가 되고 24시간 지난 것 삭제)는 코드에 있지만 호출부가 주석 처리돼 있다(`// cleanupCommandRenders(now);` — 메서드 자체가 구현되지 않음). "지금 인쇄"(`kind=command`) 렌더는 지금 스케줄러 정리 대상에서 빠져 있고, PBM이 무압축이라 디스크 사용량 증가가 preview·scheduled보다 더 빠르게 쌓인다.
+- **`RenderCleanupScheduler.FILES_DIR`이 `"/data/haru-files"`로 하드코딩**돼 있다. 같은 파일 저장 경로를 쓰는 다른 클래스(`RenderServiceImpl`, `DeviceSyncController`, `DeviceSyncService`, `HtmlTemplateBuilder`, `AssetService`, `FormatService`, `AssetCleanupScheduler`)는 전부 `@Value("${haru.files-dir:/data/haru-files}")`(`application.yml`의 `haru.files-dir`)로 읽는다. 운영에서 `haru.files-dir`(=`HARU_FILES_DIR`가 아니라 `application.yml`의 고정값, 환경변수로 노출돼 있지 않음)을 바꾸면 `RenderCleanupScheduler`만 옛 경로를 계속 보고 있어 파일을 못 찾아 지우지 못한다(`Render file not found (orphaned)` 경고만 남고 DB 행은 지워짐 — 파일이 고아로 남는다).
+
 ## 6. 컨테이너 주의
 
 - Playwright for Java는 기본 동작에서 **실행 시점에 브라우저를 내려받으려 한다.** 운영에서는 막아야 한다.

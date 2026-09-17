@@ -74,13 +74,15 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
    순간 드라이버가 문자열에 `with transport:`를 걸며 즉시 크래시났을 것이다. `_load_transport()`
    메서드를 신설해 `HARU_TRANSPORT`에 맞는 실제 Transport 인스턴스를 만들어 주입하도록 고쳤다
    (`bt`인데 `HARU_BT_ADDRESS`가 비어 있으면 fake로 조용히 안 넘어가고 바로 에러).
-3. 재발 방지 테스트 9개 신설(`pi/tests/test_agent_bootstrap.py`), 전체 스위트 133개 통과. `cwd=pi/`로
-   실물 venv에서 `_load_printer("m832")`(transport=bt)까지 엔드투엔드로 재현·확인함.
+3. 재발 방지 테스트 9개 신설(`pi/tests/test_agent_bootstrap.py`) — 이 수정 직후 전체 스위트는 133개
+   통과였고, 같은 날 이어진 커밋(`623a8dc`·`8b7194b`·`51a6a8d`)으로 **266개**까지 늘었다(2026-09-17 최종
+   계측, `cd pi && .venv/bin/python -m pytest tests/ -q`). `cwd=pi/`로 실물 venv에서
+   `_load_printer("m832")`(transport=bt)까지 엔드투엔드로 재현·확인함.
 
 ### Pi 구현 [확인됨·실물, 2026-09-17] — 페어링·코드·연결 테스트 완료, 실물 인쇄 1회 완료(한계는 아래 참고)
 
 - **Pi ↔ M832 페어링 완료**: `bluetoothctl pair`+`trust`, `Paired: yes`/`Bonded: yes`/`UUID: Serial Port, HCR Print`(서버와 동일). Pi에서 `sdptool search SP`로 RFCOMM 채널 1도 재확인함.
-- **`pi/transport/bt.py` 작성 완료**: `open()` = 소켓 생성·connect(실패 시 원인이 드러나는 `TransportError`), `write()` = 4096 청크·청크당 타임아웃(기본 20000ms)·총 데드라인 60초·부분 전송은 계속 이어보냄(소켓 일반 규약)·`send()`가 0을 반환하면 예외, `read()` = 타임아웃/빈 응답이면 `None`, `close()`(idempotent). 상수는 `pi/printer/m832/constants.py`의 `BT_*`에 근거 주석과 함께 추가. `usb.py`·`bt.py` 둘 다 클래스 속성 `DEFAULT_WRITE_TIMEOUT_MS`를 노출한다(`usb.py`는 `USB_WRITE_TIMEOUT_MS`=5000, `bt.py`는 `BT_WRITE_TIMEOUT_MS`=20000를 그대로 가리킴). 단위 테스트 `pi/tests/test_bt_transport.py`(43개, 전부 socket 모킹) — `write()`를 호출하지 않는 순수 연결 테스트 케이스도 포함해 실수로 데이터가 나가지 않는지까지 테스트로 고정해뒀다. **전체 스위트 166개 통과, `test_bt_transport.py`만 43개 통과(2026-09-17 계측, `cd pi && .venv/bin/python -m pytest tests/ -q` / `tests/test_bt_transport.py -q`).**
+- **`pi/transport/bt.py` 작성 완료**: `open()` = 소켓 생성·connect(실패 시 원인이 드러나는 `TransportError`), `write()` = 4096 청크·청크당 타임아웃(기본 20000ms)·총 데드라인 60초·부분 전송은 계속 이어보냄(소켓 일반 규약)·`send()`가 0을 반환하면 예외, `read()` = 타임아웃/빈 응답이면 `None`, `close()`(idempotent). 상수는 `pi/printer/m832/constants.py`의 `BT_*`에 근거 주석과 함께 추가. `usb.py`·`bt.py` 둘 다 클래스 속성 `DEFAULT_WRITE_TIMEOUT_MS`를 노출한다(`usb.py`는 `USB_WRITE_TIMEOUT_MS`=5000, `bt.py`는 `BT_WRITE_TIMEOUT_MS`=20000를 그대로 가리킴). 단위 테스트 `pi/tests/test_bt_transport.py`(43개, 전부 socket 모킹) — `write()`를 호출하지 않는 순수 연결 테스트 케이스도 포함해 실수로 데이터가 나가지 않는지까지 테스트로 고정해뒀다. **`test_bt_transport.py`만 43개 통과는 지금도 그대로다. 전체 스위트는 이 시점엔 166개였고, 같은 날 이어진 재시도·시계 게이트 커밋(`8b7194b`·`51a6a8d`)으로 이후 266개까지 늘었다(2026-09-17 최종 계측, `cd pi && .venv/bin/python -m pytest tests/ -q` / `tests/test_bt_transport.py -q`).**
 - **드라이버가 이제 실제로 이 타임아웃 값을 쓴다(2026-09-17 수정)**: `printer/m832/driver.py`의 `print_image()`가 예전에는 transport 종류와 무관하게 `USB_WRITE_TIMEOUT_MS`(5000ms)를 하드코딩해 넘기고 있었다 — BT로 전송해도 청크당 5초 만에 타임아웃 판정이 날 수 있는 버그였다. 지금은 `transport.DEFAULT_WRITE_TIMEOUT_MS`를 조회해 `transport.write(command, timeout_ms=...)`에 그대로 넘긴다(속성이 없는 transport가 오면 USB 값으로 폴백하며 경고 로그). 즉 **이 절의 BT 확정값 20000ms가 이제 실제 운영 경로(`M832Printer.print_image` → `BtTransport.write`)에서 쓰인다.**
 - **실물 연결 테스트(안전 — write() 호출 없음)**: Pi에서 `open()` 직후 바로 `close()`만 실행(래스터·어떤 바이트도 전송 안 함). 페어링 직후 첫 시도는 타임아웃, 이후 성공 — 아래 "주의"의 재연결 항목 참고.
 - `pi/.env`(운영, `/opt/haru-paper/pi/.env`): `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS=C5:0D:F7:B7:B2:A1`, `HARU_PRINTER_DRIVER=m832`로 전환·재시작 완료(poll 200, snapshot 200 확인). **M5 실물 인쇄 1회 완료(2026-09-17)** — `M832Printer`+`BtTransport`로 텍스트+그레이데이션+체커보드 PNG를 BT 전송, 사용자 육안 확인([setup.md](setup.md) 9절). **단, 이 경로는 지시서가 요구한 "앱 '지금 인쇄' + `paperConfirmed=true` → 결과 업로드"가 아니라 드라이버·전송 계층을 직접 호출한 임시 스크립트다** — 드라이버·전송 계층은 실물 검증됐지만, **에이전트 실행기 → 서버 결과 업로드 체인은 여전히 미검증**이다.

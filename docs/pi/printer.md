@@ -25,10 +25,12 @@
 | 메서드 | 반환 | 설명 |
 |---|---|---|
 | `profile()` | `PrinterProfile` | 서버에 보고할 프로필. 폴링 요청의 `printerProfile`로 그대로 나간다 |
-| `status()` | `PrinterStatus` | 연결 가능 여부, 용지 상태(`present` / `absent` / `unknown`), 커버, 오류. **H4 통과 전 M832는 용지 상태가 항상 `unknown`** |
+| `status()` | `PrinterStatus` | 연결 가능 여부·오류만 보고한다. **용지 상태는 이 반환값의 필드가 아니다** — 아래 참고 |
 | `print_image(png_bytes)` | `PrintOutcome` | PNG를 변환해 전송. 보낸 바이트(또는 그 경로)와 크기를 돌려줘 agent가 `sent/`에 보관할 수 있게 한다. 전송 오류는 **삼키지 않고** 예외로 올린다 |
 
-`PrinterProfile`은 `model`·`dpi`·`paper_width_mm`·`printable_width_px`(→ `to_dict()`로 `model/dpi/paperWidthMm/printableWidthPx`), `PrinterStatus`는 `state`·`detail`, `PrintOutcome`은 `sent_bytes`·`byte_count`를 갖는 `dataclass`다.
+`PrinterProfile`은 `model`·`dpi`·`paper_width_mm`·`printable_width_px`(→ `to_dict()`로 `model/dpi/paperWidthMm/printableWidthPx`), `PrintOutcome`은 `sent_bytes`·`byte_count`를 갖는 `dataclass`다.
+
+**`PrinterStatus`에는 용지 필드가 없다 [확인됨·코드, 2026-09-17, `pi/printer/__init__.py`].** 실제 정의는 `state: str`·`detail: str = ""` 둘뿐이다 — 이 문서의 예전 버전은 "용지 상태(`present`/`absent`/`unknown`)"를 `PrinterStatus`의 필드처럼 적어 뒀지만, 코드에는 그런 필드가 존재한 적이 없다(구현 계획이었을 뿐 구현되지 않았다). 그 결과 `pi/agent/executor.py`의 `_check_paper_policy`는 `status_query` 정책에서 `printer.status().state == "ok"`(연결 가능)만 확인할 수 있고 "용지가 명시적으로 있다"를 확인할 방법이 없어, **연결이 살아 있어도 항상 `skipped_no_paper`로 fail-closed 처리한다** — 상세는 [policy.md](policy.md) 2절 "`status_query`가 지금 인쇄를 전혀 하지 않는 이유". H4가 통과해 용지 유무를 구분하는 명령·응답이 [확인됨]이 되면 그때 `PrinterStatus`에 필드를 추가하고 이 문서·아래 매핑 표를 고친다.
 
 - `print_image`는 용지 정책을 판단하지 않는다. 용지 정책은 agent가 `status()`와 서버 상태를 보고 판단한 뒤 호출한다([policy.md](policy.md)).
 - **서버 보고용 요약**: agent는 `PrinterStatus`를 poll 요청의 `printerStatus` `{state, detail}`로 줄여 보낸다. `state` 값의 원본은 [../architecture.md](../architecture.md) 4.3(`ok | offline | error | unknown`). 매핑 [기본값]:
@@ -63,9 +65,11 @@ Pi가 폴링할 때마다 보고하고, 서버는 이 값으로만 렌더 폭을
 프린터 없이 에이전트(M4)를 개발·테스트하기 위한 구현.
 
 - `profile()`: M832와 같은 프로필을 돌려준다(서버 렌더 폭을 실제와 맞추기 위해) [기본값]
-- `status()`: 설정으로 용지 `present`/`absent`/`unknown`, 연결 실패를 흉내 낼 수 있게 한다 — M4 통과 조건의 실패 경로 테스트용
+- `status()`: 생성자 `connected` 인자로 `ok`/`offline`만 흉내 낼 수 있다 — M4 통과 조건의 실패 경로 테스트용
 - `print_image()`: 받은 PNG와, M832 드라이버의 변환 결과 bin(선택)을 `HARU_DATA_DIR/fake/` 아래 파일로 저장만 한다. **transport를 열지 않는다**
 - 결과는 실제 인쇄와 똑같이 이력·`sent/` 보관 흐름을 탄다
+
+**`paper_state` 생성자 인자는 저장만 되고 쓰이지 않는다 [확인됨·코드, 2026-09-17].** `FakePrinter(paper_state="present"/"absent"/"unknown", connected=...)`는 값을 유효성 검증(`present`/`absent`/`unknown` 셋 중 하나)만 하고 `self.paper_state`에 저장할 뿐, `status()`는 이 값을 전혀 읽지 않고 `connected`만 보고 `state`(`ok`/`offline`)를 정한다 — 위 [확인됨·코드] 표기대로 `PrinterStatus`에 용지 필드 자체가 없어서다(`pi/printer/fake/__init__.py`). 이 인자는 장차 `PrinterStatus`에 용지 필드가 생기면 쓰기 위해 미리 만들어 둔 자리로 보인다 — 지금은 `paper_state`를 무엇으로 줘도 `status()` 결과가 바뀌지 않는다.
 
 ## 5. 다른 프린터를 추가하는 방법
 

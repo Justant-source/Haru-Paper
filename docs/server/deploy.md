@@ -97,6 +97,7 @@ HTTP**이고, hostname 경로와 별도로 존재한다(hostname+HTTPS 경로는
   - `HARU_DB_PASSWORD`, `HARU_DB_ROOT_PASSWORD`: 새로 생성(`openssl rand -base64 24`)
   - `HARU_ADMIN_EMAIL`: 이 이메일로 가입한 계정이 관리자가 된다([`auth.md`](auth.md) 3절). **M6부터 서버 `.env`에 기기 토큰이 없다** — 로그인한 사용자가 앱 "기기" 화면에서 `POST /api/devices/me/token`으로 직접 발급한다([`auth.md`](auth.md) 4절)
   - `HARU_POLL_INTERVAL_SEC`: 기본 30. poll 응답 `pollIntervalSec`로 Pi에 전달된다([`api.md`](api.md) 6절)
+  - `HARU_OWNERSHIP_STRICT`: 기본 `false`(비밀값은 아니지만 운영에 영향을 주는 플래그라 여기 같이 적는다). 렌더 다운로드·예약 생성의 소유권 검사를 엄격하게 할지 — `false`=`owner_user_id`가 NULL인 레거시 렌더·포맷 허용, `true`=거부(404). `server/.env.example`에 이미 있다. V4 백필 + `claim-legacy`를 마치기 전에는 `true`로 두지 않는다(7.1·7.2절)
 - 토큰·비밀번호를 로그·문서·커밋 메시지에 남기지 않는다.
 
 ## 5. 배포 절차

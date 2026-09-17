@@ -379,6 +379,8 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 
 **`GET /api/device/renders/{renderId}.pbm`** — `200 image/x-portable-bitmap`(PBM P4, 3.4). 기기는 `sha256Pbm`으로 검증 [기본값, 확인됨·코드]. PBM이 없는 렌더(V3 이전)면 404
 
+- **소유권 검사(2026-09-17 추가) [확인됨·코드: `DeviceSyncController.assertOwnership()`]**: `.png`·`.pbm` 둘 다 렌더의 `owner_user_id`와 폴링한 기기의 소유자가 다르면 **404**(존재 자체를 알리지 않는다 — `server/auth.md` 7절과 동일 원칙). 그 전에는 유효한 기기 토큰 하나로 남의 `renderId`(UUIDv4)만 알면 인쇄물 비트맵을 그대로 내려받을 수 있었다(IDOR). 렌더의 `owner_user_id`가 **NULL**(V4 백필 적용 전의 레거시 렌더, 또는 아직 claim되지 않은 레거시 포맷에서 파생된 렌더)이면 예외적으로 허용하고 경고 로그만 남긴다 — Pi가 상시 구동 중이라 백필 전에 전부 거부하면 운영이 끊긴다. V4 적용 + claim-legacy 이후에는 NULL이 0이 되므로 그 뒤의 NULL은 거부로 바꿀 예정(후속 과제, [`server/deploy.md`](server/deploy.md) 7절)
+
 **`POST /api/device/results`**
 
 ```json

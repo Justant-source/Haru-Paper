@@ -35,3 +35,17 @@ M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유�
 ## M2·M6 통과 기록
 
 M2 통과 조건(`init_plan.md` 10절: compose 기동, `tailscale serve` HTTPS 200, curl 시나리오 통과, 미리보기 폭 일치, 한글 렌더, 백업 1회)은 전부 확인됨 — [`deploy.md`](deploy.md) 8절(7절은 V4 백필·`claim-legacy` 같은 일회성 운영 작업이다). M6 통과 조건(로그인 세션 격리, 리소스 소유권 스코핑, 기기별 토큰)은 [`auth.md`](auth.md).
+
+## 알려진 제약 (2026-09-17 기준, 코드 수준)
+
+운영 서버는 아직 이 코드로 재배포되지 않았다 — 아래는 전부 **[확인됨·코드]**(코드에 있음)이고, 운영 반영 여부는 **[미검증]**이다.
+
+| 항목 | 상태 | 근거 |
+|---|---|---|
+| `V4__backfill_render_owner.sql` | 파일만 있고 **미적용** | [`data-model.md`](data-model.md) `renders` 절, [`deploy.md`](deploy.md) 7.1절 |
+| `claim-legacy` | **미실행**(`.temp/03` M6 통과 조건 "관리자가 레거시 PoC 데이터를 claim" 미충족) | [`auth.md`](auth.md) 6절, [`deploy.md`](deploy.md) 7.1절 |
+| `HARU_OWNERSHIP_STRICT` | `false`(기본값, 운영도 이 값으로 추정) — NULL 소유자 렌더 다운로드·NULL 소유자 포맷으로 예약 생성을 허용하는 **알려진 구멍**이 열려 있다 | [`auth.md`](auth.md) 4.1·7.1절, [`deploy.md`](deploy.md) 4·7.2절 |
+| `RenderCleanupScheduler`의 `kind=command` 정리 | **비활성**(호출부 주석 처리) — "지금 인쇄" 렌더가 정리 대상에서 빠져 PBM(무압축)과 함께 디스크 사용량이 계속 쌓인다 | [`rendering.md`](rendering.md) 5절 |
+| `RenderCleanupScheduler.FILES_DIR` | `"/data/haru-files"` 하드코딩(다른 클래스는 `haru.files-dir` 설정을 읽음) — 그 설정값을 바꾸면 정리기가 옛 경로만 보고 있어 파일을 못 지운다 | [`rendering.md`](rendering.md) 5절 |
+
+V4 백필 → `claim-legacy` → `HARU_OWNERSHIP_STRICT=true` 순서로 마치기 전까지는 이 표의 앞 3개 항목이 서로 얽혀 있다 — 순서를 건너뛰면 사고가 난다([`deploy.md`](deploy.md) 7.1절 경고).

@@ -12,15 +12,24 @@ Pi는 `ssh haru-pi`로 다룬다([../environment.md](../environment.md)). 노트
 > **단, 이 인쇄는 드라이버·전송 계층을 직접 호출한 것이다 — 앱 "지금 인쇄" → 에이전트 실행기 →
 > 서버 결과 업로드로 이어지는 체인은 여전히 [미검증]**([agent.md](agent.md) 11절).
 > USB 직결(V4)은 진행하지 않는다 — [hardware-verification.md](hardware-verification.md).
+>
+> **같은 날 M5 이후 커밋 3개(`623a8dc`·`8b7194b`·`51a6a8d`)가 에이전트 동작을 크게 바꿨다 — [확인됨·코드]일 뿐 아직 Pi에 배포되지 않았고 실물로도 확인되지 않았다 [미검증]**:
+> 1. 용지 게이트를 fail-closed로 고침(`status_query`는 H4 미판정이라 **항상** `skipped_no_paper`, `manual_flag`는 `paperState` 없으면 skip), `fake` 무성 폴백 제거, `render["path"]` 버그·기동 시 `attempting` 정리 추가, BT 전송에 20초 타임아웃이 실제로 적용되게 수정(agent.md·policy.md·transport.md·printer-m832.md에 반영).
+> 2. 유예 안 재시도(`checking`/`attempting` 상태 분리), "지금 인쇄" 명령 실행기(스케줄러 스레드로 직렬화, `HARU_COMMAND_TTL_SEC` 래스터 직전 재확인), 결과 업로드(`missed` 최초 구현)를 실제로 구현(agent.md 7~9절·policy.md 3절).
+> 3. 시계 동기화 게이트(`timedatectl`, fail-closed, sticky), `kv.last_tick_at` 되돌아보기(24시간, 60초 쓰기 간격), 보낸 바이트 순환 삭제(`agent/retention.py`)를 실제로 구현(agent.md 4·7절, policy.md 4·7절).
+>
+> **운영상 중요한 결론**: `HARU_PAPER_POLICY=unverified`가 유지되는 한 **예약 인쇄는 항상 `dry_run`이고, 무인 인쇄가 실제로 되는 정책은 `manual_flag`뿐**이다(`status_query`는 H4 미판정이라 항상 skip — [policy.md](policy.md) 2절). PoC 완료 기준인 "3일 연속 07:00 실제 인쇄" 시험을 하려면 H4 판정 또는 `manual_flag` 전환 결정이 먼저 필요하다.
+>
+> 전체 테스트 스위트는 **266개 통과**(`cd pi && .venv/bin/python -m pytest tests/ -q`, 2026-09-17 계측).
 
-표기: **[확인됨]** 실물로 눈으로 확인 / **[미검증]** 확인 전 / **[추정]** 자료·계열 기종 기반 추론 / **[기본값]** 따로 묻지 않고 정한 값(바꿔도 됨)
+표기: **[확인됨]** 실물로 눈으로 확인 / **[확인됨·코드]** 코드에서 확인(실물 동작은 별개) / **[미검증]** 확인 전 / **[추정]** 자료·계열 기종 기반 추론 / **[기본값]** 따로 묻지 않고 정한 값(바꿔도 됨)
 
 ## 읽는 순서
 
 | 순서 | 문서 | 내용 | 이 문서가 필요한 마일스톤 |
 |---|---|---|---|
 | — | [../environment.md](../environment.md) | 머신·접속(Pi SSH, sudo 함정), detox-printer 위치 | 전부, 특히 하드웨어 작업 전 |
-| 1 | [hardware-verification.md](hardware-verification.md) | 하드웨어 미확정 사항(V0~V4, H4, H5)과 결정 규칙. **무엇이 아직 모르는 것인지 먼저 파악** | 전부 |
+| 1 | [hardware-verification.md](hardware-verification.md) | 하드웨어 미확정 사항(V0~V4, H4, H5, R5, CG1)과 결정 규칙. **무엇이 아직 모르는 것인지 먼저 파악** | 전부 |
 | 2 | [printer.md](printer.md) | 프린터 공통 인터페이스, 프린터 프로필, 서버 PNG ↔ 드라이버 책임 경계, fake 프린터 | M1, M4 |
 | 3 | [printer-m832.md](printer-m832.md) | detox-printer에서 이식할 M832 확정 사실, 이식 대상 함수, **M1 통과 조건** | M1 |
 | 4 | [transport.md](transport.md) | USB / Bluetooth 전송 계층 | M1, M5 |

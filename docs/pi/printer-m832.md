@@ -81,6 +81,8 @@ detox-printer `m832/src/05_replay.py`(BULK IN 읽기, 청크 축소 로직)와 `
 
 서버가 그릴 PNG 폭이다. 지금은 잠정 1300이고 M1에서 확정해 [printer.md](printer.md) 3절과 [../architecture.md](../architecture.md)의 프로필 예시를 고친다.
 
+**운영 주의**: `pi/printer/m832/driver.py`의 `profile()`이 보고하는 `printable_width_px=1300`은 [기본값]일 뿐이고, 지금은 서버의 기본 프로필(`PrinterProfile.DEFAULT`)과 값이 같다. 이 값을 바꾸기 전에 반드시 [../server/rendering.md](../server/rendering.md) "운영 주의" 단락(1절)을 먼저 읽는다 — 소유자가 없는(NULL) 레거시 렌더·포맷이 남아 있는 상태에서 Pi가 보고하는 프로필 값을 바꾸면 서버가 일부 렌더는 옛 프로필로, 일부는 새 프로필로 비교·렌더해 어긋날 수 있다(V4 백필 + claim-legacy를 먼저 마쳐야 안전, [../server/deploy.md](../server/deploy.md) 7.1절 런북).
+
 알려진 사실: 전송 폭은 1304dot(≈110.4mm)이지만, 보정 2mm를 적용해도 좌우에 약 1mm씩 여백이 남는다. **실제 인쇄 가능 폭은 1304dot보다 약 2mm(≈24dot) 좁은 것으로 보인다** [확인됨·실물 관찰, 정확한 폭은 미측정]. (findings "E-3 — 수평 정렬 보정")
 
 후보 (둘 다 [미검증], M1에서 선택):
@@ -96,7 +98,7 @@ detox-printer `m832/src/05_replay.py`(BULK IN 읽기, 청크 축소 로직)와 `
 
 - 현재 M832는 용지 유무를 알 방법이 없다. `1F 11 11`(findpaper)를 대용량 전송 **후** 읽었을 때 무응답이었다 [확인됨·무응답].
 - 조회 **직후** 읽기, 다른 상태 조회 명령 후보(M835 사례 `A8/A9`, `98/99`)는 `~/Data/detox-printer/m832/docs/findings.md`의 H4 실험([hardware-verification.md](hardware-verification.md), `.temp/01-orangepi-poc-작업지시서-v1.4.md` §3.3)에서 확인한다 [미검증].
-- **H4 통과 전 `status()`의 용지 상태는 항상 `unknown`**을 돌려준다. H4 결과로 명령·응답 바이트가 [확인됨]이 되면 여기에 표로 추가하고 구현한다.
+- **H4 통과 전 `status()`가 돌려주는 `PrinterStatus`에는 용지 상태 필드 자체가 없다** [확인됨·코드, 2026-09-17. `pi/printer/__init__.py`의 `PrinterStatus`는 `state`(`ok`/`offline`)·`detail` 둘뿐 — [printer.md](printer.md) 2절]. `driver.py`의 `status()`는 장치를 열 수 있는지만 보고한다. 이 때문에 `HARU_PAPER_POLICY=status_query`는 연결이 살아 있어도 "용지가 명시적으로 있다"를 판단할 방법이 없어 항상 `skipped_no_paper`로 인쇄를 막는다([policy.md](policy.md) 2절, `pi/agent/executor.py::_check_paper_policy`). H4 결과로 명령·응답 바이트가 [확인됨]이 되면 그때 `PrinterStatus`에 필드를 추가하고 여기에 표로 반영한다.
 
 ## 6. 미검증 목록
 

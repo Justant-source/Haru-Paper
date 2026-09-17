@@ -29,5 +29,6 @@
 | 인증 | **구현됨(M6)** — 로그인·가입·계정 화면, 세션 쿠키 + CSRF. `web.md`·`../server/auth.md` |
 | 화면 | **11개** — 기존 7개 + 로그인·가입·계정·더보기. `screens.md` |
 | 포맷 편집기 | **드래그 편집기로 재작성됨(schemaVersion 2, 행/슬롯, dnd-kit)**. `editor.md` |
-| 기기 화면 | 상태 조회 + **토큰 발급·페어링 코드 발급 UI 추가** |
+| 기기 화면 | 상태 조회 + **토큰 발급·페어링 코드 발급 UI 추가**. 페어링 코드는 Pi가 아직 `pair` 명령을 지원하지 않아 UI 안내문으로 토큰 발급을 대신 쓰라고 안내한다(`pairingCodeWarning`, `screens.md` (6)) |
 | 상태관리·라우팅 | React Query + React Router, 하단 탭 4개(포맷·예약·지금 인쇄·더보기) |
+| 테스트 | **테스트 프레임워크 없음**[확인됨·코드] — `package.json`에 vitest/jest 등이 없다. 검증은 `npm run build`(`tsc -b && vite build`)와 `npm run lint`(`oxlint`)뿐이다. 2026-09-17 재확인: 빌드 0 에러, lint 경고 7개(오류 0) |

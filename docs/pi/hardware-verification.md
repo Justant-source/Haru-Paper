@@ -49,6 +49,8 @@
 | H5 | 글자가 빽빽한 110mm 페이지에서 줄이 빠지는가 | 서버(BT·USB, `~/Data/detox-printer`) | 대기 | 흐름 제어 필요 여부([transport.md](transport.md), [printer-m832.md](printer-m832.md)) |
 | V3 | Pi 내장 Bluetooth(UWE5622)가 재부팅 20회 동안 매번 살아나는가 | Orange Pi (M5) | **[확인됨·실물, 2026-09-16] 통과 — 20/20** | BT 확정 |
 | V4 | Pi USB1에 프린터 직결 시 전압 강하·재부팅이 생기는가 (**5V 3A 어댑터 필요**, 보드 규격은 5V 2A) | Orange Pi (M5) | **대상 제외** — 사용자가 Pi-M832를 BT/Wi-Fi로만 잇기로 확정(위 문단) | — |
+| R5 | 재시도마다(`_preflight_printer`·`status_query`) 전송 전 `printer.status()`로 BT 연결을 여는 것이 M832/BlueZ에 주는 영향 | Orange Pi + M832, 30일 운영 중 관찰 | **대기 [미검증]** — 2026-09-17 코드 리뷰(`8b7194b`)로 처음 지적됨. 콜드 ACL 워크어라운드(V2, [transport.md](transport.md) "주의")는 **단발성 재연결**만 3/3 확인했지, 유예 30분 동안 60초 간격으로 반복 재연결하는 패턴은 실물로 본 적이 없다 | 문제가 관찰되면 `_preflight_printer`가 매 재시도마다 새로 `status()`를 부르는 빈도를 줄이는 설계 변경이 필요할 수 있다 |
+| CG1 | 인터넷 없는 재부팅에서 시계 동기화 게이트(`ClockGate`)가 실제로 예약·명령·`last_tick_at`·순환 삭제를 보류시키는가 | Orange Pi, Wi-Fi 차단 후 재부팅 | **대기 [미검증]** — `pi/agent/clock.py`의 `ClockGate`·`check_ntp_synchronized`(51a6a8d, 2026-09-17)는 단위 테스트(`test_clock_gate.py` 21개, `check_fn` 주입으로 `timedatectl` 모킹)로만 확인됐다. 실제 `timedatectl show -p NTPSynchronized`가 인터넷 없는 재부팅에서 정말 `no`를 반환하고, `haru-paper-agent.service`의 `After=network-online.target time-sync.target`가 이 상황에서 실제로 어떻게 움직이는지는 실물로 본 적이 없다 | PoC 완료 기준("WAN을 뽑은 상태에서도 07:00 인쇄") 시험 전에 반드시 확인해야 한다 — 게이트가 실물에서 발동하지 않으면(오탐이든 미탐이든) 절대금지 1과 직결될 수 있다 |
 
 ### V2 실측 기록 [확인됨·실물, 2026-09-17] — 전송·출력물 모두 통과
 

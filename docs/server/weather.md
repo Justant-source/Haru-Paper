@@ -24,7 +24,7 @@ GET https://api.open-meteo.com/v1/forecast
 
 ## 2. 위치
 
-- 설정 키 `weather.location` = `{lat, lon, label}`([`data-model.md`](data-model.md) `settings`)
+- 설정 키 `weather.location` = `{lat, lon, label}`([`data-model.md`](data-model.md) `user_settings`, 사용자별. M6 이전엔 전역 `settings` 테이블이었으나 DROP되고 대체됐다)
 - 기본값: `.env`의 `HARU_WEATHER_LAT=37.5663`, `HARU_WEATHER_LON=126.9779`, 라벨 `서울시청` [기본값]
 - 앱 설정 화면에서 `PUT /api/settings`로 변경. 바뀌면 날씨 캐시 무효화 + 동적 포맷 재렌더
 - 포맷 `weather.props.location`은 v1에서 `"default"`만 허용([`format-schema.md`](format-schema.md))

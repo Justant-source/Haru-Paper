@@ -24,11 +24,12 @@ pi/
 ├── agent/        # 이 문서
 │   ├── 설정 로드(.env)
 │   ├── 동기화 채널 (SyncChannel 인터페이스 + HTTP 폴링 구현)
-│   ├── 시각 유틸 (`clock.py`, 2026-09-17 신설 — KST 상수·`now_kst`/`now_iso`/`parse_local_iso`를 한 곳에 모은다. scheduler·executor·storage가 각자 갖고 있던 KST 상수 중복을 없앴다)
+│   ├── 시각 유틸 (`clock.py`, 2026-09-17 신설 — KST 상수·`now_kst`/`now_iso`/`parse_local_iso`를 한 곳에 모은다. scheduler·executor·storage가 각자 갖고 있던 KST 상수 중복을 없앴다. 같은 파일에 NTP 동기화 게이트 `check_ntp_synchronized`/`ClockGate`도 있다 — 4·7절)
 │   ├── 로컬 저장소 (SQLite)
 │   ├── 스케줄러 (occurrence 계산)
 │   ├── 실행기 (렌더 선택 → 용지 정책 → Printer.print_image → 결과 기록, "지금 인쇄" 명령 실행 포함)
-│   └── 결과 업로더
+│   ├── 결과 업로더
+│   └── 보낸 바이트 순환 삭제 (`retention.py`, 2026-09-17 신설 — `prune_sent_bytes` 순수 함수. 4절)
 ├── printer/      # 공통 인터페이스 — printer.md
 │   ├── m832/     # M832 드라이버 — printer-m832.md
 │   └── fake/     # 가짜 프린터 — printer.md 4절
@@ -199,7 +200,7 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 
 ## 11. M4 통과 조건 (init_plan 10절)
 
-코드(`pi/agent/*`, `pi/printer/fake`)는 있고 단위 테스트(`pi/tests/test_scheduler.py` 등)로 occurrence 계산 로직은 확인됐다. 그러나 아래 4개는 **가짜 프린터로 처음부터 끝까지 실행해 결과를 본 적이 없어 [미검증]** — 성공한 것처럼 쓰지 않는다:
+코드(`pi/agent/*`, `pi/printer/fake`)는 있고 단위 테스트(`pi/tests/test_scheduler.py` 등)로 occurrence 계산 로직은 확인됐다. **(2026-09-17 갱신)** 같은 날 신설된 `test_command_execution.py`(16개)·`test_retry.py`(14개)·`test_grace_expiry.py`(3개)·`test_lookback.py`(18개)·`test_clock_gate.py`(21개)·`test_heartbeat_printer_lock.py`(3개)·`test_storage_migration.py`(4개)는 `scheduler.py`의 순수 함수 단위를 넘어 `Executor`·`Agent`(`agent/__main__.py`)를 `FakePrinter` + 실제 SQLite(`tmp_path`)로 직접 구성해 재시도·용지 게이트 우회 금지·시계 게이트·기동 정리를 검증한다 — 이전보다 훨씬 깊다. 전체 스위트는 266개 통과(`cd pi && .venv/bin/python -m pytest tests/ -q`, 2026-09-17). **그러나 이 테스트들도 `Agent.run()`이 실제로 띄우는 폴링 스레드 + 스케줄러 스레드 두 개를 동시에 돌리며 모의(mock) 서버를 상대로 여러 틱에 걸쳐 처음부터 끝까지 실행한 것은 아니다** — 개별 메서드(`_do_scheduler_tick`, `execute_occurrence`, `execute_command` 등)를 직접 호출해 검증한다. 그래서 아래 4개는 여전히 **[미검증]**(성공한 것처럼 쓰지 않는다):
 
 - (a) 예약 시각에 `dry_run` 기록이 남는다
 - (b) 서버 연결을 끊어도 캐시된 PNG로 예약이 실행된다
@@ -207,6 +208,8 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 - (d) 에이전트를 재시작해도 같은 occurrence가 중복 실행되지 않는다
 
 Pi 실물에서 확인된 것은 이것과 다른 사실이다: `haru-paper-agent`가 실제로 폴링에 성공하고(`POST /api/device/poll` 200) 재부팅 후에도 자동 복구된다([setup.md](setup.md) 9절) — 이는 M5 조건이지 위 a~d를 대신하지 않는다.
+
+**배포 상태(2026-09-17)**: 이 절이 설명하는 용지 게이트 fail-closed·재시도·명령 실행기·결과 업로드·시계 게이트·되돌아보기·순환 삭제 구현(`623a8dc`·`8b7194b`·`51a6a8d`)은 **아직 Pi에 배포되지 않았다** — Pi는 이 커밋들 이전 코드로 구동 중일 수 있다([확인 불가, 미검증], [setup.md](setup.md) "배포" 참고). 배포 전까지 위 a~d의 실물 검증도 당연히 시작할 수 없다.
 
 이어서 **실제 프린터**(`printer/m832` + `transport/bt`, M5에서 작성 완료)로 앱의 "지금 인쇄"(용지 확인 체크) **실물 1회** — 이 부분은 아직 검증되지 않았다. M5에서 실제로 이뤄진 실물 인쇄 1회([setup.md](setup.md) 9절)는 `M832Printer`+`BtTransport`를 직접 호출한 것이라, 여기서 말하는 **에이전트 실행기 → 앱 명령 → 서버 결과 업로드까지 이어지는 경로는 여전히 (a)~(d)와 마찬가지로 [미검증]**이다.
 

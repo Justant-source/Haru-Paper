@@ -35,7 +35,7 @@
   - `tailscale serve` 적용은 M2에서 **사용자 승인 후** 진행한다([../server/deploy.md](../server/deploy.md)).
 - **같은 origin**: `/` = 웹앱, `/api` = Spring. CORS 설정이 필요 없다.
 - **인증: 이메일/비밀번호 세션 로그인(M6)** [확인됨·코드]. `tailnet`은 네트워크 접근만 걸러줄 뿐, 계정·소유권 경계는 서버 세션 인증이 담당한다. 상세 규약은 [../server/auth.md](../server/auth.md).
-  - 인증되지 않은 사용자는 `/login`으로 리다이렉트된다(`App.tsx`의 `RequireAuth` 게이트, `useAuthGuard` 훅) [확인됨·코드]. `/login`·`/signup`은 게이트 밖.
+  - 인증되지 않은 사용자는 `/login`으로 리다이렉트된다(`App.tsx`의 `RequireAuth` 게이트, `useAuthGuard` 훅) [확인됨·코드]. `/login`·`/signup`은 게이트 밖. `RequireAuth`는 `<Outlet/>`을 그리는 레이아웃 컴포넌트로 구현돼 있다 — 함수 컴포넌트가 `<Route>` 엘리먼트를 반환해서 `element={<X/>}`로 끼워 넣으면 React Router가 `<Route>`는 `<Routes>` 바로 아래 자식만 허용하므로 렌더 시점에 예외를 던지고 화면이 통째로 빈 채로 남는다(2026-09-16 실사용 중 발견, `App.tsx` 주석) [확인됨·코드].
   - `apiClient`(`api/client.ts`)는 모든 요청에 `credentials: 'include'`를 강제하고, `POST/PUT/PATCH/DELETE`에는 쿠키에서 읽은 CSRF 토큰을 `X-XSRF-TOKEN` 헤더로 자동 첨부한다 [확인됨·코드] — 화면 코드는 CSRF를 신경 쓸 필요가 없다.
   - Pi용 기기 토큰은 여전히 Pi 전용 API(`/api/device/poll` 등)의 인증 방식이지만, **발급 UI는 앱에 있다** — `DevicePage`에서 `POST /api/devices/me/token`(1회 표시)·`POST /api/devices/pairing-codes`(페어링 코드 발급, 만료 카운트다운)를 호출한다.
 - **개발 시** [기본값]: `vite dev`의 proxy로 `/api`를 로컬 또는 서버의 Spring으로 넘긴다. 코드에서 API 주소를 하드코딩하지 않고 항상 상대 경로 `/api/...`를 쓴다.
@@ -90,7 +90,8 @@ app/web/
     │   ├── StyleForm.tsx, BlockStyleForm.tsx
     │   └── Preview.tsx       # 편집 중 문서를 POST /api/formats/preview(1초 디바운스)로 렌더해 표시
     ├── components/           # 공용 UI (버튼, 시트, 빈 상태, 오류 배너, 하단 탭 Layout)
-    └── lib/                  # 날짜(KST) 포맷, 상태 라벨, CSRF 토큰 읽기(xsrf.ts) 등
+    └── lib/                  # date.ts(KST 포맷), theme.ts, analytics.ts(로컬 이벤트 로그), xsrf.ts,
+                               # layout-math.ts(mmToPx/ptToPx — 서버 HtmlTemplateBuilder와 동일 공식, editor.md 참고)
 ```
 
 ## 6. API 클라이언트
@@ -139,6 +140,7 @@ app/web/
 
 ## 8. 빌드와 배포
 
+- **테스트 프레임워크 없음**[확인됨·코드] — `package.json`에 vitest·jest 등 테스트 러너가 없다. 검증은 `npm run build`(`tsc -b && vite build`, 타입 체크 겸함)와 `npm run lint`(`oxlint`)뿐이다. 2026-09-17 재확인: 둘 다 0 에러로 통과(lint 경고 7개 — `react(purity)` `Date.now()` 호출, `react(set-state-in-effect)` 여러 건. 동작에는 영향 없음, 리팩터링은 이 문서 범위 밖).
 - `npm run build` → `app/web/dist`
 - 서버 compose의 `haru-web`(nginx)가 `dist`를 서빙하고 `/api`를 `haru-api`(Spring)로 프록시한다 — 상세는 [../server/deploy.md](../server/deploy.md).
 - 배포는 prod 하나뿐(Q15, dev 없음).

@@ -8,7 +8,7 @@
 
 | 항목 | 현재값 | 환경변수 |
 |---|---|---|
-| 용지 정책 | `unverified` (H4 통과 전) | `HARU_PAPER_POLICY` |
+| 용지 정책 | `unverified` (H4 통과 전) — **현재값에서는 예약(무인) 인쇄가 항상 `dry_run`이다. 3개 정책 중 예약 인쇄가 실제로 되는 것은 `manual_flag`뿐**(`status_query`는 H4 미판정이라 지금은 항상 skip, 2절) | `HARU_PAPER_POLICY` |
 | 늦은 실행 유예 | 30분 | `HARU_GRACE_MINUTES` |
 | 재시도 간격 | 60초 | `HARU_RETRY_INTERVAL_SEC` |
 | 폴링 주기 | 30초 | `HARU_POLL_INTERVAL_SEC` |

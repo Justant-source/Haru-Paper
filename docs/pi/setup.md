@@ -4,6 +4,7 @@
 > 최초 결정: [../init_plan.md](../init_plan.md) 3장·8.1·10절 M5, Q24·Q34. 담당·접속은 [../environment.md](../environment.md).
 > **[확인됨·실물, 2026-09-16~17]** 첫 부팅·SSH 접속, 고정 IP·타임존·NTP·Wi-Fi 절전 끄기(4.3~4.4절), 계정 rename·SSH 키·Tailscale(4.5절), `install.sh` 실물 실행으로 `haru-paper-agent`가 서버를 폴링하고 재부팅 후 자동 복구(5·6·9절)까지 전부 완료. overlayfs(7.1절)는 개발 구간이라 의도적으로 미룸.
 > **프린터는 Pi에 물리적으로 연결돼 있지 않다.** Pi와 M832는 각자 USB-C 충전기로 전원만 받고 **BT로만** 연결한다(V1·V2·V3 통과로 확정, [hardware-verification.md](hardware-verification.md)) — USB 직결(V4)은 대상 제외.
+> **같은 날 M5 이후 커밋 3개(재시도·명령 실행기·시계 게이트 등, [agent.md](agent.md) 11절)는 아직 Pi에 배포되지 않았다 [미검증]** — 5.4절.
 
 ## 1. 보드 사양 (구매 정보)
 
@@ -177,6 +178,15 @@ GET /api/device/snapshot HTTP/1.1" 200
 12. 마지막에 `systemctl status haru-paper-agent`와 첫 폴링 로그 확인 방법을 출력
 
 배포(PoC): Pi에서 `cd /opt/haru-paper && git pull --ff-only && sudo systemctl restart haru-paper-agent` (또는 `install.sh` 재실행).
+
+### 5.4 2026-09-17 M5 이후 커밋(`623a8dc`·`8b7194b`·`51a6a8d`) 배포 — 아직 안 함 [미검증]
+
+M5 실물 인쇄(9절)는 이 세 커밋 **이전** 코드로 이뤄졌다. 이 문서를 쓰는 시점까지 Pi에 `git pull`을 다시 돌린 적이 없어 **Pi가 지금 이 커밋들 이전 코드로 구동 중일 수 있다**(확인 불가 — [미검증]). 위 "배포(PoC)" 한 줄(`git pull --ff-only && systemctl restart`)을 그대로 다시 돌리면 되지만, 이번엔 다음을 미리 알아 두는 편이 좋다:
+
+- **새 환경변수 `HARU_COMMAND_TTL_SEC`는 필수가 아니다** [확인됨·코드, `pi/agent/config.py`의 `from_env`] — `required_keys` 목록에 없고 `os.environ.get("HARU_COMMAND_TTL_SEC", "600")`로 읽는다. 운영 Pi의 기존 `pi/.env`에 이 키가 없어도 기동이 실패하지 않고 기본값 600초로 동작한다. `pi/.env.example`에는 이미 추가돼 있다(주석 포함) — 넣고 싶으면 운영 `.env`에 같은 줄을 수기로 추가하면 되고, 안 넣어도 무방하다.
+- **SQLite 마이그레이션은 기동 시 자동으로, 조용히 실행된다** [확인됨·코드, `pi/agent/storage.py`의 `Storage.__init__` → `_migrate()`] — `PRAGMA table_info`로 `executed_occurrences`·`commands` 테이블의 실제 컬럼을 보고 없는 것만 `ALTER TABLE ... ADD COLUMN`으로 추가한다(기본값 없이 붙이므로 즉시 완료, 테이블 재작성 없음). **기존 `agent.db`의 데이터는 지워지지 않는다** — 기존 행의 새 컬럼은 NULL로 채워지고, 옛 코드가 이 컬럼을 읽지 않으므로 구현을 되돌려도 DB가 깨지지 않는다. 별도 수동 마이그레이션 절차가 필요 없다.
+- **동작이 눈에 띄게 달라질 수 있는 지점**: `HARU_PAPER_POLICY`가 운영 Pi에서 `status_query`나 `manual_flag`로 이미 바뀌어 있었다면, 이 배포 이후 `status_query`는 (H4 미판정이므로) 인쇄가 완전히 멈추고 `manual_flag`는 `paperState` 키가 없거나 파싱 실패 시 인쇄가 멈춘다(둘 다 이번 fail-closed 수정의 의도된 동작, [policy.md](policy.md) 2절) — 이전에는 반대로 fail-open이었다. 배포 직후 이 정책값과 실제 인쇄 여부를 확인한다.
+- 이 배포 자체와 위 세 항목의 실물 동작은 아직 **[미검증]**이다 — 배포한 뒤 폴링·스케줄러 틱이 예외 없이 도는지 로그로 확인한다([policy.md](policy.md) 4절 "시계 게이트"가 새로 개입하므로, 재부팅 직후 로그에 `NTPSynchronized` 관련 경고가 없는지도 함께 본다).
 
 ## 6. systemd unit 개요 [확인됨·실물, 2026-09-16]
 
