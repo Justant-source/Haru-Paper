@@ -1,6 +1,7 @@
 # 데이터 모델 (MariaDB)
 
-> M2 `V1__init.sql`(PoC 단일 사용자) + M6 `V2__users_and_ownership.sql`(계정·소유권, [`auth.md`](auth.md)) + `V3__render_pbm.sql`(1-bpp PBM 컬럼, [`../architecture.md`](../architecture.md) 3.4) 세 마이그레이션의 현재 상태다.
+> M2 `V1__init.sql`(PoC 단일 사용자) + M6 `V2__users_and_ownership.sql`(계정·소유권, [`auth.md`](auth.md)) + `V3__render_pbm.sql`(1-bpp PBM 컬럼, [`../architecture.md`](../architecture.md) 3.4)의 현재 상태다.
+> **`V4__backfill_render_owner.sql`(`renders.owner_user_id` 백필)은 파일만 작성됐고 아직 적용되지 않았다** — 아래 `renders` 절 참고.
 > 도메인 정의는 [`../init_plan.md`](../init_plan.md) 6절, 포맷 문서 구조는 [`format-schema.md`](format-schema.md)가 원본이다.
 > 컬럼 타입·인덱스·제약은 **[기본값]**. 구현하면서 바꾸면 이 문서를 같이 고친다. **이미 적용된 마이그레이션 파일은 수정하지 않는다 — 바꿀 게 있으면 `V3__...`로 추가한다.**
 
@@ -22,7 +23,7 @@
 - 위치: `server/src/main/resources/db/migration/`
 - 파일명: `V{n}__{snake_case_설명}.sql` — `V1__init.sql`, `V2__add_xxx.sql` …
 - **이미 적용된 마이그레이션 파일은 절대 수정하지 않는다.** 바꿀 게 있으면 새 번호로 추가
-- 초기 데이터(`device` 1행, `settings` 기본 위치)는 `V1__init.sql` 또는 애플리케이션 시작 시 없으면 생성 [기본값: 시작 시 생성 — 기본 위치를 `.env`(`HARU_WEATHER_LAT/LON`)에서 읽기 위해]
+- M2 시절(`V1__init.sql`)에는 초기 데이터(`device` 1행, `settings` 기본 위치)를 애플리케이션 시작 시 없으면 생성하는 방식이었다 [기본값: 시작 시 생성]. **M6(`V2`)에서 `device`·`settings`는 DROP되고 `devices`(사용자당 1개, 페어링 시 생성)·`user_settings`(사용자별, 조회 시 채움)로 대체됐다** — 아래 `devices`·`user_settings` 절 참고, 전역 1행 초기 데이터는 더 이상 없다
 
 ## 3. 테이블
 
@@ -84,7 +85,7 @@
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | `id` | CHAR(36) PK | `renderId` |
-| `owner_user_id` | CHAR(36) NULL | M6. FK 없음(이력 보존 관례) |
+| `owner_user_id` | CHAR(36) NULL | M6. FK 없음(이력 보존 관례). **2026-09-17까지는 항상 NULL이었다** — `RenderServiceImpl`이 렌더 생성 시 이 컬럼을 채우지 않는 버그였다(다른 소유권 컬럼(`formats`·`schedules`·`assets` 등)은 각 서비스가 채웠는데 렌더만 빠져 있었다). 지금은 렌더 생성 시 포맷에서 `owner_user_id`를 복사한다(`format.getOwnerUserId()`, 렌더는 포맷에서 파생되므로) [확인됨·코드: `RenderServiceImpl.saveRender()` — 이후 생성되는 모든 렌더에 적용]. 기존 NULL 행은 `V4__backfill_render_owner.sql`이 `formats` 조인으로 백필하도록 작성돼 있으나 **아직 적용되지 않았다**(파일만 있는 상태). 포맷이 나중에 삭제된 고아 렌더는 이 백필의 JOIN에 걸리지 않아 계속 NULL로 남는다 — `DeviceSyncController.assertOwnership()`([`auth.md`](auth.md) 4.1절)은 NULL을 레거시로 보고 다운로드를 허용하도록 설계돼 이 경우도 그대로 동작한다 |
 | `format_id` | CHAR(36) NOT NULL | FK → `formats.id` ON DELETE CASCADE(파일도 함께 정리) |
 | `target_date` | DATE NOT NULL | KST |
 | `profile_key` | VARCHAR(100) NOT NULL | 프린터 프로필 식별자. 규약([`../architecture.md`](../architecture.md) 3.4): `{model}-{dpi}-{paperWidthMm}-{printableWidthPx}` (예: `m832-300-110-1300`) |
@@ -224,7 +225,7 @@ Pi가 올리는 실행 결과. **`id` = Pi가 만든 `resultId`** 로 멱등 처
 ```
 /data/haru-files/
 ├── uploads/     # 에셋 원본: {assetId}.png | {assetId}.jpg
-└── renders/     # 렌더 PNG: {renderId}.png (그레이스케일)
+└── renders/     # 렌더 PNG: {renderId}.png (그레이스케일) + {renderId}.pbm (1-bpp PBM P4, V3~. 없을 수 있음 — pbm_path NULL)
 ```
 
 - DB 행과 파일은 **같이 만들고 같이 지운다.** 파일 쓰기가 끝난 뒤에 행을 커밋한다.

@@ -48,6 +48,14 @@
 - `Authorization: Bearer <토큰>` → SHA-256 해시 → `devices.token_hash`로 조회. 없으면 401(`application/problem+json`, `DispatcherServlet` 이전 필터라 `GlobalExceptionHandler`가 못 잡으므로 직접 응답을 쓴다).
 - 성공하면 resolved `Device`를 요청 attribute(`DeviceTokenAuthFilter.DEVICE_ATTRIBUTE`)에 담아 `DeviceSyncController`가 어떤 기기·소유자인지 안다.
 
+### 4.1 렌더 다운로드 소유권 검사 — 필터와는 별개의 컨트롤러 레벨 검사
+
+`DeviceTokenAuthFilter`는 **경로 기반**으로만 보호한다 — 유효한 기기 토큰이면 "그 경로에 접근 가능"까지만 보장하고, 그 기기가 요청한 `renderId`가 **자기 소유인지는 검사하지 않는다.** 그래서 `GET /api/device/renders/{renderId}.png`·`.pbm`(둘 다) 컨트롤러 메서드(`DeviceSyncController`)에 **별도로** `assertOwnership(device, render, renderId)`를 추가했다(2026-09-17) [확인됨·코드] — 유효한 기기 토큰 하나로 다른 사용자의 `renderId`를 넣으면(`renderId`는 UUIDv4라 추측은 사실상 불가능하지만, IDOR 자체는 토큰 소유자와 무관하게 성립) 지금까지는 그대로 통과했다. 이제는 `render.ownerUserId`와 `device.ownerUserId`가 다르면 **404**로 응답한다(403이 아니라 404 — 존재 여부를 노출하지 않는다, 7절과 같은 관례).
+
+**예외 — NULL 소유자(레거시 렌더)는 허용**: `render.ownerUserId`가 NULL이면(V4 백필 마이그레이션 적용 전의 기존 렌더, 또는 포맷이 나중에 삭제된 고아 렌더) 소유권 불일치로 보지 않고 다운로드를 허용한다(경고 로그만 남김). 상시 구동 중인 Pi가 있는 상태에서 백필 적용 전/후 사이에 "지금까지 되던 다운로드가 갑자기 404"가 되어 운영이 끊기면 안 되기 때문이다.
+
+`Cache-Control`도 `public, max-age=31536000` → **`private, max-age=31536000`**으로 바꿨다(개인 인쇄물이라 CDN·프록시 같은 공유 캐시에 남으면 안 된다) [확인됨·코드: `DeviceSyncController.getRenderImage()`/`getRenderPbm()`].
+
 ### 토큰 발급 — `POST /api/devices/me/token` (세션 인증)
 
 로그인한 사용자가 자기 기기의 토큰을 발급·재발급한다 [확인됨·코드: `DeviceManagementController.issueToken()`]. 기존 기기가 없으면 새로 만든다(`owner_user_id` UNIQUE — 1인 1기기). 응답에 **평문 토큰이 이번 한 번만** 표시된다(`Instant tokenIssuedAt`도 함께). 재발급하면 이전 토큰은 즉시 무효화(같은 행의 `token_hash`를 덮어씀).
@@ -57,12 +65,12 @@
 기기(Pi)에 로그인 UI 없이 사용자 계정과 연결하는 두 번째 경로 [확인됨·코드: `DeviceManagementController.createPairingCode()`, `DeviceController.pair()`]:
 
 1. 사용자가 앱에서 코드 발급 요청 → 서버가 8자 코드(대문자+숫자, `I/O/0/1` 제외) 생성, `pairing_codes`에 저장, **10분 유효**.
-2. Pi(또는 기기 설정 도구)가 `POST /api/device/pair {code}`를 무인증으로 호출 → 코드가 유효하면 그 사용자의 기기에 새 토큰을 발급해 응답(`{deviceId, token, printerProfile}`)하고 코드를 1회용으로 소모.
+2. Pi(또는 기기 설정 도구)가 `POST /api/device/pair {code, printerProfile?}`를 무인증으로 호출 → 코드가 유효하면 그 사용자의 기기에 새 토큰을 발급해 응답(`{deviceId, token, printerProfile}`)하고 코드를 1회용으로 소모. `printerProfile`(선택, JSON 문자열)을 같이 보내면 그대로 저장된다 [확인됨·코드: `DeviceDto.PairRequest`].
 3. 없음·만료·이미 사용됨을 굳이 구분하지 않고 **셋 다 404**로 응답한다(재사용 공격 표면을 줄이려는 의도) [확인됨·코드].
 
 ### 기기 조회·이름 변경 (세션 인증)
 
-- `GET /api/devices/me`: 현재 사용자의 기기 요약(`{deviceId, name, hasToken}`). 페어링 전이면 전부 `null`/`false`.
+- `GET /api/devices/me`: 현재 사용자의 기기 요약. 실제 응답 DTO는 `DeviceManagementDto.GetDeviceInfoResponse(deviceId, name, paired)`(`docs/app/screens.md` 267행과 일치) [확인됨·코드]. 이 레코드는 `@JsonInclude(NON_NULL)`이라, 페어링 전에는 `deviceId`·`name`이 `null`이 아니라 **키 자체가 응답 JSON에서 빠진다** — `paired`(boolean 기본형)만 `false`로 내려온다.
 - `PATCH /api/devices/me {name}`: 기기 이름 변경. 페어링 전이면 오류.
 
 > 위 3개(`/api/devices/*`, `me/token`, `pairing-codes`)는 **`DeviceManagementController`**(웹앱용, 세션 인증)다. **`DeviceController`**(`/api/device`, 단수)는 별개 클래스로, 세션 인증인 `GET /api/device`·`PUT /api/device/paper-state`와 무인증인 `POST /api/device/pair`를 가진다. 이름이 비슷해 헷갈리기 쉽다 — 규약은 [`../architecture.md`](../architecture.md) 4.2·4.3, 구현 세부는 [`api.md`](api.md).
@@ -99,6 +107,8 @@
 | `/api/admin/claim-legacy` | POST | 로그인한 관리자가 `owner_user_id=NULL`인 리소스(포맷·예약·에셋·렌더·명령·결과) 전부를 자신의 것으로 이전 |
 
 `claim-legacy`는 M6 배포 시 **1회성 마이그레이션 도구**다 — M2~M5의 PoC 데이터(소유자 없음)를 관리자 계정으로 흡수한다.
+
+> **운영 주의**: `V4__backfill_render_owner.sql`(`renders.owner_user_id` 백필, 7절·[`data-model.md`](data-model.md))이 적용되기 **전에는 `claim-legacy`를 실행하지 않는다.** `RenderServiceImpl`이 렌더 생성 시 `owner_user_id`를 채우기 시작한 것도 2026-09-17부터라(그 전에는 항상 NULL), V4 적용 전에는 기존 렌더의 `owner_user_id`가 전부 NULL이다 — 이 상태에서 `claim-legacy`를 돌리면 **모든 사용자의 렌더가 관리자 소유로 넘어간다.**
 
 ## 7. 소유권 스코핑 (owner_user_id)
 

@@ -4,7 +4,7 @@
 > 서버·Pi·앱 문서는 이 문서의 규약을 링크해서 쓰고, 다르게 정의하지 않는다. 규약을 바꾸면 이 문서를 먼저 고친다.
 > 최초 결정 근거는 [`init_plan.md`](init_plan.md) (2·6·7절).
 >
-> 표기: **[확인됨]** 실물 확인 / **[미검증]** 확인 전 / **[추정]** 자료 기반 추론 / **[기본값]** 따로 묻지 않고 정한 값(바꿔도 됨)
+> 표기: **[확인됨]** 실물 확인 / **[확인됨·코드]** 코드에서 직접 확인 / **[미검증]** 확인 전 / **[추정]** 자료 기반 추론 / **[기본값]** 따로 묻지 않고 정한 값(바꿔도 됨)
 
 ---
 
@@ -123,6 +123,9 @@
   - 상태 [기본값]: `pending`(생성) → `delivered`(poll 응답에 처음 실림) → `done`(Pi 결과 수신). **생성 후 10분 안에 `done`이 안 되면 `expired`**
   - `done`/`expired`가 아닌 명령은 **매 poll 응답에 다시 실린다**(at-least-once). Pi는 **`commandId`로 중복을 거른다**
   - 만료 이유: Pi가 오프라인이었다가 몇 시간 뒤 접속했을 때 뜬금없이 인쇄되지 않게 하기 위해서다
+  - **poll 응답의 `commands[]`는 호출한 기기의 소유자로 스코핑된다(2026-09-17 수정)** [확인됨·코드: `DeviceSyncService.processPoll()`, `CommandRepository.findAllByOwnerUserIdAndStatusIn`]. 예전에는 `commandRepository.findAllByStatusIn(...)`처럼 전역 조회라, 다른 사용자가 만든 "지금 인쇄" 명령이 이 기기의 poll 응답에도 실리는 소유권 경계 버그(IDOR류)였다.
+  - 기기(`device_id`)가 아니라 **소유자(`owner_user_id`)** 로 거르는 이유: "지금 인쇄"는 기기 페어링 전에도 만들 수 있고(그때 `PrintNowController`가 `device_id`를 NULL로 둔다), `device_id`로 거르면 그 명령은 나중에 페어링해도 영영 전달되지 않고 10분 뒤 조용히 `expired`가 된다(앱에는 202만 뜨고 아무 일도 일어나지 않는다). V2의 `uk_devices_owner`(`owner_user_id` UNIQUE)가 1인 1기기를 보장하므로 소유자 스코핑은 기기 스코핑과 보안상 동등하다.
+  - **만료 처리는 의도적으로 전역 스캔을 유지한다**(기기별로 스코핑하지 않는다) [확인됨·코드: `DeviceSyncService.poll()` 4단계]. 기기별로 하면 페어링만 되고 한 번도 poll하지 않은 기기의 명령이 영영 만료되지 않고 `pending`으로 남기 때문이다. 만료 처리는 명령의 `status`만 `expired`로 바꿀 뿐 다른 사용자에게 아무 내용도 노출하지 않으므로, 전역 스캔이어도 소유권 경계를 침범하지 않는다 — 위의 "commands[] 스코핑"과는 다른 비대칭이다.
 
 ### 3.4 렌더(Render)
 
@@ -204,7 +207,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | 본문 | `application/json; charset=utf-8` (업로드·PNG 제외) |
 | 시각 | ISO-8601 오프셋 포함 `2026-09-14T07:00:00+09:00`. 날짜 `YYYY-MM-DD`, 시:분 `HH:mm`은 KST |
 | ID | 서버 리소스 ID는 서버 발급 문자열. `resultId`만 Pi 발급 UUID |
-| 오류 | `application/problem+json` (Spring `ProblemDetail`, RFC 9457/7807): `{type, title, status, detail, instance}` + 확장 `errors: [{path, message}]` (검증 오류일 때). HTTP 400/401/404/409/413/415/422/500 [기본값]. 상태별 의미·예시는 [`server/api.md`](server/api.md) 4절 |
+| 오류 | `application/problem+json` (Spring `ProblemDetail`, RFC 9457/7807): `{type, title, status, detail, instance}` + 확장 `errors: [{path, message}]` (검증 오류일 때). HTTP 400/401/403/404/409/413/415/422/500 [기본값]. 상태별 의미·예시는 [`server/api.md`](server/api.md) 4절 |
 | 인증 | 앱용 경로는 **세션 로그인 필요**(예외: `/api/health`, `/api/auth/signup`, `/api/auth/login`, `POST /api/device/pair`는 무인증). `/api/admin/**`는 ADMIN 역할 추가 필요. **Pi용 4개 경로**(`poll`, `snapshot`, `renders`, `results`)만 Bearer 필수 — `/api/device`, `/api/device/paper-state`는 세션 인증(앱용)이므로 경로 접두사가 아니라 **경로별로** 판단한다. 상세는 [`server/auth.md`](server/auth.md) |
 
 ### 4.2 앱용 (M6부터 세션 인증 — 예외 표시)
@@ -233,7 +236,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | GET/PATCH | `/api/devices/me` | 기기 요약 조회 / 이름 변경 | 세션 |
 | POST | `/api/devices/me/token` | 기기 토큰 발급·재발급(평문은 1회만 응답) | 세션 |
 | POST | `/api/devices/pairing-codes` | 10분 유효 1회용 페어링 코드 생성 | 세션 |
-| POST | `/api/device/pair` | `{code}` → 기기 토큰 발급(Pi가 부름) | **없음**(코드 자체가 1회용 비밀) |
+| POST | `/api/device/pair` | `{code, printerProfile?}` → 기기 토큰 발급(Pi가 부름). `printerProfile`은 선택 필드(JSON 문자열)로, 주면 그대로 저장된다 | **없음**(코드 자체가 1회용 비밀) |
 | GET/PUT | `/api/settings` | 날씨 기본 위치 등(사용자별) | 세션 |
 | GET | `/api/admin/users` 등 | 사용자 관리([`server/auth.md`](server/auth.md) 6절) | ADMIN |
 | GET | `/api/health` | 헬스체크 | 없음 |
@@ -299,7 +302,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 
 - `online`: `lastPollAt`이 폴링 주기의 3배(90초) 이내면 `true` [기본값]
 - `printerStatus`는 [4.3 poll 요청](#43-pi용-authorization-bearer-haru_device_token)의 `{state, detail}` 그대로, `paperPolicy`는 poll 요청의 최상위 `paperPolicy` 그대로
-- `paperState`는 어디서나 `{loaded, updatedAt}` (PUT 응답만 `updatedBy` 추가)
+- `paperState`는 **어디서나 `{loaded, updatedAt, updatedBy}` 3필드 레코드 하나**(`DeviceDto.PaperState`)다 [확인됨·코드] — `GET /api/device` 응답과 poll 응답 모두 이 레코드를 쓰고, `@JsonInclude` 필터가 없어 `updatedBy`가 항상 직렬화된다(poll 응답에서는 `null`일 수 있음)
 - `weather` 기본값: `{label: "서울시청", lat: 37.5663, lon: 126.9779}`
 
 ### 4.3 Pi용 (`Authorization: Bearer <기기별 토큰>`, DB 해시 — [`server/auth.md`](server/auth.md) 4절)
@@ -342,7 +345,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
   "snapshotChanged": false,
   "commands": [ { "commandId": "c7", "type": "print_now", "formatId": "f1", "renderId": "r12", "sha256": "…",
                   "paperConfirmed": true, "createdAt": "…" } ],
-  "paperState": { "loaded": false, "updatedAt": "…" },
+  "paperState": { "loaded": false, "updatedAt": "…", "updatedBy": null },
   "pollIntervalSec": 30
 }
 ```

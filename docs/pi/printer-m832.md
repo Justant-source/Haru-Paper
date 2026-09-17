@@ -95,7 +95,7 @@ detox-printer `m832/src/05_replay.py`(BULK IN 읽기, 청크 축소 로직)와 `
 ## 5. 용지 상태 (`status()`)
 
 - 현재 M832는 용지 유무를 알 방법이 없다. `1F 11 11`(findpaper)를 대용량 전송 **후** 읽었을 때 무응답이었다 [확인됨·무응답].
-- 조회 **직후** 읽기, 다른 상태 조회 명령 후보(M835 사례 `A8/A9`, `98/99`)는 detox-printer PLAN-02 H4에서 확인한다 [미검증].
+- 조회 **직후** 읽기, 다른 상태 조회 명령 후보(M835 사례 `A8/A9`, `98/99`)는 `~/Data/detox-printer/m832/docs/findings.md`의 H4 실험([hardware-verification.md](hardware-verification.md), `.temp/01-orangepi-poc-작업지시서-v1.4.md` §3.3)에서 확인한다 [미검증].
 - **H4 통과 전 `status()`의 용지 상태는 항상 `unknown`**을 돌려준다. H4 결과로 명령·응답 바이트가 [확인됨]이 되면 여기에 표로 추가하고 구현한다.
 
 ## 6. 미검증 목록
@@ -121,13 +121,13 @@ detox-printer `m832/src/05_replay.py`(BULK IN 읽기, 청크 축소 로직)와 `
    - 입력 2: 임의 PNG 1장(텍스트가 들어간 그레이스케일 이미지 권장).
 3. 기준 bin과 입력 PNG를 `pi/tests/fixtures/`에 복사하고, 생성 명령·sha256·Pillow 버전을 같은 폴더의 README에 적는다 [기본값].
 4. `/pi` 드라이버로 같은 입력을 변환해 기준 bin과 **바이트 단위로 비교**하는 테스트를 만든다.
-5. **M5에서 BT로 실물 1회 인쇄** ([transport.md](transport.md) 3절 확정값 — SPP/RFCOMM 채널 1) — 아직 미착수: Pi에서 M832 페어링·`trust` → `pi/transport/bt.py` 작성 → `.env`를 `HARU_TRANSPORT=bt`로 전환 → **사용자가 용지 장착을 눈으로 확인한 뒤** 앱 "지금 인쇄"로 전송. 보낸 바이트는 `HARU_DATA_DIR/sent/`에 보관
+5. **M5에서 BT로 실물 1회 인쇄** ([transport.md](transport.md) 3절 확정값 — SPP/RFCOMM 채널 1) — **완료(2026-09-17)**: Pi에서 M832 페어링·`trust` → `pi/transport/bt.py` 작성 → `.env`를 `HARU_TRANSPORT=bt`로 전환 → **사용자가 용지 장착을 눈으로 확인한 뒤** `M832Printer`+`BtTransport`를 직접 호출해 전송, 육안 확인. 보낸 바이트는 `HARU_DATA_DIR/sent/`에 보관. **단, 앱 "지금 인쇄"(에이전트 실행기 → 서버 결과 업로드 체인)를 통한 경로는 아니다 — 그 체인은 여전히 미검증**([agent.md](agent.md) 11절)
 6. 4절 방법으로 `printableWidthPx`를 확정하고 문서를 고친다.
 
 ### 통과 조건 (init_plan 10절)
 
-1. 같은 입력(체커보드 테스트 패턴 + 임의 PNG 1장)에 대해 detox-printer `07_print_image.py` dry-run 출력과 `/pi` 출력이 **바이트 단위 동일**
-2. 용지 확인 후 **Pi에서 BT로 실물 1회 인쇄 육안 확인**(위 5), 보낸 bin 보관 — 미착수
-3. `printableWidthPx` 확정·문서화
+1. 같은 입력(체커보드 테스트 패턴 + 임의 PNG 1장)에 대해 detox-printer `07_print_image.py` dry-run 출력과 `/pi` 출력이 **바이트 단위 동일** — 미실시
+2. 용지 확인 후 **Pi에서 BT로 실물 1회 인쇄 육안 확인**(위 5) — **완료(2026-09-17)**, 보낸 bin 보관(단, 드라이버·전송 계층 직접 호출 경로 — 에이전트 실행기 경로는 별개로 미검증)
+3. `printableWidthPx` 확정·문서화 — 미실시(현재 잠정 1300 유지)
 
 통과 전에는 M4(에이전트)에서 실제 프린터를 쓰지 않는다. 에이전트 개발은 `printer/fake`로 먼저 한다.

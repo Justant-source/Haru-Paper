@@ -34,9 +34,9 @@
 |---|---|
 | [`server/auth.md`](server/auth.md) | M6: 세션 로그인·가입, 역할, 기기별 토큰·페어링 코드, 소유권 스코핑, 관리자 API |
 | [`server/api.md`](server/api.md) | 컨트롤러별 경로·인증, 오류 형식, 멱등, curl 시나리오 |
-| [`server/data-model.md`](server/data-model.md) | MariaDB 테이블(Flyway V1·V2), 파일 저장 |
+| [`server/data-model.md`](server/data-model.md) | MariaDB 테이블(Flyway V1~V3 적용됨, V4 파일 작성·미적용), 파일 저장 |
 | [`server/format-schema.md`](server/format-schema.md) | **포맷 JSON 스키마 v2(행/슬롯) 원본** |
-| [`server/rendering.md`](server/rendering.md) | 포맷 → HTML → Chromium → 그레이스케일 PNG, 샌드박스, 1-bpp(PBM) 예정 |
+| [`server/rendering.md`](server/rendering.md) | 포맷 → HTML → Chromium → 그레이스케일 PNG, 샌드박스, 1-bpp(PBM) 구현됨[확인됨·코드] |
 | [`server/weather.md`](server/weather.md) | 날씨 블록: Open-Meteo, 기본 위치 |
 | [`server/deploy.md`](server/deploy.md) | Docker compose, 포트·`tailscale serve`, 백업, `.env` |
 
@@ -62,7 +62,7 @@
 | M2 | 서버(Spring Boot + MariaDB + Flyway) | 완료 |
 | M3 | 웹앱(PWA) | 완료 |
 | M4 | Pi 에이전트(폴링·스케줄러·대기열) | 코드 있음(`pi/agent/`), Pi에서 상시 구동 중 |
-| M5 | Pi 실물 설치, 연결 방식 결정 | **완료(4/4).** 재부팅 자동시작·서버 폴링·transport=`bt` 확정에 이어, `pi/transport/bt.py` 구현(콜드 ACL 워크어라운드 포함) + Pi ↔ M832 페어링 + 실물 인쇄 1회(텍스트+그레이데이션+체커보드, 사용자 육안 확인) 전부 [확인됨·실물, 2026-09-17]. `HARU_PRINTER_DRIVER=m832` 상시 |
+| M5 | Pi 실물 설치, 연결 방식 결정 | **완료(4/4).** 재부팅 자동시작·서버 폴링·transport=`bt` 확정에 이어, `pi/transport/bt.py` 구현(콜드 ACL 워크어라운드 포함) + Pi ↔ M832 페어링 + 실물 인쇄 1회(텍스트+그레이데이션+체커보드, 사용자 육안 확인) 전부 [확인됨·실물, 2026-09-17]. `HARU_PRINTER_DRIVER=m832` 상시. **단, 이 인쇄는 `M832Printer`+`BtTransport` 직접 호출로 이뤄졌고, 앱 "지금 인쇄" → 에이전트 실행기 → 서버 결과 업로드로 이어지는 체인은 여전히 [미검증]**([pi/agent.md](pi/agent.md) 11절) |
 | M6 | 계정·기기 소유(세션 로그인, 기기별 토큰, 페어링 코드, 관리자) | **구현 완료.** 문서는 `server/auth.md`·`app/web.md`·`app/screens.md`에 반영 |
 | M7 | 레이아웃·위젯 엔진 | **부분.** 포맷 스키마 v2(행/슬롯)와 드래그 편집기(dnd-kit)는 구현됨. `haru-widget-runner`(Node 샌드박스)는 **미구현** |
 | M8 | 작가·글·구독·피드 | 미착수 |
@@ -82,10 +82,10 @@ PoC 완료 시험(WAN 차단 상태 07:00 인쇄 + 복구 후 이력, 3일 연�
 | V2 | M832 BT 지원 + 검증된 바이트 BT 전송 인쇄 | **[확인됨·실물]** 통과 — SPP/RFCOMM 채널 1로 체커보드 2장 정상 인쇄, 사용자 육안 확인 |
 | V3 | Pi 내장 BT 재부팅 20회 생존 | **[확인됨·실물]** 통과 — 20/20 |
 | V4 | USB 직결 시 Pi 전압강하·재부팅 | **대상 제외** — Pi·M832를 BT/Wi-Fi로만 잇기로 확정, 시험하지 않음 |
-| H4 | 상태 조회로 용지 있음/없음 구분 가능한가 | 대기 — BT 상태 조회 재조사(전송 후 11byte 응답, findpaper 직후 read 등) |
+| H4 | 상태 조회로 용지 있음/없음 구분 가능한가 | **부분 진행, 2026-09-17** — findpaper 단독 조회 응답이 `1a 06 89`(3바이트)로 5/5 고정 재현됨을 확인. 용지 유무가 이 값에 반영되는지는 아직 미확정 |
 | H5 | 빽빽한 텍스트에서 줄 누락 있는가 | 대기 |
 
-**결과**: V1·V2·V3 모두 통과 → **`HARU_TRANSPORT=bt`** 확정(SPP/RFCOMM 채널 1). H4 결과로 용지 정책(`status_query` vs `manual_flag`)이 정해진다. 서버의 1-bpp(PBM) 출력은 2단계(ESP32) 요구로 승인됐으나 **미구현**이다.
+**결과**: V1·V2·V3 모두 통과 → **`HARU_TRANSPORT=bt`** 확정(SPP/RFCOMM 채널 1). H4 결과로 용지 정책(`status_query` vs `manual_flag`)이 정해진다. 서버의 1-bpp(PBM) 출력은 2단계(ESP32) 요구로 승인됐고 **구현됨**[확인됨·코드: `PbmConverter`, `RenderServiceImpl`, `DeviceSyncController.getRenderPbm()`, `V3__render_pbm.sql`] — 실제 배포·기기 연동은 아직 [미검증]이다.
 
 **프린터는 1호기 1대뿐**이고 추가 구매 없이 진행한다 — 30일 연속 운영과 2단계(ESP32) 실물 시험은 같은 프린터를 순서대로 쓴다.
 

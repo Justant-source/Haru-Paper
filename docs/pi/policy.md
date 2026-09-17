@@ -22,12 +22,19 @@
 
 용지 없는 상태에서 래스터를 보내면 헤드가 상할 수 있다(detox-printer 금지 5). M832는 아직 용지 유무를 감지할 방법이 확인되지 않았다(H4, [hardware-verification.md](hardware-verification.md)).
 
+**설계 원칙은 fail-closed다**: "용지가 있는지 확실히 모른다"는 항상 인쇄를 막는 쪽으로 떨어져야 한다(CLAUDE.md 절대 금지 1 — 용지를 눈으로 확인하기 전에는 래스터를 보내지 않는다). `pi/agent/executor.py`의 `_check_paper_policy`는 어느 분기에서도 "확인 안 됨"이 기본 허용으로 새지 않도록 짜여 있다(2026-09-17 수정. 이전 코드는 `status_query`에서 프린터 연결만 되면 통과시켰고, `manual_flag`는 `paperState` 키가 아예 없으면 통째로 건너뛰어 둘 다 사실상 허용이 기본값이었다 — 둘 다 CLAUDE.md 절대 금지 1 위반 소지였다).
+
 | 정책 | 언제 쓰나 | 예약(무인) 인쇄 | "지금 인쇄"(앱 명령) |
 |---|---|---|---|
 | **`unverified`** (현재) | H4 통과 전 | **래스터를 보내지 않는다.** 렌더 선택·변환까지 하고 `dry_run`으로 기록 | 명령의 `paperConfirmed=true`(앱에서 "프린터 앞에서 용지를 눈으로 확인함" 체크)일 때만 전송. 아니면 `skipped_no_paper` |
-| `status_query` | H4 통과 후 | 인쇄 직전 `status()`가 용지 `present`일 때만 전송. `absent`/`unknown`이면 `skipped_no_paper` 후 유예 안에서 재시도 | 같은 조건 + `paperConfirmed`는 참고만 |
-| `manual_flag` | H4 실패 시 폴백 | 서버의 수동 "용지 장착됨"(폴링 응답 `paperState`)이 켜져 있을 때만 전송. 꺼져 있으면 `skipped_no_paper` | 같은 조건, 또는 `paperConfirmed=true` |
+| `status_query` | H4 통과 후(**과도기 동작 — 아래 참고**) | 프린터 연결(`status().state == "ok"`)만으로는 인쇄하지 않는다. `PrinterStatus`에 용지 필드가 없어 "용지 있음"을 확인할 방법이 아직 없으므로 **현재는 항상 `skipped_no_paper`**(연결이 살아 있어도) | 같은 이유로 항상 `skipped_no_paper`. `paperConfirmed`는 이 정책에서 아직 참고되지 않는다 |
+| `manual_flag` | H4 실패 시 폴백 | 서버의 수동 "용지 장착됨"(폴링 응답 `paperState`, `kv.paperState`)이 켜져 있을 때만 전송. `paperState` 키가 없거나 JSON 파싱이 실패해도 **무조건 `skipped_no_paper`**(fail-closed) — `loaded=true`일 때만 전송 | 같은 조건, 또는 `paperConfirmed=true` |
 
+### `status_query`가 지금 인쇄를 전혀 하지 않는 이유(과도기)
+
+`printer/m832/driver.py`의 `status()`는 "장치를 열 수 있는가"만 보고하고 `PrinterStatus`(`printer/__init__.py`)에는 용지 유무 필드가 아직 없다(H4 미통과, [printer-m832.md](printer-m832.md) 5절). "용지가 명시적으로 있다"를 확인할 방법이 없는 이상 `_check_paper_policy`는 fail-closed 원칙에 따라 항상 `skipped_no_paper`를 반환한다 — **`HARU_PAPER_POLICY=status_query`로 전환하면 예약·"지금 인쇄" 모두 인쇄가 전혀 되지 않는다는 뜻**이다. H4가 통과해 `PrinterStatus`에 용지 필드가 생기면 그 필드로 판단하도록 이 분기를 바꾼다. 그 전까지 실제로 인쇄가 필요하면 `unverified`(지금 인쇄만, `paperConfirmed` 체크) 또는 `manual_flag`를 쓴다.
+
+- 알 수 없는(오타 등) `HARU_PAPER_POLICY` 값도 로그에 원인을 남기고 `skipped_no_paper`로 fail-closed 처리한다. `unknown_policy`라는 status 값은 쓰지 않는다(5절 목록에 없다).
 - `manual_flag`에서 인쇄가 프린터 오류로 실패하면 결과(`failed` 또는 `skipped_printer_offline`)를 보통처럼 업로드한다. **서버가 그 결과를 받으면 수동 상태를 끈다**(`paperState.loaded=false`, `updatedBy: "server"`) [기본값]. Pi가 따로 해제 API를 부르지 않는다. 규약 원본은 [../architecture.md](../architecture.md) 3.7.
 - 사용자는 롤을 갈 때 앱에서 수동 상태를 켠다.
 - 정책 전환은 `HARU_PAPER_POLICY`를 바꾸고 서비스를 재시작한다.

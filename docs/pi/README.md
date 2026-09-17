@@ -9,6 +9,8 @@ Pi는 `ssh haru-pi`로 다룬다([../environment.md](../environment.md)). 노트
 > `bt`로 확정(V1·V2·V3 통과) — Pi ↔ M832 페어링 완료, `pi/transport/bt.py` 구현(콜드 ACL 재연결
 > 워크어라운드 포함, [transport.md](transport.md) 3절), 텍스트+그레이데이션+체커보드 PNG를 실제
 > `M832Printer` 드라이버로 BT 전송해 사용자가 출력물을 육안으로 확인했다([setup.md](setup.md) 9절).
+> **단, 이 인쇄는 드라이버·전송 계층을 직접 호출한 것이다 — 앱 "지금 인쇄" → 에이전트 실행기 →
+> 서버 결과 업로드로 이어지는 체인은 여전히 [미검증]**([agent.md](agent.md) 11절).
 > USB 직결(V4)은 진행하지 않는다 — [hardware-verification.md](hardware-verification.md).
 
 표기: **[확인됨]** 실물로 눈으로 확인 / **[미검증]** 확인 전 / **[추정]** 자료·계열 기종 기반 추론 / **[기본값]** 따로 묻지 않고 정한 값(바꿔도 됨)
@@ -24,7 +26,7 @@ Pi는 `ssh haru-pi`로 다룬다([../environment.md](../environment.md)). 노트
 | 4 | [transport.md](transport.md) | USB / Bluetooth 전송 계층 | M1, M5 |
 | 5 | [agent.md](agent.md) | 폴링 동기화, 로컬 SQLite, occurrence 스케줄러, 실행 흐름, **M4 통과 조건** | M4 |
 | 6 | [policy.md](policy.md) | 현재 운영 정책값(용지 정책, 유예·재시도, 시계, 보관) | M4, M5 |
-| 7 | [setup.md](setup.md) | Orange Pi Zero 2W 사양, 도착 체크리스트, OS 설치, `install.sh`, systemd, **M5** | M5 |
+| 7 | [setup.md](setup.md) | Orange Pi Zero 2W 사양, OS 설치, `install.sh`, systemd, **M5** | M5 |
 
 ## 마일스톤별 시작점
 

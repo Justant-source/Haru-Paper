@@ -38,7 +38,7 @@ pi/
 
 - 실행 진입점은 `python -m agent` 형태 [기본값].
 - 의존성 [기본값]: Pillow(12.3.0 고정, [printer-m832.md](printer-m832.md)), pyusb, HTTP 클라이언트(requests 계열), BLE가 필요해지면 bleak. 테스트는 pytest.
-- Python 3.11(Pi Debian 12 기본)에서 돌아야 한다. 노트북(Python 3.12)에서 개발하더라도 3.11 문법 범위를 지킨다.
+- Python 3.11(Pi Debian 12 기본)에서 돌아야 한다. 서버(Python 3.12, [environment.md](../environment.md))에서 개발하더라도 3.11 문법 범위를 지킨다.
 
 ## 3. 설정
 
@@ -54,7 +54,7 @@ pi/
 | `HARU_H_OFFSET_MM` | M832 정렬 보정 |
 | `HARU_DATA_DIR`, `HARU_SENT_RETENTION_DAYS` | 로컬 데이터 위치·보관 |
 
-노트북 개발 시 `HARU_DATA_DIR`은 저장소 **밖**의 쓰기 가능한 경로(예: `~/.local/share/haru-paper`)로 둔다 [기본값]. 저장소 안에 두면 gitignore 관리가 필요해진다.
+서버에서 개발할 때 `HARU_DATA_DIR`은 저장소 **밖**의 쓰기 가능한 경로(예: `~/.local/share/haru-paper`)로 둔다 [기본값]. 저장소 안에 두면 gitignore 관리가 필요해진다.
 
 ## 4. 데이터 디렉터리 (`/var/lib/haru-paper`)
 
@@ -148,7 +148,8 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 ## 9. 중복 방지와 멱등
 
 - **인쇄 중복 방지**: `occurrence_key`(예약)와 `command_id`(명령)를 PK로 기록한다. 재시작·재동기화·스냅샷 교체가 일어나도 `final=1`인 것은 다시 인쇄하지 않는다.
-- **인쇄 직전 기록**: 전송 시작 전에 "시도 중" 상태를 먼저 기록한다. 전송 도중 프로세스가 죽으면 재시작 후 그 occurrence를 자동으로 다시 인쇄하지 않고 `failed`(detail: 전송 중 중단)로 끝낸다 [기본값] — 같은 내용이 두 번 나오는 것보다 한 번 빠지는 쪽을 택한다.
+- **인쇄 직전 기록**: 전송 시작 전에 "시도 중"(`attempting`) 상태를 먼저 기록한다(`storage.save_executed_occurrence(..., status="attempting", attempts=1)`, `executor.py`). 전송 도중 프로세스가 죽으면(정전, OOM, `systemctl restart` 등) 재시작 후 그 occurrence를 자동으로 다시 인쇄하지 않고 `failed`로 끝낸다 — 같은 내용이 두 번 나오는 것보다 한 번 빠지는 쪽을 택한다 [기본값]. **구현됨(2026-09-17)**: `Agent.__init__`(`__main__.py`)이 기동 시 1회 `storage.cleanup_stale_attempts()`를 호출한다. 이 메서드는 `executed_occurrences`에서 `status='attempting' AND final=0`인 레코드(재시작 전에 전송이 끝나지 못한 것)를 찾아 `status='failed', final=1`로 갱신한다. `final=1`이면 `scheduler.filter_executable_occurrences`가 걸러내므로 재실행되지 않는다.
+  - **한계(남은 과제)**: 이 정리는 Pi 로컬 SQLite(`executed_occurrences`)만 갱신하고 **`results_queue`에는 아무것도 넣지 않는다** — `executed_occurrences`에는 `formatId`·`renderId`·`scheduledAt`이 없어서, 서버가 기대하는 결과 payload([../architecture.md](../architecture.md) 3.6)를 이 메서드가 온전히 재구성할 수 없기 때문이다. 즉 기존 업로드 경로(`uploader.py` → `POST /api/device/results`)를 타지 않는다 — **로컬 중복 인쇄 방지는 되지만, 이 실행 시도가 앱의 이력 화면(`GET /api/history`)에 `failed`로 표시되지는 않는다.** 정리한 `occurrence_key` 목록은 로그(`journalctl`)에만 경고로 남는다.
 - **업로드 멱등**: `resultId`(UUID, Pi가 생성)로 업로드한다. 서버는 같은 `resultId`를 한 번만 저장한다. 업로드 응답을 못 받으면 같은 `resultId`로 다시 보낸다.
 - 명령 완료도 결과 업로드로 서버에 알린다(명령에 대응하는 결과에 `commandId`를 담음).
 
@@ -169,6 +170,6 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 
 Pi 실물에서 확인된 것은 이것과 다른 사실이다: `haru-paper-agent`가 실제로 폴링에 성공하고(`POST /api/device/poll` 200) 재부팅 후에도 자동 복구된다([setup.md](setup.md) 9절) — 이는 M5 조건이지 위 a~d를 대신하지 않는다.
 
-이어서 **실제 프린터**(`printer/m832` + `transport/bt`, M5에서 작성)로 앱의 "지금 인쇄"(용지 확인 체크) **실물 1회**.
+이어서 **실제 프린터**(`printer/m832` + `transport/bt`, M5에서 작성 완료)로 앱의 "지금 인쇄"(용지 확인 체크) **실물 1회** — 이 부분은 아직 검증되지 않았다. M5에서 실제로 이뤄진 실물 인쇄 1회([setup.md](setup.md) 9절)는 `M832Printer`+`BtTransport`를 직접 호출한 것이라, 여기서 말하는 **에이전트 실행기 → 앱 명령 → 서버 결과 업로드까지 이어지는 경로는 여전히 (a)~(d)와 마찬가지로 [미검증]**이다.
 
 M4 전제: M1 통과(드라이버), M2의 device API 동작(서버, 완료). 서버가 준비되기 전에는 동기화 채널을 목(mock) 구현으로 대신해 스케줄러·실행기를 먼저 만들 수 있다.

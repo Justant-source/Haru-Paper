@@ -12,7 +12,7 @@
    cd ~/Data && git clone https://github.com/Justant-source/Haru-Paper.git
    ```
 2. **GitHub push 인증**: `~/Data/Again-Spring`에 설정된 GitHub 인증(같은 `Justant-source` 계정)을 확인해 Haru-Paper에서도 push되게 설정한다(사용자가 허용함 — 본인 프로젝트 간 재사용).
-3. 노트북의 `.claude/settings.local.json`을 서버 `~/Data/Haru-Paper/.claude/`로 복사한다(gitignore라 clone으로 오지 않음).
+3. (이력) `.claude/settings.local.json`은 gitignore라 clone으로 오지 않는다 — 세션이 노트북 담당이던 시절에는 노트북에서 서버로 복사했다. **지금은 서버 세션 하나가 모든 경로를 담당하므로**([../../CLAUDE.md](../../CLAUDE.md) "세션·담당") 이 단계는 더 이상 필요하지 않다.
 4. `~/Data/Haru-Paper`에서 Claude Code 실행 → `CLAUDE.md`, `docs/init_plan.md`, `docs/architecture.md`, `docs/server/`, `docs/app/`을 읽고 M2 시작.
 
 ## 1. 운영 서버라는 점을 먼저 기억할 것

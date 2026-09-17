@@ -38,7 +38,7 @@
 - V1~V3(BT 경로 확인)이 실질적인 목표 경로가 된다. V3(Pi 내장 BT 재부팅 20회 생존)는 프린터 페어링 없이도 시험 가능하나 이번 세션에서는 하지 않음(사용자 선택)
 - 이 결정은 [setup.md](setup.md) 3절의 "BT 방식(목표)" 배선과 일치한다
 
-## 현황표 (2026-09-13 기준)
+## 현황표 (2026-09-17 기준)
 
 | ID | 내용 | 장소·시점 | 현재 상태 | 결과가 바꾸는 것 |
 |---|---|---|---|---|
@@ -92,7 +92,7 @@
 
 **결과 [확인됨·실물, 2026-09-17]: V1·V2·V3 모두 통과 → `HARU_TRANSPORT=bt` 확정.** V4는 진행하지 않는다.
 
-코드는 `usb`·`bt` 둘 다 같은 인터페이스로 둔다([transport.md](transport.md)). `usb`는 M1에서 작성됐고(`pi/transport/usb.py`), **`bt`도 작성 완료됐다**(`pi/transport/bt.py`, 2026-09-17) — Pi ↔ M832 페어링 완료, `.env`를 `HARU_TRANSPORT=bt`로 전환해 재시작·폴링까지 확인했다(단, `HARU_PRINTER_DRIVER`는 아직 `fake` — 용지 확인 전 실물 인쇄는 하지 않는다). 페어링 직후 콜드 상태에서 raw RFCOMM connect가 타임아웃되고 `bluetoothctl connect`로 ACL을 깨운 뒤에야 성공하는 패턴을 관찰했다(상세는 [transport.md](transport.md) "주의" — 해결 여부 사용자 결정 대기). 2단계 ESP32 기기는 유선 인라인 형태라 데이터 경로가 USB 호스트 [기본값, 사용자 확인 필요]로 갈 수 있다(`.temp/02-esp32-디바이스-계획서-v1.4.md`) — 바이트는 두 경로 모두 [확인됨·실물]이라 드라이버 상수는 그대로다.
+코드는 `usb`·`bt` 둘 다 같은 인터페이스로 둔다([transport.md](transport.md)). `usb`는 M1에서 작성됐고(`pi/transport/usb.py`), **`bt`도 작성 완료됐다**(`pi/transport/bt.py`, 2026-09-17) — Pi ↔ M832 페어링 완료, `.env`를 `HARU_TRANSPORT=bt`, `HARU_PRINTER_DRIVER=m832`로 전환해 재시작·폴링·실물 인쇄 1회까지 확인했다(**M5 4/4 완료** — `HARU_PRINTER_DRIVER`는 더 이상 `fake`로 되돌리지 않는다. 단, 이 인쇄는 드라이버·전송 계층을 직접 호출한 것이라 에이전트 실행기 → 서버 결과 업로드 체인은 여전히 미검증, [transport.md](transport.md) "Pi 구현" 참고). 페어링 직후 콜드 상태에서 raw RFCOMM connect가 타임아웃되고 `bluetoothctl connect`로 ACL을 깨운 뒤에야 성공하는 패턴을 관찰했다 — **워크어라운드를 `open()`에 반영해 해결 완료**(강제 disconnect 재현 시험 3/3 성공, 상세는 [transport.md](transport.md) "주의"). 2단계 ESP32 기기는 유선 인라인 형태라 데이터 경로가 USB 호스트 [기본값, 사용자 확인 필요]로 갈 수 있다(`.temp/02-esp32-디바이스-계획서-v1.4.md`) — 바이트는 두 경로 모두 [확인됨·실물]이라 드라이버 상수는 그대로다.
 
 ### 용지 정책 (`HARU_PAPER_POLICY`)
 

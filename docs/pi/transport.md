@@ -2,7 +2,7 @@
 
 > 드라이버가 만든 바이트를 프린터로 보내고, 필요하면 응답을 읽는 계층. 바이트의 의미는 모른다.
 > 선택은 `HARU_TRANSPORT=usb | bt`. 최종 선택은 [hardware-verification.md](hardware-verification.md)의 V1~V4 결정 규칙을 따른다 — **`bt` 확정(V1·V2·V3 통과, 2026-09-17)**.
-> 최초 결정: [../init_plan.md](../init_plan.md) 8.1, Q12·Q22. 코드: `usb`는 M1에서 작성됨(`pi/transport/usb.py`), `bt`는 V2 통과로 M5에서 작성한다(3절 확정값대로, 아직 없음).
+> 최초 결정: [../init_plan.md](../init_plan.md) 8.1, Q12·Q22. 코드: `usb`는 M1에서 작성됨(`pi/transport/usb.py`), `bt`는 V2 통과로 M5에서 작성됐다(3절 확정값대로, `pi/transport/bt.py`).
 
 ## 1. 인터페이스 초안 [기본값]
 
@@ -77,14 +77,15 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 3. 재발 방지 테스트 9개 신설(`pi/tests/test_agent_bootstrap.py`), 전체 스위트 133개 통과. `cwd=pi/`로
    실물 venv에서 `_load_printer("m832")`(transport=bt)까지 엔드투엔드로 재현·확인함.
 
-### Pi 구현 [확인됨·실물, 2026-09-17] — 페어링·코드·연결 테스트 완료, 실제 인쇄는 미착수
+### Pi 구현 [확인됨·실물, 2026-09-17] — 페어링·코드·연결 테스트 완료, 실물 인쇄 1회 완료(한계는 아래 참고)
 
 - **Pi ↔ M832 페어링 완료**: `bluetoothctl pair`+`trust`, `Paired: yes`/`Bonded: yes`/`UUID: Serial Port, HCR Print`(서버와 동일). Pi에서 `sdptool search SP`로 RFCOMM 채널 1도 재확인함.
-- **`pi/transport/bt.py` 작성 완료**: `open()` = 소켓 생성·connect(실패 시 원인이 드러나는 `TransportError`), `write()` = 4096 청크·청크당 타임아웃(기본 20000ms)·총 데드라인 60초·부분 전송은 계속 이어보냄(소켓 일반 규약)·`send()`가 0을 반환하면 예외, `read()` = 타임아웃/빈 응답이면 `None`, `close()`(idempotent). 상수는 `pi/printer/m832/constants.py`의 `BT_*`에 근거 주석과 함께 추가. 단위 테스트 `pi/tests/test_bt_transport.py`(36개, 전부 socket 모킹, 전체 스위트 117개 통과) — `write()`를 호출하지 않는 순수 연결 테스트 케이스도 포함해 실수로 데이터가 나가지 않는지까지 테스트로 고정해뒀다.
+- **`pi/transport/bt.py` 작성 완료**: `open()` = 소켓 생성·connect(실패 시 원인이 드러나는 `TransportError`), `write()` = 4096 청크·청크당 타임아웃(기본 20000ms)·총 데드라인 60초·부분 전송은 계속 이어보냄(소켓 일반 규약)·`send()`가 0을 반환하면 예외, `read()` = 타임아웃/빈 응답이면 `None`, `close()`(idempotent). 상수는 `pi/printer/m832/constants.py`의 `BT_*`에 근거 주석과 함께 추가. `usb.py`·`bt.py` 둘 다 클래스 속성 `DEFAULT_WRITE_TIMEOUT_MS`를 노출한다(`usb.py`는 `USB_WRITE_TIMEOUT_MS`=5000, `bt.py`는 `BT_WRITE_TIMEOUT_MS`=20000를 그대로 가리킴). 단위 테스트 `pi/tests/test_bt_transport.py`(43개, 전부 socket 모킹) — `write()`를 호출하지 않는 순수 연결 테스트 케이스도 포함해 실수로 데이터가 나가지 않는지까지 테스트로 고정해뒀다. **전체 스위트 166개 통과, `test_bt_transport.py`만 43개 통과(2026-09-17 계측, `cd pi && .venv/bin/python -m pytest tests/ -q` / `tests/test_bt_transport.py -q`).**
+- **드라이버가 이제 실제로 이 타임아웃 값을 쓴다(2026-09-17 수정)**: `printer/m832/driver.py`의 `print_image()`가 예전에는 transport 종류와 무관하게 `USB_WRITE_TIMEOUT_MS`(5000ms)를 하드코딩해 넘기고 있었다 — BT로 전송해도 청크당 5초 만에 타임아웃 판정이 날 수 있는 버그였다. 지금은 `transport.DEFAULT_WRITE_TIMEOUT_MS`를 조회해 `transport.write(command, timeout_ms=...)`에 그대로 넘긴다(속성이 없는 transport가 오면 USB 값으로 폴백하며 경고 로그). 즉 **이 절의 BT 확정값 20000ms가 이제 실제 운영 경로(`M832Printer.print_image` → `BtTransport.write`)에서 쓰인다.**
 - **실물 연결 테스트(안전 — write() 호출 없음)**: Pi에서 `open()` 직후 바로 `close()`만 실행(래스터·어떤 바이트도 전송 안 함). 페어링 직후 첫 시도는 타임아웃, 이후 성공 — 아래 "주의"의 재연결 항목 참고.
-- `pi/.env`(운영, `/opt/haru-paper/pi/.env`): `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS=C5:0D:F7:B7:B2:A1`로 전환·재시작 완료(poll 200, snapshot 200 확인). **`HARU_PRINTER_DRIVER`는 의도적으로 `fake`로 유지** — 용지를 육안으로 확인하기 전에는 실제 드라이버로 바꾸지 않는다(`CLAUDE.md` 절대금지 1). `m832`로 바꾸고 앱 "지금 인쇄"(용지 확인 체크)로 실물 1회 인쇄·육안 확인하는 것이 M5의 마지막 남은 단계다.
+- `pi/.env`(운영, `/opt/haru-paper/pi/.env`): `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS=C5:0D:F7:B7:B2:A1`, `HARU_PRINTER_DRIVER=m832`로 전환·재시작 완료(poll 200, snapshot 200 확인). **M5 실물 인쇄 1회 완료(2026-09-17)** — `M832Printer`+`BtTransport`로 텍스트+그레이데이션+체커보드 PNG를 BT 전송, 사용자 육안 확인([setup.md](setup.md) 9절). **단, 이 경로는 지시서가 요구한 "앱 '지금 인쇄' + `paperConfirmed=true` → 결과 업로드"가 아니라 드라이버·전송 계층을 직접 호출한 임시 스크립트다** — 드라이버·전송 계층은 실물 검증됐지만, **에이전트 실행기 → 서버 결과 업로드 체인은 여전히 미검증**이다.
 - 서비스 사용자 `haru`는 이미 `bluetooth` 그룹(`install.sh`). **overlayfs 전에 `/var/lib/bluetooth/`가 하부 레이어에 있어야 한다**(아직 미적용, 8절 예정).
-- 11바이트 응답은 아직 실제 인쇄를 안 해봐서 Pi에서는 관찰 안 됨(서버 실험값만 있음). H4가 의미를 밝히면 `status()`에 쓴다.
+- 11바이트 응답은 아직 에이전트 실행기 경로로 인쇄를 안 해봐서 그 경로에서는 관찰 안 됨(서버 실험값·임시 스크립트 전송값만 있음). H4가 의미를 밝히면 `status()`에 쓴다.
 
 ### 주의
 
@@ -100,5 +101,4 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 3. ~~[hardware-verification.md](hardware-verification.md) 현황표~~ — 갱신함.
 4. ~~`pi/transport/bt.py` 작성 + Pi에서 M832 페어링·`trust` + `.env` 전환~~ — 완료(2026-09-17, 위 내용).
 5. ~~콜드 ACL 재연결 문제 해결 여부 결정~~ — 완료(2026-09-17). 워크어라운드를 `open()`에 반영, 강제 disconnect 재현 시험 3/3 성공.
-6. ~~M5 실물 인쇄 1회~~ — **완료(2026-09-17)**. `M832Printer`+`BtTransport`로 텍스트+그레이데이션+체커보드 PNG 전송, 사용자 육안 확인. `HARU_PRINTER_DRIVER=m832`가 Pi의 새 기본값(더 이상 `fake`로 되돌리지 않음). M5 4/4 완료 — [setup.md](setup.md) 9절.
-6. **M5 실물 인쇄 1회**('지금 인쇄', 용지 확인 체크, `HARU_PRINTER_DRIVER=m832`로 전환) — 용지를 육안으로 확인할 수 있는 사람이 직접 해야 하는 마지막 단계, 아직 미착수.
+6. ~~M5 실물 인쇄 1회~~ — **완료(2026-09-17)**. `M832Printer`+`BtTransport`로 텍스트+그레이데이션+체커보드 PNG 전송, 사용자 육안 확인. `HARU_PRINTER_DRIVER=m832`가 Pi의 새 기본값(더 이상 `fake`로 되돌리지 않음). M5 4/4 완료 — [setup.md](setup.md) 9절. **단, 이 인쇄는 앱 "지금 인쇄" + `paperConfirmed=true` → 결과 업로드 경로가 아니라 드라이버·전송 계층을 직접 호출한 것이다 — 에이전트 실행기 → 서버 결과 업로드 체인은 여전히 미검증([agent.md](agent.md) 11절).**

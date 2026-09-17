@@ -120,7 +120,7 @@ nmcli connection modify "Orange Pi wireless 2.4G" connection.autoconnect yes con
 
 **SSH 키 인증**: `~/.ssh/haru_pi_key`(ed25519)를 만들어 `authorized_keys`에 등록. `ssh -i ~/.ssh/haru_pi_key justant@<IP> 'whoami'` → `justant`, 비밀번호 없이 접속 확인. `sudo`는 여전히 비밀번호 필요(로그인과 sudo 인증은 별개).
 
-**Tailscale**: 공식 설치 스크립트(arm64 `.deb` 1.102.4) → `sudo tailscale up --hostname=haru-pi`(한 번만 백그라운드로 띄우고 로그의 URL로 승인 — 재시도하며 겹쳐 실행하면 URL이 안 뜬다). 결과:
+**Tailscale**: 공식 설치 스크립트(arm64 `.deb` 1.102.4) → `sudo tailscale up --hostname=haru-pi`(한 번만 백그라운드로 띄우고 로그의 URL로 승인 — 재시도하며 겹쳐 실행하면 URL이 안 뜬다). **함정**: `tailscale up`의 stdout을 파이프(리다이렉트·`ssh` 경유 등)로 받으면 완전 버퍼링돼 로그인 URL이 한참 안 보이거나 아예 안 보일 수 있다. `stdbuf -oL -eL tailscale up ...`처럼 줄 단위 버퍼링을 강제해야 URL이 바로 출력된다 — 재설치나 다른 노드 등록 때 다시 겪을 수 있는 함정이라 기록해 둔다. 결과:
 
 ```
 tailscale status
@@ -148,7 +148,7 @@ Pi(`haru-pi`, `100.117.239.83`)가 서버(`justant-server2`, `100.81.189.92`)와
 
 ### 5.2 기기 토큰 발급 — M6부터 절차가 바뀜
 
-`pi/.env.example`의 안내("서버 `server/.env`의 `HARU_DEVICE_TOKEN`과 같은 값")는 **더 이상 맞지 않는다.** M6부터 토큰은 서버 `.env`의 단일 값이 아니라 **기기별로 DB에 해시 저장**된다(`server/.../device/DeviceTokenAuthFilter.java` 주석 확인). 기존에 로컬 개발용으로 쓰던 `pi/.env`의 토큰을 그대로 Pi에 넣었더니 `POST /api/device/poll`이 401을 반환했다(무효화됨, 확인됨).
+M6부터 토큰은 서버 `.env`의 단일 값이 아니라 **기기별로 DB에 해시 저장**된다(`server/.../device/DeviceTokenAuthFilter.java` 주석 확인). `pi/.env.example`은 이미 이 M6 절차대로 갱신돼 있다(6~8행). 기존에 로컬 개발용으로 쓰던 옛 단일 토큰을 그대로 Pi에 넣었더니 `POST /api/device/poll`이 401을 반환한 것을 실제로 확인했다(무효화됨).
 
 **발급 절차 [확인됨·실물]**: 웹앱(`https://justant-server2.tail2b65d1.ts.net`) 로그인 → 기기 메뉴 → "토큰 발급받기"(`POST /api/devices/me/token`) → 응답에 평문 토큰이 **이번 한 번만** 표시됨 → `pi/.env`의 `HARU_DEVICE_TOKEN`에 저장. 재발급하면 이전 토큰은 즉시 무효화된다(기기당 1개).
 
@@ -242,10 +242,10 @@ WantedBy=multi-user.target
 ## 9. M5 통과 조건 (init_plan 10절)
 
 - [x] 재부팅 후 `haru-paper-agent`가 **자동 시작** — **[확인됨·실물, 2026-09-16]** 5·6절
-- [x] 서버 폴링 정상 — **[확인됨·실물, 2026-09-16]** `POST /api/device/poll` 200, `GET /api/device/snapshot` 200 (재부팅 전후 모두). 다만 "서버 앱의 기기 화면에 마지막 폴링 시각 표시"는 앱 화면으로 직접 보지는 않았다(로그로 확인) — `GET /api/device`가 문서(무인증)와 달리 401을 반환하는 문제가 있어(5.3절) 앱 화면 확인은 이 문제 해소 후로 남는다
+- [x] 서버 폴링 정상 — **[확인됨·실물, 2026-09-16]** `POST /api/device/poll` 200, `GET /api/device/snapshot` 200 (재부팅 전후 모두). 다만 "서버 앱의 기기 화면에 마지막 폴링 시각 표시"는 앱 화면으로 직접 보지는 않았다(로그로 확인) — `GET /api/device`는 M6부터 세션 인증이 **규약**이라(무인증 시절 문서가 낡은 것, [`../architecture.md`](../architecture.md) 4.1, [`../server/api.md`](../server/api.md) 4절) 로그인 없이 부르면 401이 정상이다. 5.2절에서 기기 토큰을 발급받아 로그인한 브라우저로 앱 화면을 보면 확인 가능하지만, 이번 세션에서는 아직 그렇게 확인하지 않았다
 - [x] **연결 방식 결정 = `bt`** ([hardware-verification.md](hardware-verification.md)) — **[확인됨·실물, 2026-09-17]** V1(충전기만 8시간 생존)·V2(SPP/RFCOMM 채널 1로 체커보드 2장 정상 인쇄, 사용자 육안)·V3(Pi 내장 BT 재부팅 20/20) 모두 통과. V4(USB 직결)는 사용자 결정(2026-09-16)으로 대상 제외
-- [x] 결정된 transport로 **실물 인쇄 1회** — **[확인됨·실물, 2026-09-17]** Pi에서 M832 페어링·`trust` 완료 → `pi/transport/bt.py` 작성([transport.md](transport.md) 3절) → `.env`를 `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS`, `HARU_PRINTER_DRIVER=m832`로 전환·재시작 → **실제 `pi/printer/m832` 드라이버**(`M832Printer`+`BtTransport`, detox-printer 스크립트 아님)로 그레이데이션+텍스트("HARU-PAPER REAL PRINT TEST"+시각)+체커보드가 섞인 PNG(1300×500)를 SPP/RFCOMM 채널 1로 전송(81,850바이트, 사전 육안 용지 확인 후) → **사용자가 출력물을 직접 보고 왜곡·반전 없이 정상 인쇄됐다고 확인함**. 보낸 바이트는 `/var/lib/haru-paper/sent/`에 보관. 이걸로 그동안 [미검증]이던 "텍스트·그레이스케일 콘텐츠 인쇄 품질"도 함께 해소됨([printer-m832.md](printer-m832.md) 6절)
+- [x] 결정된 transport로 **실물 인쇄 1회** — **[확인됨·실물, 2026-09-17]** Pi에서 M832 페어링·`trust` 완료 → `pi/transport/bt.py` 작성([transport.md](transport.md) 3절) → `.env`를 `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS`, `HARU_PRINTER_DRIVER=m832`로 전환·재시작 → **실제 `pi/printer/m832` 드라이버**(`M832Printer`+`BtTransport`, detox-printer 스크립트 아님)로 그레이데이션+텍스트("HARU-PAPER REAL PRINT TEST"+시각)+체커보드가 섞인 PNG(1300×500)를 SPP/RFCOMM 채널 1로 전송(81,850바이트, 사전 육안 용지 확인 후) → **사용자가 출력물을 직접 보고 왜곡·반전 없이 정상 인쇄됐다고 확인함**. 보낸 바이트는 `/var/lib/haru-paper/sent/`에 보관. 이걸로 그동안 [미검증]이던 "텍스트·그레이스케일 콘텐츠 인쇄 품질"도 함께 해소됨([printer-m832.md](printer-m832.md) 6절). **범위 한계**: 이 인쇄는 `M832Printer`+`BtTransport`를 직접 호출한 것이라, 지시서가 요구한 "앱 '지금 인쇄' + `paperConfirmed=true` → 결과 업로드"(에이전트 실행기 → 서버 업로드 체인)를 통한 경로는 아니다 — 드라이버·전송 계층은 실물 검증됐지만 그 체인은 여전히 [미검증]([agent.md](agent.md) 11절)
 
-**현재 상태 요약**: **4개 중 4개 완료 — M5 통과.** `HARU_PRINTER_DRIVER=m832`가 Pi의 새 기본 상태로 남는다(더 이상 `fake`로 되돌리지 않음). 프린터는 1호기 1대뿐이라 30일 운영과 2단계(ESP32) 실물 시험은 같은 프린터를 순서대로 쓴다(`.temp/02-esp32-디바이스-계획서-v1.4.md`).
+**현재 상태 요약**: **4개 중 4개 완료 — M5 통과** (단, 위 범위 한계 참고). `HARU_PRINTER_DRIVER=m832`가 Pi의 새 기본 상태로 남는다(더 이상 `fake`로 되돌리지 않음). 프린터는 1호기 1대뿐이라 30일 운영과 2단계(ESP32) 실물 시험은 같은 프린터를 순서대로 쓴다(`.temp/02-esp32-디바이스-계획서-v1.4.md`).
 
 M5 이후 PoC 완료 시험(WAN 차단 상태 07:00 인쇄 + 복구 후 이력, 3일 연속)으로 간다.

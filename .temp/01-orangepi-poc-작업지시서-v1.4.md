@@ -23,7 +23,7 @@
 
 | 머신 | 사양 (실측) | 역할 | 프린터 접근 |
 |---|---|---|---|
-| **Orange Pi Zero 2W** (`haru-pi`, tailnet `100.117.239.83`) | Debian 12 bookworm, 커널 6.1.31-sun50iw9, Python 3.11.2, RAM 981Mi, 스왑 zram 490Mi, 내장 BT UWE5622(UART, `hci0` `UP RUNNING`), SD 32GB | **운영 기기.** `haru-paper-agent` systemd 상시 구동(자동시작·서버 폴링 확인됨) | **BT(SPP/RFCOMM)** — M832 페어링 아직 안 함 |
+| **Orange Pi Zero 2W** (`haru-pi`, tailnet `100.117.239.83`) | Debian 12 bookworm, 커널 6.1.31-sun50iw9, Python 3.11.2, RAM 981Mi, 스왑 zram 490Mi, 내장 BT UWE5622(UART, `hci0` `UP RUNNING`), SD 32GB | **운영 기기.** `haru-paper-agent` systemd 상시 구동(자동시작·서버 폴링·실물 인쇄 1회 확인됨) | **BT(SPP/RFCOMM)** — M832 페어링 완료(2026-09-17) |
 | **Ubuntu 서버** (`justant-server2`, tailnet `100.81.189.92`) | Ubuntu 24.04.4, Python 3.12.3, Realtek BT 동글(`0bda:8771`), 서버 백엔드·DB·웹앱, 다른 운영 프로젝트 다수 | **BT 실험실 + 서버 백엔드.** `~/Data/detox-printer` clone됨, M832와 **페어링됨**(`Bonded: yes`) | BT(SPP/RFCOMM), 이미 페어링 |
 | **노트북** (Windows 11 + WSL2) | node18, docker, usbipd | **사용하지 않는다** | — |
 
@@ -129,9 +129,9 @@ M832는 **영수증 규격(절취선 있는 57/80mm)이 아니라 절취선 없�
 
 ## 3. 프린터 연결·전송
 
-### 3.1 페어링 (Pi ↔ M832) — 미완
+### 3.1 페어링 (Pi ↔ M832) — 완료(2026-09-17)
 
-서버에는 페어링돼 있지만 운영 기기 Pi에는 아직 없다.
+서버·Pi 둘 다 페어링돼 있다(`Paired: yes`/`Bonded: yes`, Pi에서 `sdptool search SP`로 RFCOMM 채널 1도 재확인함).
 
 ```bash
 # haru-pi 에서
@@ -167,6 +167,8 @@ sdptool search --bdaddr C5:0D:F7:B7:B2:A1 SP   # RFCOMM 채널 1 재확인
 | ⑤ USB `GET_PORT_STATUS` | 서버에 USB로 꽂아 pyusb `ctrl_transfer`(bRequest 0x01) 1바이트 조회 — ESP 유선 단계용 |
 
 값이 상태에 따라 바뀌면 `status_query`, 안 바뀌면 `manual_flag`([policy.md](../docs/pi/policy.md)). 용지 없는 상태에서 래스터를 보내는 시험은 하지 않는다.
+
+**진행 상황(2026-09-17)**: 후보 ②(findpaper 직후 read)를 시도해 응답이 `1a 06 89`(3바이트)로 5/5 고정 재현됨을 확인했다(원인 규명: 소켓 버퍼링 아티팩트 제거 후). 다만 이 값이 **용지 상태를 반영하는지, 아니면 상시 고정값인지는 아직 판정되지 않았다** — 사람이 프린터 앞에서 용지를 직접 뺐다 끼웠다 하며 같은 스크립트로 재검증해야 한다. 그때까지 `HARU_PAPER_POLICY=unverified` 유지. 상세: `~/Data/detox-printer/m832/docs/findings.md` "H4 — findpaper 단독 조회", [../docs/pi/hardware-verification.md](../docs/pi/hardware-verification.md).
 
 ---
 
@@ -262,9 +264,9 @@ overlay 후 강제 전원 차단 10회 부팅(매번 폴링·토큰·페어링 �
 - [x] V1(충전기만 8시간)·V3(BT 재부팅 20/20) [확인됨·실물]
 - [x] **V2 최종 통과** — BT 전송 + 체커보드 2장 육안 확인 [확인됨·실물, 2026-09-17]
 - [x] 2단계(ESP32) 계획 갱신 — `.temp/02-esp32-디바이스-계획서-v1.4.md`
-- [x] 서버 1-bpp `.pbm` 출력 승인(규약은 architecture.md)
-- [ ] `pi/transport/bt` 구현 + **M5 실물 인쇄 1회**(BT)
-- [ ] 용지 감지(U1) 판정 — "감지 불가"도 유효(그 경우 `manual_flag`)
+- [x] 서버 1-bpp `.pbm` 출력 승인·**구현됨**(`PbmConverter`, `RenderServiceImpl`, `DeviceSyncController.getRenderPbm()`, `V3__render_pbm.sql` — 배포·기기 연동은 [미검증])
+- [x] `pi/transport/bt` 구현 + **M5 실물 인쇄 1회**(BT) — **완료(2026-09-17)**. 단, `M832Printer`+`BtTransport`를 직접 호출한 것이라 앱 "지금 인쇄" + `paperConfirmed=true` → 결과 업로드까지 이어지는 에이전트 실행기 경로는 여전히 미검증([docs/pi/agent.md](../docs/pi/agent.md) 11절)
+- [ ] 용지 감지(U1) 판정 — "감지 불가"도 유효(그 경우 `manual_flag`). **부분 진행**: findpaper 단독 조회 응답이 `1a 06 89`(3바이트)로 5/5 고정 재현됨을 확인했으나(§3.3, `~/Data/detox-printer/m832/docs/findings.md` "H4"), 용지 유무가 이 값에 반영되는지는 아직 확인되지 않아 `status_query`/`manual_flag` 판정에는 도달하지 못했다. `HARU_PAPER_POLICY=unverified` 유지
 - [ ] 배터리 조회 경로(BLE) / 절전 명령 캡처 또는 "손으로 설정" 확정
 - [ ] overlayfs + 전원 차단 10회 후 매 부팅 동일 토큰·페어링으로 폴링·인쇄
 - [ ] 30일 연속 운영, **제품 영역 성공률 95%+**, **C × 제품 0건**
@@ -278,10 +280,10 @@ overlay 후 강제 전원 차단 10회 부팅(매번 폴링·토큰·페어링 �
 
 **바로**
 
-1. **Pi ↔ M832 페어링**(3.1) — 운영 기기에서 `pair` + `trust`.
-2. **`pi/transport/bt` 구현 + `.env` 전환 + M5 실물 인쇄 1회**(3.2). 통과 시 docs/pi 갱신.
-3. **서버 1-bpp `.pbm` 출력 구현**(서버 세션, architecture.md 규약대로).
-4. **H4**: 서버에서 BT 상태 조회 후보 ①~④ + USB `GET_PORT_STATUS`(⑤) 0원 시험 — detox-printer 규칙, 상태 조회만. 결과로 용지 정책 확정.
+1. ~~**Pi ↔ M832 페어링**(3.1) — 운영 기기에서 `pair` + `trust`.~~ — 완료(2026-09-17).
+2. ~~**`pi/transport/bt` 구현 + `.env` 전환 + M5 실물 인쇄 1회**(3.2).~~ — 완료(2026-09-17). 단, 드라이버·전송 계층 직접 호출 경로이고 에이전트 실행기 → 앱 "지금 인쇄" → 서버 업로드 체인은 여전히 미검증(§10 참고).
+3. ~~**서버 1-bpp `.pbm` 출력 구현**(서버 세션, architecture.md 규약대로).~~ — 완료. 배포·기기 연동은 [미검증].
+4. **H4**: 서버에서 BT 상태 조회 후보 ①~④ + USB `GET_PORT_STATUS`(⑤) 0원 시험 — detox-printer 규칙, 상태 조회만. 결과로 용지 정책 확정. **부분 진행**: 후보 ②(findpaper 직후 read)만 응답 `1a 06 89` 5/5 고정 재현까지 확인, 용지 유무 반영 여부는 여전히 미확정(§3.3).
 
 **폰이 있을 때**
 

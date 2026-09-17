@@ -24,18 +24,18 @@
 |---|---|
 | M0 뼈대 · M2 서버 · M3 웹앱 | 완료 |
 | M1 드라이버 · M4 에이전트 | 코드 있음, Pi에서 상시 구동 중. M1의 "실물 1회"는 M5로 이월 |
-| M5 Pi 실물 | **완료(4/4).** Pi ↔ M832 페어링, `pi/transport/bt.py`(콜드 ACL 워크어라운드 포함), 실물 인쇄 1회 육안 확인. `HARU_PRINTER_DRIVER=m832` 상시 |
+| M5 Pi 실물 | **완료(4/4).** Pi ↔ M832 페어링, `pi/transport/bt.py`(콜드 ACL 워크어라운드 포함), 실물 인쇄 1회 육안 확인(드라이버·전송 계층 직접 호출 — 앱 "지금 인쇄"를 통한 에이전트 실행기→서버 업로드 체인은 [미검증]). `HARU_PRINTER_DRIVER=m832` 상시 |
 | M6 계정·기기 | 구현 완료(세션 로그인, 기기별 토큰, 페어링 코드, 관리자). 문서 반영 중 |
 | M7 레이아웃·위젯 | 부분 — 포맷 스키마 v2(행/슬롯) + 드래그 편집기 구현. `haru-widget-runner`는 **미구현** |
 | M8~M10 | 미착수 |
-| 하드웨어 | V1·V2·V3 통과 → `bt` 확정, V4 제외. H4(용지 감지)·H5(줄 누락) 대기. 서버 1-bpp(PBM) 출력 승인·미구현 |
+| 하드웨어 | V1·V2·V3 통과 → `bt` 확정, V4 제외. H4(용지 감지)·H5(줄 누락) 대기. 서버 1-bpp(PBM) 출력 구현됨[확인됨·코드] — 배포·기기 연동은 [미검증] |
 
 ## 구성요소 경계 (어기지 말 것)
 
 - **m832를 아는 코드는 `/pi/printer/m832`뿐이다.** 서버와 앱은 Pi가 보고한 **프린터 프로필**
   (`model`, `dpi`, `paperWidthMm`, `printableWidthPx`)만 안다. 서버·앱에 M832 명령 바이트, WIDTH_BYTES, h-offset 같은 프로토콜 상수를 넣지 않는다
 - **서버는 그레이스케일 PNG를 렌더**하고, 좌우 정렬 보정·헤드 폭 패딩·비트 패킹·헤더/꼬리 조립·전송은 Pi 드라이버 몫이다.
-  디더링(흑백 변환)은 원칙적으로 기기 몫이지만, **2단계 MCU 기기를 위해 서버가 프로필 폭 기준 1-bpp(PBM P4)도 낸다**(2026-09-17 승인, 미구현 — `docs/architecture.md` 3.4). 디더링은 프린터 무관한 범용 처리이고, 프린터 상수는 여전히 서버에 없다
+  디더링(흑백 변환)은 원칙적으로 기기 몫이지만, **2단계 MCU 기기를 위해 서버가 프로필 폭 기준 1-bpp(PBM P4)도 낸다**(2026-09-17 승인, 구현됨[확인됨·코드] — `docs/architecture.md` 3.4). 디더링은 프린터 무관한 범용 처리이고, 프린터 상수는 여전히 서버에 없다
 - **스케줄의 원본은 서버, 실행은 Pi**다. Pi는 예약 규칙과 렌더를 캐시해 두고 인터넷이 끊겨도 스스로 인쇄한다
 - API 규약의 원본은 `docs/architecture.md`다. 서버·Pi·앱 문서는 이를 링크하고, 다르게 정의하지 않는다
 - **(M7 계획, 미구현) 사용자 스크립트(위젯)를 아는 코드는 `/server/runner`(Node, `haru-widget-runner` 컨테이너)뿐이다.** JVM은 사용자 번들을 직접 실행하지 않고 러너의 내부 HTTP만 호출한다. 러너는 호스트 포트를 열지 않는다
@@ -116,7 +116,7 @@
 | `docs/server/api.md` | 컨트롤러별 경로·인증, 오류 형식, 멱등, curl 시나리오 |
 | `docs/server/data-model.md` | 테이블(Flyway V1·V2), 파일 저장 |
 | `docs/server/format-schema.md` | **포맷 JSON 스키마 v2(행/슬롯) 원본** |
-| `docs/server/rendering.md` / `weather.md` / `deploy.md` | 렌더러·샌드박스(+PBM 예정) / 날씨 / compose·`tailscale serve`·백업 |
+| `docs/server/rendering.md` / `weather.md` / `deploy.md` | 렌더러·샌드박스(+PBM 구현됨) / 날씨 / compose·`tailscale serve`·백업 |
 | `docs/app/README.md` | 앱 목차·현재 상태 |
 | `docs/app/web.md` / `screens.md` / `editor.md` / `native.md` | 스택·구조·인증 / 화면 11개 / 드래그 편집기(v2) / 네이티브 예약 |
 | `.temp/01`·`02`·`03`·`04` | 진행 중 계획: Orange Pi PoC v1.4 / ESP32 v1.4(USB 호스트 확정) / 플랫폼 M6~M10 / 드래그 편집기. 완료된 항목은 docs로, 끝나면 삭제 |

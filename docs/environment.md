@@ -39,7 +39,7 @@
 
 - 이 서버에도 `~/Data/detox-printer`가 clone돼 있다(`https://github.com/Justant-source/detox-printer`, 공개 저장소). 새 하드웨어 실험은 전부 여기서, 그 저장소 규칙(보낸 바이트 `captures/sent/` 저장, `findings.md` 3줄 기록)대로 한다 — `CLAUDE.md` 절대금지 3.
 - 서버에는 실제 Bluetooth 하드웨어(Realtek 동글)가 있고, M832와 **이미 페어링돼 있다**(`bluetoothctl info <MAC>` → `Bonded: yes`).
-- Pi(`haru-pi`)에는 아직 M832가 페어링돼 있지 않다 — 운영 기기 쪽 페어링은 [`pi/transport.md`](pi/transport.md) 3절의 남은 작업이다.
+- Pi(`haru-pi`)에도 M832가 페어링돼 있다(`Paired: yes`/`Bonded: yes`, 2026-09-17 완료) — [`pi/transport.md`](pi/transport.md) 3절.
 
 ## 5. 비밀값 다루는 법
 

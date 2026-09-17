@@ -16,7 +16,7 @@ M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유�
 4. [`deploy.md`](deploy.md): compose, 노출(`tailscale serve`), 백업
 5. [`auth.md`](auth.md): **M6** 세션 인증·CSRF·기기 토큰·페어링 코드·관리자 API
 6. [`format-schema.md`](format-schema.md): 포맷 스키마 **v2**(행/슬롯) 원본
-7. [`data-model.md`](data-model.md): MariaDB 테이블(V1·V2), Flyway, 파일 저장
+7. [`data-model.md`](data-model.md): MariaDB 테이블(V1~V3 적용됨, V4 파일 작성·미적용), Flyway, 파일 저장
 8. [`api.md`](api.md): 컨트롤러 13개, 인증, 에러 형식, 멱등, snapshotHash, curl 시나리오
 9. [`rendering.md`](rendering.md): 포맷 → HTML → Chromium → PNG, 렌더 스케줄러
 10. [`weather.md`](weather.md): Open-Meteo, 날씨 블록
@@ -27,10 +27,10 @@ M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유�
 |---|---|
 | 계정·세션·기기 소유권([`auth.md`](auth.md)) | M832 프로토콜(헤더, 래스터, 정렬보정) |
 | 포맷·에셋·예약·명령·결과 저장(사용자별) | Pi의 transport(BT 확정, USB는 M1) |
-| 프린터 프로필 폭으로 **그레이스케일 PNG**(+1-bpp PBM, 미구현) 렌더 | 용지 감지 방식의 세부 |
+| 프린터 프로필 폭으로 **그레이스케일 PNG**(+1-bpp PBM, 구현됨) 렌더 | 용지 감지 방식의 세부 |
 | 날씨 조회, 앱 API, Pi 동기화 API(폴링) | 사용자 위젯 스크립트(M7, 미구현 — `/server/runner`가 맡을 예정) |
 
-좌우 정렬 보정, 1304dot 패딩, M832 헤더·꼬리 조립, 전송은 **Pi 드라이버 몫**이다. 서버는 `printerProfile.printableWidthPx` 폭의 그레이스케일 PNG(+ 승인된 1-bpp PBM, 미구현)까지만 만든다.
+좌우 정렬 보정, 1304dot 패딩, M832 헤더·꼬리 조립, 전송은 **Pi 드라이버 몫**이다. 서버는 `printerProfile.printableWidthPx` 폭의 그레이스케일 PNG(+ 승인·구현된 1-bpp PBM, 배포·기기 연동은 [미검증])까지만 만든다.
 
 ## M2·M6 통과 기록
 
