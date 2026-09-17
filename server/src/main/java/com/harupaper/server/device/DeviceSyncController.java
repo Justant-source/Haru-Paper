@@ -29,7 +29,8 @@ import java.util.List;
 
 /**
  * Device Sync API for Pi (Bearer 토큰 인증).
- * POST /api/device/poll, GET /api/device/snapshot, GET /api/device/renders/{renderId}.png, POST /api/device/results
+ * POST /api/device/poll, GET /api/device/snapshot, GET /api/device/renders/{renderId}.png,
+ * GET /api/device/renders/{renderId}.pbm, POST /api/device/results
  * (docs/server/api.md 6절)
  */
 @RestController
@@ -110,6 +111,41 @@ public class DeviceSyncController {
         } catch (Exception e) {
             log.error("Failed to read render file: {}", renderId, e);
             throw new NotFoundException("Failed to read render file");
+        }
+    }
+
+    /**
+     * GET /api/device/renders/{renderId}.pbm
+     * 같은 렌더의 1-bpp(PBM P4) 다운로드. 2단계 MCU 기기용, 2026-09-17 승인
+     * (docs/architecture.md 3.4). PBM이 없는 렌더(V3 마이그레이션 이전 또는 생성 실패)면 404.
+     */
+    @GetMapping("/renders/{renderId}.pbm")
+    public ResponseEntity<Resource> getRenderPbm(@PathVariable String renderId) {
+        Render render = renderRepository.findById(renderId)
+                .orElseThrow(() -> new NotFoundException("Render not found: " + renderId));
+
+        if (render.getPbmPath() == null) {
+            throw new NotFoundException("PBM not available for render: " + renderId);
+        }
+
+        // 파일 경로: {filesDir}/renders/{renderId}.pbm
+        Path filePath = Paths.get(filesDir, render.getPbmPath());
+        File file = filePath.toFile();
+
+        if (!file.exists()) {
+            throw new NotFoundException("Render PBM file not found: " + renderId);
+        }
+
+        try {
+            Resource resource = new FileSystemResource(file);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("image/x-portable-bitmap"))
+                    .header(HttpHeaders.ETAG, "\"" + render.getPbmSha256() + "\"")
+                    .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                    .body(resource);
+        } catch (Exception e) {
+            log.error("Failed to read render PBM file: {}", renderId, e);
+            throw new NotFoundException("Failed to read render PBM file");
         }
     }
 

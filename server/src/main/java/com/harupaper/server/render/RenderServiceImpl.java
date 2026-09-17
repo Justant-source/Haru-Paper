@@ -39,6 +39,7 @@ public class RenderServiceImpl implements RenderService {
     private final HtmlTemplateBuilder htmlTemplateBuilder;
     private final PlaywrightRenderer playwrightRenderer;
     private final GrayscaleConverter grayscaleConverter;
+    private final PbmConverter pbmConverter;
 
     @Value("${haru.files-dir:/data/haru-files}")
     private String filesDir;
@@ -107,7 +108,7 @@ public class RenderServiceImpl implements RenderService {
                     try {
                         byte[] pngBytes = Files.readAllBytes(Paths.get(filesDir).resolve(render.getPath()));
                         return new RenderResult(render.getId(), pngBytes, render.getSha256(),
-                                render.getWidthPx(), render.getHeightPx());
+                                render.getWidthPx(), render.getHeightPx(), render.getPbmSha256());
                     } catch (IOException e) {
                         log.warn("Failed to read cached render file, will re-render", e);
                     }
@@ -177,6 +178,20 @@ public class RenderServiceImpl implements RenderService {
         int widthPx = dimensions[0];
         int heightPx = dimensions[1];
 
+        // 1-bpp PBM 생성 (docs/architecture.md 3.4, 2026-09-17 승인) — PNG가 원본이고 PBM은 추가 산출물이다.
+        // 실패해도 PNG 렌더 자체는 살린다: 2단계 기기가 아직 없으므로 PBM 실패로 전체 렌더를 막지 않는다 [기본값].
+        String pbmSha256 = null;
+        String pbmRelativePath = null;
+        try {
+            byte[] pbmBytes = pbmConverter.convertToPbm(grayscalePng);
+            Path pbmFilePath = renderPath.resolve(renderId + ".pbm");
+            Files.write(pbmFilePath, pbmBytes);
+            pbmSha256 = calculateSha256(pbmBytes);
+            pbmRelativePath = "renders/" + renderId + ".pbm";
+        } catch (Exception e) {
+            log.warn("PBM generation failed for render {}, continuing without it", renderId, e);
+        }
+
         // Render 엔티티 저장
         Instant now = Instant.now();
         Render render = Render.builder()
@@ -188,6 +203,8 @@ public class RenderServiceImpl implements RenderService {
                 .heightPx(heightPx)
                 .sha256(sha256)
                 .path("renders/" + renderId + ".png")
+                .pbmSha256(pbmSha256)
+                .pbmPath(pbmRelativePath)
                 .kind(kind)
                 .formatUpdatedAt(format.getUpdatedAt())
                 .weatherFetchedAt(now)  // 날씨 조회 시각 (현재 구현에서는 현재 시각)
@@ -196,10 +213,10 @@ public class RenderServiceImpl implements RenderService {
 
         renderRepository.save(render);
 
-        log.info("Render saved: id={}, format={}, kind={}, size={}x{}",
-                renderId, format.getId(), kind, widthPx, heightPx);
+        log.info("Render saved: id={}, format={}, kind={}, size={}x{}, pbm={}",
+                renderId, format.getId(), kind, widthPx, heightPx, pbmSha256 != null);
 
-        return new RenderResult(renderId, grayscalePng, sha256, widthPx, heightPx);
+        return new RenderResult(renderId, grayscalePng, sha256, widthPx, heightPx, pbmSha256);
     }
 
     /**

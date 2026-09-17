@@ -52,6 +52,17 @@ public class Render {
     @Column(nullable = false, length = 255)
     private String path;
 
+    /**
+     * 1-bpp PBM(P4) 파일의 sha256 (docs/architecture.md 3.4, 2026-09-17 승인).
+     * V3 마이그레이션 이전에 만들어진 렌더는 null(PBM 없음) — snapshot의 urlPbm/sha256Pbm도 null이 된다.
+     */
+    @Column(name = "pbm_sha256", length = 64)
+    private String pbmSha256;
+
+    /** haru-files 볼륨 기준 상대 경로: renders/{id}.pbm. null이면 PBM이 아직 없다. */
+    @Column(name = "pbm_path", length = 255)
+    private String pbmPath;
+
     @Column(nullable = false, length = 20)
     private String kind;
 

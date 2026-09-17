@@ -111,7 +111,9 @@ public class DeviceDto {
             String sha256,
             Integer widthPx,
             String renderedAt,       // ISO-8601
-            String url               // "/api/device/renders/{renderId}.png"
+            String url,              // "/api/device/renders/{renderId}.png"
+            String urlPbm,           // "/api/device/renders/{renderId}.pbm" — null이면 PBM 없음(architecture.md 3.4)
+            String sha256Pbm         // null이면 PBM 없음. 스냅샷 해시 계산에는 포함하지 않는다(SnapshotHashCalculator 참고)
     ) {}
 
     /**

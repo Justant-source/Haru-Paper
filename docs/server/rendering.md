@@ -7,7 +7,7 @@
 
 - 서버가 만드는 것: **`printableWidthPx` 폭의 그레이스케일 PNG**. 높이는 내용 길이(110mm 연속 롤).
 - 서버가 하지 않는 것: 좌우 정렬 보정(h-offset), 1304dot 패딩, M832 헤더·꼬리. **Pi(기기) 드라이버 몫**이다.
-- **추가 예정(2026-09-17 승인, 미구현)**: 2단계 MCU 기기용으로 같은 렌더의 **1-bpp PBM P4**(서버 Floyd–Steinberg, 1=검정, MSB-first, 행 바이트 패딩)도 낸다 — 규약은 [`../architecture.md`](../architecture.md) 3.4. 디더링만 서버로 오고, 프린터 상수는 여전히 서버에 없다.
+- **추가됨(2026-09-17 승인, 확인됨·코드)**: 2단계 MCU 기기용으로 같은 렌더의 **1-bpp PBM P4**(서버 Floyd–Steinberg, 1=검정, MSB-first, 행 바이트 패딩)도 낸다 — 규약은 [`../architecture.md`](../architecture.md) 3.4, 구현은 아래 "(6.5) PBM 변환". 디더링만 서버로 오고, 프린터 상수는 여전히 서버에 없다.
 - 서버는 프린터 모델을 모른다. Pi가 poll로 보고한 **프린터 프로필**만 쓴다.
 
 ```json
@@ -27,6 +27,7 @@
   → (4) Chromium 스크린샷(JS 끔, 네트워크 차단)
   → (5) Java에서 8비트 그레이스케일 변환 + 폭 검증
   → (6) renders/{renderId}.png 저장 + sha256 + renders 행
+  → (6.5) 1-bpp PBM(P4) 변환·저장 [확인됨·코드, 2026-09-17 승인] — 아래 참고
 ```
 
 ### (1) 변수 치환
@@ -77,6 +78,13 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 ### (6) 저장
 
 - `haru-files/renders/{renderId}.png`, 파일 sha256, `renders` 행([`data-model.md`](data-model.md)). 파일 쓰기 후 행 커밋.
+
+### (6.5) PBM(1-bpp) 변환 [확인됨·코드, 2026-09-17 승인]
+
+- `PbmConverter`(`server/render`)가 (6)에서 저장한 그레이스케일 PNG를 다시 디코드해 Floyd–Steinberg 오차확산으로 흑백 양자화하고, PBM P4(`"P4\n{width} {height}\n"` 헤더 + raw 비트맵, 1=검정 MSB-first, 행마다 `ceil(width/8)` 바이트)로 패킹한다.
+- `haru-files/renders/{renderId}.pbm`에 저장하고 sha256을 `renders.pbm_sha256`·`renders.pbm_path`에 함께 커밋한다(`V3__render_pbm.sql`). **PBM 생성이 실패해도 PNG 렌더 자체는 실패시키지 않는다** [기본값] — 실패하면 두 컬럼이 `null`로 남고, 스냅샷의 `urlPbm`·`sha256Pbm`도 그 렌더에 한해 `null`이 된다.
+- `RenderCleanupScheduler`가 렌더를 정리할 때 `.pbm` 파일도 같이 지운다.
+- **편집본 미리보기**(`POST /api/formats/preview`, `renderEphemeral`)는 PNG 바이트만 즉시 반환하고 파일·행을 남기지 않으므로 PBM도 만들지 않는다. 저장된 포맷 미리보기(`kind=preview`, `GET /api/formats/{id}/preview.png`)는 다른 kind와 같은 저장 경로(`doRender`/`savRender`)를 타므로 PBM도 같이 만들어진다 — 용도상 불필요하지만 해는 없다.
 
 ## 3. 폰트 [기본값]
 

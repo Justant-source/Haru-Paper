@@ -1,6 +1,6 @@
 # 데이터 모델 (MariaDB)
 
-> M2 `V1__init.sql`(PoC 단일 사용자) + M6 `V2__users_and_ownership.sql`(계정·소유권, [`auth.md`](auth.md)) 두 마이그레이션의 현재 상태다.
+> M2 `V1__init.sql`(PoC 단일 사용자) + M6 `V2__users_and_ownership.sql`(계정·소유권, [`auth.md`](auth.md)) + `V3__render_pbm.sql`(1-bpp PBM 컬럼, [`../architecture.md`](../architecture.md) 3.4) 세 마이그레이션의 현재 상태다.
 > 도메인 정의는 [`../init_plan.md`](../init_plan.md) 6절, 포맷 문서 구조는 [`format-schema.md`](format-schema.md)가 원본이다.
 > 컬럼 타입·인덱스·제약은 **[기본값]**. 구현하면서 바꾸면 이 문서를 같이 고친다. **이미 적용된 마이그레이션 파일은 수정하지 않는다 — 바꿀 게 있으면 `V3__...`로 추가한다.**
 
@@ -91,7 +91,9 @@
 | `width_px` | INT NOT NULL | = 프로필 `printableWidthPx` |
 | `height_px` | INT NOT NULL | 내용 길이 |
 | `sha256` | CHAR(64) NOT NULL | PNG 파일 해시 |
+| `pbm_sha256` | CHAR(64) NULL | 1-bpp PBM(P4) 파일 해시. `V3` 마이그레이션 이전 렌더거나 PBM 생성이 실패했으면 `NULL`(architecture.md 3.4, 2026-09-17 승인) |
 | `path` | VARCHAR(255) NOT NULL | `renders/{id}.png` |
+| `pbm_path` | VARCHAR(255) NULL | `renders/{id}.pbm`. `NULL`이면 PBM 없음 |
 | `kind` | ENUM('scheduled','preview','command') NOT NULL | [기본값]. `preview`는 저장된 포맷의 `GET …/preview.png`만. 편집본 `POST /api/formats/preview`는 행을 만들지 않는다 |
 | `format_updated_at` | DATETIME(3) NOT NULL | 렌더에 쓴 포맷의 `updated_at`(포맷이 바뀌면 stale) |
 | `weather_fetched_at` | DATETIME(3) NULL | 동적 포맷일 때 날씨 데이터 시각 |

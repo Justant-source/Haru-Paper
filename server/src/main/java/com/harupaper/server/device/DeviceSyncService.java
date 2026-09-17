@@ -350,6 +350,8 @@ public class DeviceSyncService {
      * Render를 RenderDto로 변환
      */
     private DeviceDto.RenderDto toRenderDto(Render r) {
+        // PBM은 V3 마이그레이션 이후에 만들어진 렌더에만 있다(architecture.md 3.4). 없으면 둘 다 null.
+        boolean hasPbm = r.getPbmPath() != null;
         return new DeviceDto.RenderDto(
                 r.getId(),
                 r.getFormatId(),
@@ -357,7 +359,9 @@ public class DeviceSyncService {
                 r.getSha256(),
                 r.getWidthPx(),
                 TimeUtils.toIso8601(r.getRenderedAt()),
-                "/api/device/renders/" + r.getId() + ".png"
+                "/api/device/renders/" + r.getId() + ".png",
+                hasPbm ? "/api/device/renders/" + r.getId() + ".pbm" : null,
+                hasPbm ? r.getPbmSha256() : null
         );
     }
 

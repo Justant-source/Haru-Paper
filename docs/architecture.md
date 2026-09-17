@@ -132,7 +132,7 @@
 ```
 
 - PNG 파일 1개(그레이스케일, 폭 = 프로필 `printableWidthPx`, 높이는 내용에 따라 가변 — 110mm **연속 롤**)
-- **1-bpp 출력(2단계 기기용, 2026-09-17 승인) [미구현]**: 같은 렌더를 **PBM P4**로도 제공한다. 폭·높이는 PNG와 동일, **1 = 검정, MSB-first**, 각 행은 바이트 경계로 패딩(`ceil(widthPx / 8)` 바이트/행), 흑백 변환은 서버 Floyd–Steinberg [기본값]. **좌우 정렬 보정(h-offset)·헤드 폭 패딩(1304dot)·M832 헤더·꼬리는 여전히 기기 몫**(1.1 경계 규칙). 스냅샷 `renders[]`에 `urlPbm`·`sha256Pbm`을 추가하되 **스냅샷 해시 계산에는 넣지 않는다** [기본값]. Pi는 당분간 PNG 경로를 그대로 쓰고, 같은 PBM으로 바꾸는 것은 선택 [기본값]
+- **1-bpp 출력(2단계 기기용, 2026-09-17 승인) [확인됨·코드]**: 같은 렌더를 **PBM P4**로도 제공한다. 폭·높이는 PNG와 동일, **1 = 검정, MSB-first**, 각 행은 바이트 경계로 패딩(`ceil(widthPx / 8)` 바이트/행), 흑백 변환은 서버 Floyd–Steinberg [기본값]. **좌우 정렬 보정(h-offset)·헤드 폭 패딩(1304dot)·M832 헤더·꼬리는 여전히 기기 몫**(1.1 경계 규칙). 스냅샷 `renders[]`에 `urlPbm`·`sha256Pbm`을 추가하되 **스냅샷 해시 계산에는 넣지 않는다** [기본값]. Pi는 당분간 PNG 경로를 그대로 쓰고, 같은 PBM으로 바꾸는 것은 선택 [기본값]. 구현: `PbmConverter`(`server/render`), 마이그레이션 `V3__render_pbm.sql`. 컴파일·기존 렌더 단위테스트 통과 확인, 실제 배포·기기 연동은 아직 [미검증]
 - `profileKey` = `{model}-{dpi}-{paperWidthMm}-{printableWidthPx}` [기본값] — 프로필이 바뀌면 다시 렌더
 - 서버는 **앞으로 36시간 안의 occurrence마다** `(formatId, targetDate)` 렌더를 준비한다
 - 날씨처럼 바뀌는 블록이 있는 포맷은 occurrence **약 60분 전에 다시 렌더**한다
@@ -309,7 +309,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | POST | `/api/device/poll` | 30초마다. 요청: `{agentVersion, printerProfile, printerStatus, paperPolicy, snapshotHash}` / 응답: `{serverTime, snapshotHash, snapshotChanged, commands[], paperState, pollIntervalSec}` |
 | GET | `/api/device/snapshot` | `snapshotChanged`일 때만. 응답: `{snapshotHash, schedules[], renders[{renderId, formatId, targetDate, sha256, url}]}` |
 | GET | `/api/device/renders/{renderId}.png` | PNG 다운로드(sha256 검증) |
-| GET | `/api/device/renders/{renderId}.pbm` | 같은 렌더의 1-bpp(PBM P4) 다운로드(`sha256Pbm` 검증). 2단계 기기용 — 3.4 [미구현] |
+| GET | `/api/device/renders/{renderId}.pbm` | 같은 렌더의 1-bpp(PBM P4) 다운로드(`sha256Pbm` 검증). 2단계 기기용 — 3.4 [확인됨·코드] |
 | POST | `/api/device/results` | 결과 묶음 업로드. `resultId`로 멱등. 명령 처리 완료도 여기서 보고 |
 
 #### 요청·응답 필드
@@ -366,13 +366,13 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 ```
 
 - `schedules`: 꺼진 예약 포함 전체(`enabled`로 구분)
-- `urlPbm`·`sha256Pbm`: 1-bpp 출력(3.4) [기본값, 미구현]. 스냅샷 해시에는 포함하지 않는다
+- `urlPbm`·`sha256Pbm`: 1-bpp 출력(3.4) [기본값, 확인됨·코드]. 스냅샷 해시에는 포함하지 않는다. V3 마이그레이션 이전 렌더는 둘 다 `null`
 - `renders`: 예약이 참조하는 포맷마다 36시간 안 `targetDate` 렌더 + 포맷별 최신 렌더
 - `snapshotHash`는 `schedules`와 `renders` 목록 내용의 해시
 
 **`GET /api/device/renders/{renderId}.png`** — `200 image/png`. Pi는 snapshot의 `sha256`과 대조해 다르면 버리고 재시도
 
-**`GET /api/device/renders/{renderId}.pbm`** — `200 image/x-portable-bitmap`(PBM P4, 3.4). 기기는 `sha256Pbm`으로 검증 [기본값, 미구현]
+**`GET /api/device/renders/{renderId}.pbm`** — `200 image/x-portable-bitmap`(PBM P4, 3.4). 기기는 `sha256Pbm`으로 검증 [기본값, 확인됨·코드]. PBM이 없는 렌더(V3 이전)면 404
 
 **`POST /api/device/results`**
 

@@ -155,6 +155,15 @@ public class RenderCleanupScheduler {
                 log.warn("Render file not found (orphaned): {}", render.getPath());
             }
 
+            // PBM 파일도 있으면 같이 삭제 (docs/architecture.md 3.4)
+            if (render.getPbmPath() != null) {
+                Path pbmFilePath = Paths.get(FILES_DIR).resolve(render.getPbmPath());
+                if (Files.exists(pbmFilePath)) {
+                    Files.delete(pbmFilePath);
+                    log.debug("Deleted render PBM file: {}", render.getPbmPath());
+                }
+            }
+
             // DB 행 삭제
             renderRepository.deleteById(render.getId());
             log.debug("Deleted render record: {}", render.getId());
