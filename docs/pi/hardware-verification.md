@@ -92,7 +92,7 @@
 
 **결과 [확인됨·실물, 2026-09-17]: V1·V2·V3 모두 통과 → `HARU_TRANSPORT=bt` 확정.** V4는 진행하지 않는다.
 
-코드는 `usb`·`bt` 둘 다 같은 인터페이스로 둔다([transport.md](transport.md)). `usb`는 M1에서 작성됐고(`pi/transport/usb.py`), **`bt`도 작성 완료됐다**(`pi/transport/bt.py`, 2026-09-17) — Pi ↔ M832 페어링 완료, `.env`를 `HARU_TRANSPORT=bt`로 전환해 재시작·폴링까지 확인했다(단, `HARU_PRINTER_DRIVER`는 아직 `fake` — 용지 확인 전 실물 인쇄는 하지 않는다). 페어링 직후 콜드 상태에서 raw RFCOMM connect가 타임아웃되고 `bluetoothctl connect`로 ACL을 깨운 뒤에야 성공하는 패턴을 관찰했다(상세는 [transport.md](transport.md) "주의" — 해결 여부 사용자 결정 대기). 2단계 ESP32 기기는 유선 인라인 형태라 데이터 경로가 USB 호스트 [기본값, 사용자 확인 필요]로 갈 수 있다(`.temp/02-esp32-디바이스-계획서-v1.3.md`) — 바이트는 두 경로 모두 [확인됨·실물]이라 드라이버 상수는 그대로다.
+코드는 `usb`·`bt` 둘 다 같은 인터페이스로 둔다([transport.md](transport.md)). `usb`는 M1에서 작성됐고(`pi/transport/usb.py`), **`bt`도 작성 완료됐다**(`pi/transport/bt.py`, 2026-09-17) — Pi ↔ M832 페어링 완료, `.env`를 `HARU_TRANSPORT=bt`로 전환해 재시작·폴링까지 확인했다(단, `HARU_PRINTER_DRIVER`는 아직 `fake` — 용지 확인 전 실물 인쇄는 하지 않는다). 페어링 직후 콜드 상태에서 raw RFCOMM connect가 타임아웃되고 `bluetoothctl connect`로 ACL을 깨운 뒤에야 성공하는 패턴을 관찰했다(상세는 [transport.md](transport.md) "주의" — 해결 여부 사용자 결정 대기). 2단계 ESP32 기기는 유선 인라인 형태라 데이터 경로가 USB 호스트 [기본값, 사용자 확인 필요]로 갈 수 있다(`.temp/02-esp32-디바이스-계획서-v1.4.md`) — 바이트는 두 경로 모두 [확인됨·실물]이라 드라이버 상수는 그대로다.
 
 ### 용지 정책 (`HARU_PAPER_POLICY`)
 

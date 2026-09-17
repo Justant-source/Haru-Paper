@@ -246,6 +246,6 @@ WantedBy=multi-user.target
 - [x] **연결 방식 결정 = `bt`** ([hardware-verification.md](hardware-verification.md)) — **[확인됨·실물, 2026-09-17]** V1(충전기만 8시간 생존)·V2(SPP/RFCOMM 채널 1로 체커보드 2장 정상 인쇄, 사용자 육안)·V3(Pi 내장 BT 재부팅 20/20) 모두 통과. V4(USB 직결)는 사용자 결정(2026-09-16)으로 대상 제외
 - [ ] 결정된 transport로 **실물 인쇄 1회** — 미착수. 순서: Pi에서 M832 페어링·`trust` → `pi/transport/bt.py` 작성([transport.md](transport.md) 3절 확정값) → `.env`를 `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS`, `HARU_PRINTER_DRIVER=m832`로 전환·재시작 → 앱 "지금 인쇄"(용지 확인 체크) 1회. 현재는 `HARU_PRINTER_DRIVER=fake`
 
-**현재 상태 요약**: 4개 중 3개 완료. 남은 1개는 서버 세션이 SSH로 이어서 진행한다(프린터는 서버 옆에서 BT로 검증됐고 Pi에는 아직 페어링 전). 프린터는 1호기 1대뿐이라 30일 운영과 2단계(ESP32) 실물 시험은 같은 프린터를 순서대로 쓴다(`.temp/02-esp32-디바이스-계획서-v1.3.md`).
+**현재 상태 요약**: 4개 중 3개 완료. 남은 1개는 서버 세션이 SSH로 이어서 진행한다(프린터는 서버 옆에서 BT로 검증됐고 Pi에는 아직 페어링 전). 프린터는 1호기 1대뿐이라 30일 운영과 2단계(ESP32) 실물 시험은 같은 프린터를 순서대로 쓴다(`.temp/02-esp32-디바이스-계획서-v1.4.md`).
 
 M5 이후 PoC 완료 시험(WAN 차단 상태 07:00 인쇄 + 복구 후 이력, 3일 연속)으로 간다.

@@ -99,7 +99,7 @@ PoC 완료 시험(WAN 차단 상태 07:00 인쇄 + 복구 후 이력, 3일 연�
 | 하드웨어 실험(BT·용지 감지·배터리 등) | [`pi/hardware-verification.md`](pi/hardware-verification.md) → `~/Data/detox-printer`(그 저장소의 `CLAUDE.md`·`m832/docs/findings.md`) |
 | Pi에 SSH로 접속, 서버 sudo/sudoers 다루기 | [`environment.md`](environment.md) |
 | 플랫폼(M6~M10) 사양 확인 | `../.temp/03-플랫폼-작업지시서-v1.0.md` |
-| ESP32 2단계 계획 확인 | `../.temp/02-esp32-디바이스-계획서-v1.3.md` |
+| ESP32 2단계 계획 확인 | `../.temp/02-esp32-디바이스-계획서-v1.4.md` |
 | 오렌지파이 PoC 계획 확인 | `../.temp/01-orangepi-poc-작업지시서-v1.4.md` |
 
 새 문서를 만들 때는 이 색인 표와 [`../CLAUDE.md`](../CLAUDE.md)의 "docs 안내" 표를 같이 갱신한다.

@@ -15,7 +15,7 @@
 | 1.3 | 실물 3대 환경 반영. 연결 방식 USB → BT(SPP/RFCOMM 채널 1). 4장 "멍청한 파이프"를 실제 아키텍처로 교체. U5 삭제. 용지 감지를 BT 재조사로. 노트북 WSL 배제 |
 | **1.4** | **V2 최종 통과(BT 체커보드 2장 육안 확인) → transport `bt` 확정. 서버 1-bpp(`.pbm`) 출력 승인. 프린터 1대 제약(추가 구매 없음) 명시. 과거 판 비교 서술 삭제, 현재 상태 문서로 정리** |
 
-실험 기록의 원본은 `~/Data/detox-printer/m832/docs/findings.md`, 하드웨어 상태 요약은 [`docs/pi/hardware-verification.md`](../docs/pi/hardware-verification.md), API 규약 원본은 [`docs/architecture.md`](../docs/architecture.md)다. 이 문서는 그것들을 근거로 하는 **계획 문서**이며, 사실의 원본이 아니다. 2단계(ESP32) 계획은 `.temp/02-esp32-디바이스-계획서-v1.3.md`.
+실험 기록의 원본은 `~/Data/detox-printer/m832/docs/findings.md`, 하드웨어 상태 요약은 [`docs/pi/hardware-verification.md`](../docs/pi/hardware-verification.md), API 규약 원본은 [`docs/architecture.md`](../docs/architecture.md)다. 이 문서는 그것들을 근거로 하는 **계획 문서**이며, 사실의 원본이 아니다. 2단계(ESP32) 계획은 `.temp/02-esp32-디바이스-계획서-v1.4.md`.
 
 ---
 
@@ -261,7 +261,7 @@ overlay 후 강제 전원 차단 10회 부팅(매번 폴링·토큰·페어링 �
 - [x] Pi 실물 개발환경·자동시작·서버 폴링 [확인됨·실물]
 - [x] V1(충전기만 8시간)·V3(BT 재부팅 20/20) [확인됨·실물]
 - [x] **V2 최종 통과** — BT 전송 + 체커보드 2장 육안 확인 [확인됨·실물, 2026-09-17]
-- [x] 2단계(ESP32) 계획 갱신 — `.temp/02-esp32-디바이스-계획서-v1.3.md`
+- [x] 2단계(ESP32) 계획 갱신 — `.temp/02-esp32-디바이스-계획서-v1.4.md`
 - [x] 서버 1-bpp `.pbm` 출력 승인(규약은 architecture.md)
 - [ ] `pi/transport/bt` 구현 + **M5 실물 인쇄 1회**(BT)
 - [ ] 용지 감지(U1) 판정 — "감지 불가"도 유효(그 경우 `manual_flag`)
@@ -293,7 +293,7 @@ overlay 후 강제 전원 차단 10회 부팅(매번 폴링·토큰·페어링 �
 
 **병행**
 
-7. ESP32 준비는 `.temp/02-esp32-디바이스-계획서-v1.3.md` 게이트대로 — 부품은 데이터 경로가 확인된 뒤에만. **프린터가 1대뿐이므로 ESP의 프린터 의존 단계는 30일 종료 후** [기본값].
+7. ESP32 준비는 `.temp/02-esp32-디바이스-계획서-v1.4.md` 게이트대로 — 부품은 데이터 경로가 확인된 뒤에만. **프린터가 1대뿐이므로 ESP의 프린터 의존 단계는 30일 종료 후** [기본값].
 8. 110mm 감열지 국내 조달처 조사.
 
 > 하드웨어 실험은 전부 `~/Data/detox-printer`에서 그 저장소 규칙(보낸 바이트 저장, findings 3줄 기록)대로 하고, [확인됨]이 된 것만 `/pi`로 옮긴다. 실물로 눈으로 본 것만 [확인됨]이다.
