@@ -24,7 +24,7 @@
 | `HistoryController` | `GET /api/history` | 없음 |
 | `DeviceController`(앱용) | `GET /api/device`, `PUT /api/device/paper-state` | 없음 |
 | `SettingsController` | `GET/PUT /api/settings` | 없음 |
-| `DeviceSyncController`(Pi용) | `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/{renderId}.png`, `POST /api/device/results` | **Bearer** |
+| `DeviceSyncController`(Pi용) | `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/{renderId}.png`, `POST /api/device/results` — **추가 예정** `GET /api/device/renders/{renderId}.pbm`(1-bpp PBM P4, 2단계 기기용, `architecture.md` 3.4, 2026-09-17 승인·미구현) | **Bearer** |
 
 ## 3. 인증
 
