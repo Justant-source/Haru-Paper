@@ -14,7 +14,7 @@
 폰 웹앱(PWA, s21) ─HTTPS(tailscale serve)─ 서버(justant-server2, Docker) ─30초 폴링─ Pi(Orange Pi Zero 2W) ─BT(SPP/RFCOMM)─ M832
                               (전 구간 Tailscale 내부망)
 ```
-> 폴링이 기본 채널이다. 서버 → Pi SSE 깨우기 채널(선택, 4.3절)은 폴링 간격을 줄이는 보조 장치일 뿐 폴링을 대체하지 않는다 — `[미검증]`.
+> 폴링이 기본 채널이다. 서버 → Pi SSE 깨우기 채널(선택, 4.3절)은 폴링 간격을 줄이는 보조 장치일 뿐 폴링을 대체하지 않는다 — `[확인됨, 2026-09-18: tailscale serve 경유 스트리밍·Pi 실물 연결 확인]`.
 
 | 구성 | 디렉터리 | 하는 일 | 모르는 것 |
 |---|---|---|---|
@@ -317,7 +317,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | GET | `/api/device/renders/{renderId}.png` | PNG 다운로드(sha256 검증) |
 | GET | `/api/device/renders/{renderId}.pbm` | 같은 렌더의 1-bpp(PBM P4) 다운로드(`sha256Pbm` 검증). 2단계 기기용 — 3.4 [확인됨·코드] |
 | POST | `/api/device/results` | 결과 묶음 업로드. `resultId`로 멱등. 명령 처리 완료도 여기서 보고 |
-| GET | `/api/device/events` | SSE 상시 연결(선택). **깨우기 신호만** 싣는다 — 받으면 즉시 `POST /api/device/poll`을 한 번 더 한다. 명령 데이터·소유권 판정·중복 제거·TTL은 전부 poll 경로에 남는다. `[미검증]` — 코드는 있으나 실제 배포·tailscale serve 경유 스트리밍은 확인 전 |
+| GET | `/api/device/events` | SSE 상시 연결(선택). **깨우기 신호만** 싣는다 — 받으면 즉시 `POST /api/device/poll`을 한 번 더 한다. 명령 데이터·소유권 판정·중복 제거·TTL은 전부 poll 경로에 남는다. `[확인됨, 2026-09-18]` — 배포됨, tailscale serve 경유로 Pi가 실제로 연결 유지·ready·하트비트 수신 확인. 명령 생성→wake→즉시 poll의 전 구간 지연 실측은 아직 [미검증] |
 
 #### 요청·응답 필드
 
@@ -392,7 +392,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 
 응답: `200 {"accepted": ["…"], "duplicates": ["…"]}` — 이미 받은 `resultId`는 `duplicates`로 돌려주고 성공 처리
 
-**`GET /api/device/events`** — SSE 깨우기 채널(선택, `[미검증]`)
+**`GET /api/device/events`** — SSE 깨우기 채널(선택, `[확인됨, 2026-09-18: 배포·tailscale serve 경유 스트리밍 확인]`)
 
 - 인증은 다른 4개 Pi 경로와 동일한 `Authorization: Bearer <기기별 토큰>`. 응답 `Content-Type: text/event-stream`
 - 이벤트 형식: 연결 직후 `event: ready` 1회(Pi가 연결 성립·백오프 초기화 신호로 씀) → 이후 `event: wake` + `data: {"reason":"command"|"paperState"|"snapshot"}` 반복. 그 사이사이 `HARU_SSE_HEARTBEAT_SEC`(기본 15초)마다 SSE 주석(`:`)으로 하트비트

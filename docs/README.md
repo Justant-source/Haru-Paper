@@ -49,7 +49,7 @@
 | [`app/editor.md`](app/editor.md) | 드래그 기반 레이아웃 편집기(schemaVersion 2, dnd-kit) |
 | [`app/native.md`](app/native.md) | `/app/android`, `/app/ios` 예약, 네이티브 기술 후보(미정) |
 
-## 2. 현재 상태 (2026-09-17)
+## 2. 현재 상태 (2026-09-18)
 
 이 표가 바뀌면 [`../CLAUDE.md`](../CLAUDE.md)의 "현재 상태" 표도 같이 고친다.
 
@@ -61,9 +61,9 @@
 | M1 | M832 드라이버 이식 + USB/BT transport | 코드 있음(`pi/printer/m832`, `pi/transport/{usb,bt}.py`). 실물 인쇄는 M5에서 BT로 완료(텍스트·그레이스케일 포함). detox-printer 기준 바이트 단위 비교(통과 조건 1)만 남음 |
 | M2 | 서버(Spring Boot + MariaDB + Flyway) | 완료 |
 | M3 | 웹앱(PWA) | 완료 |
-| M4 | Pi 에이전트(폴링·스케줄러·대기열) | 코드 있음(`pi/agent/`), Pi에서 상시 구동 중이나 **배포본은 뒤처져 있다**: Pi(`haru-pi`)는 `581899e`(9/17 11:47)까지만 반영됐다(원격보다 12커밋 뒤, 2026-09-17 `ssh haru-pi`로 확인). 그 뒤 **Pi 코드를 바꾼 커밋 3개가 전부 미배포**다 — 용지 게이트 fail-closed·fake 무성 폴백 제거·중복 인쇄 수정(`623a8dc`), 유예 내 재시도·"지금 인쇄" 실행기·결과 업로드(`8b7194b`), 시계 동기화 게이트·`last_tick_at` 되돌아보기·보낸 바이트 순환 삭제(`51a6a8d`). 따라서 **Pi는 지금 옛 fail-open 용지 정책 코드로 돌고 있다** — `HARU_PAPER_POLICY=unverified`라 예약은 `dry_run`으로 끝나 래스터가 나가지 않지만, **배포 전에 정책을 `manual_flag`·`status_query`로 바꾸면 용지 확인 없이 인쇄될 수 있다**(절대금지 1). 세 커밋 모두 [미검증]. 단위 테스트(`pi/tests`)는 266개 전부 통과([`pi/agent.md`](pi/agent.md) 참고) |
+| M4 | Pi 에이전트(폴링·스케줄러·대기열) | 코드 있음(`pi/agent/`), Pi에서 상시 구동 중. **2026-09-18에 배포 따라잡음** [확인됨·실물] — Pi(`haru-pi`)가 `581899e`에서 원격 `74a5384`까지 `git pull --ff-only && systemctl restart`로 갱신됐다(`docs/pi/setup.md` 5.4절). 용지 게이트 fail-closed·fake 무성 폴백 제거·중복 인쇄 수정(`623a8dc`), 유예 내 재시도·"지금 인쇄" 실행기·결과 업로드(`8b7194b`), 시계 동기화 게이트·`last_tick_at` 되돌아보기·보낸 바이트 순환 삭제(`51a6a8d`), SSE 깨우기 채널이 모두 반영됐다. `HARU_PAPER_POLICY=unverified`는 그대로 유지(절대금지 1). 재기동 로그로 poll·scheduler tick·SSE 연결(`GET /api/device/events` 200, `ready` 수신) 정상 확인. 단위 테스트(`pi/tests`)는 284개 전부 통과([`pi/agent.md`](pi/agent.md) 참고) |
 | M5 | Pi 실물 설치, 연결 방식 결정 | **완료(4/4).** 재부팅 자동시작·서버 폴링·transport=`bt` 확정에 이어, `pi/transport/bt.py` 구현(콜드 ACL 워크어라운드 포함) + Pi ↔ M832 페어링 + 실물 인쇄 1회(텍스트+그레이데이션+체커보드, 사용자 육안 확인) 전부 [확인됨·실물, 2026-09-17]. `HARU_PRINTER_DRIVER=m832` 상시. **단, 이 인쇄는 `M832Printer`+`BtTransport` 직접 호출로 이뤄졌고, 앱 "지금 인쇄" → 에이전트 실행기 → 서버 결과 업로드로 이어지는 체인은 여전히 [미검증]**([pi/agent.md](pi/agent.md) 11절) |
-| M6 | 계정·기기 소유(세션 로그인, 기기별 토큰, 페어링 코드, 관리자) | 구현 완료. 문서는 `server/auth.md`·`app/web.md`·`app/screens.md`에 반영. **단 통과 조건은 미충족** — `.temp/03` 4.5절의 "관리자가 레거시 데이터를 claim"(V4 백필 적용 → `claim-legacy` 실행)이 아직 실행되지 않았다(`server/deploy.md` 7절 런북은 작성됨, 미실행). `CLAUDE.md` "통과 조건을 만족하기 전에 다음 마일스톤으로 넘어가지 않는다" 규칙상 M6은 아직 통과 전이다 |
+| M6 | 계정·기기 소유(세션 로그인, 기기별 토큰, 페어링 코드, 관리자) | 구현 완료. 문서는 `server/auth.md`·`app/web.md`·`app/screens.md`에 반영. **단 통과 조건은 미충족** — `.temp/03` 4.5절의 "관리자가 레거시 데이터를 claim"(V4 백필 적용 → `claim-legacy` 실행) 중 **V4 백필은 2026-09-18 서버 재배포(Flyway 자동 적용)로 완료**됐다(`null_renders=0` 확인, `server/deploy.md` 7.1절) — 단 계획된 신중한 절차(사전 백업 등)가 아니라 SSE 배포의 부수 효과로 적용됐다는 점을 문서에 남겼다. **`claim-legacy`는 아직 실행되지 않았다**(레거시 포맷 24건 남음, `HARU_OWNERSHIP_STRICT=false` 그대로). `CLAUDE.md` "통과 조건을 만족하기 전에 다음 마일스톤으로 넘어가지 않는다" 규칙상 M6은 아직 통과 전이다 |
 | M7 | 레이아웃·위젯 엔진 | **부분.** 포맷 스키마 v2(행/슬롯)와 드래그 편집기(dnd-kit)는 구현됨. `haru-widget-runner`(Node 샌드박스)는 **미구현** |
 | M8 | 작가·글·구독·피드 | 미착수 |
 | M9 | 위젯 에디터·마켓 | 미착수 |

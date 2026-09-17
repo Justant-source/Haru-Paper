@@ -179,15 +179,16 @@ GET /api/device/snapshot HTTP/1.1" 200
 
 배포(PoC): Pi에서 `cd /opt/haru-paper && git pull --ff-only && sudo systemctl restart haru-paper-agent` (또는 `install.sh` 재실행).
 
-### 5.4 2026-09-17 M5 이후 커밋(`623a8dc`·`8b7194b`·`51a6a8d`) 배포 — 아직 안 함 [미검증]
+### 5.4 2026-09-17 M5 이후 커밋(`623a8dc`·`8b7194b`·`51a6a8d`) + SSE 배포 — 2026-09-18 적용 [확인됨·실물]
 
-M5 실물 인쇄(9절)는 이 세 커밋 **이전** 코드로 이뤄졌다. 이 문서를 쓰는 시점까지 Pi에 `git pull`을 다시 돌린 적이 없어 **Pi가 지금 이 커밋들 이전 코드로 구동 중일 수 있다**(확인 불가 — [미검증]). 위 "배포(PoC)" 한 줄(`git pull --ff-only && systemctl restart`)을 그대로 다시 돌리면 되지만, 이번엔 다음을 미리 알아 두는 편이 좋다:
+M5 실물 인쇄(9절)는 이 커밋들 **이전** 코드로 이뤄졌다. **2026-09-18에 `581899e` → `74a5384`(15커밋)로 배포했다** — 위 "배포(PoC)" 한 줄(`git pull --ff-only && systemctl restart`) 그대로. 아래는 그 배포 전에 미리 알아 둔 사항과, 실제로 관측된 결과다:
 
 - **새 환경변수 `HARU_COMMAND_TTL_SEC`는 필수가 아니다** [확인됨·코드, `pi/agent/config.py`의 `from_env`] — `required_keys` 목록에 없고 `os.environ.get("HARU_COMMAND_TTL_SEC", "600")`로 읽는다. 운영 Pi의 기존 `pi/.env`에 이 키가 없어도 기동이 실패하지 않고 기본값 600초로 동작한다. `pi/.env.example`에는 이미 추가돼 있다(주석 포함) — 넣고 싶으면 운영 `.env`에 같은 줄을 수기로 추가하면 되고, 안 넣어도 무방하다.
 - **SQLite 마이그레이션은 기동 시 자동으로, 조용히 실행된다** [확인됨·코드, `pi/agent/storage.py`의 `Storage.__init__` → `_migrate()`] — `PRAGMA table_info`로 `executed_occurrences`·`commands` 테이블의 실제 컬럼을 보고 없는 것만 `ALTER TABLE ... ADD COLUMN`으로 추가한다(기본값 없이 붙이므로 즉시 완료, 테이블 재작성 없음). **기존 `agent.db`의 데이터는 지워지지 않는다** — 기존 행의 새 컬럼은 NULL로 채워지고, 옛 코드가 이 컬럼을 읽지 않으므로 구현을 되돌려도 DB가 깨지지 않는다. 별도 수동 마이그레이션 절차가 필요 없다.
 - **동작이 눈에 띄게 달라질 수 있는 지점**: `HARU_PAPER_POLICY`가 운영 Pi에서 `status_query`나 `manual_flag`로 이미 바뀌어 있었다면, 이 배포 이후 `status_query`는 (H4 미판정이므로) 인쇄가 완전히 멈추고 `manual_flag`는 `paperState` 키가 없거나 파싱 실패 시 인쇄가 멈춘다(둘 다 이번 fail-closed 수정의 의도된 동작, [policy.md](policy.md) 2절) — 이전에는 반대로 fail-open이었다. 배포 직후 이 정책값과 실제 인쇄 여부를 확인한다.
-- 이 배포 자체와 위 세 항목의 실물 동작은 아직 **[미검증]**이다 — 배포한 뒤 폴링·스케줄러 틱이 예외 없이 도는지 로그로 확인한다([policy.md](policy.md) 4절 "시계 게이트"가 새로 개입하므로, 재부팅 직후 로그에 `NTPSynchronized` 관련 경고가 없는지도 함께 본다).
-- 이번 배포에 SSE 깨우기 채널 설정 `HARU_EVENTS_ENABLED`·`HARU_EVENT_READ_TIMEOUT_SEC`도 새로 추가되지만([agent.md](agent.md) 3절), 둘 다 선택 설정이라 **없어도 기존 `.env`로 그대로 기동된다**.
+- **2026-09-18 배포 결과 [확인됨·실물]**: `git pull --ff-only`(`581899e..74a5384`, fast-forward) → `sudo systemctl restart haru-paper-agent`. 재기동 로그에서 SQLite 컬럼 마이그레이션(`executed_occurrences`·`commands`에 여러 컬럼 추가) 자동 적용, `Using M832 printer (transport=bt)`, 클록 게이트 경고 없이(NTP 이미 동기) 즉시 poll·scheduler tick 정상 진행을 확인했다. 재기동 직전 `pi/.env`의 `HARU_PAPER_POLICY=unverified`를 그대로 유지(바꾸지 않음, 절대금지 1).
+- **SSE 깨우기 채널도 같은 배포에 포함됐다** [확인됨·실물, `HARU_EVENTS_ENABLED`·`HARU_EVENT_READ_TIMEOUT_SEC` 없이도 기동됨]: 로그에 `GET /api/device/events HTTP/1.1" 200`, `Push 이벤트 스트림 연결됨`, `ready — 백오프 초기화`가 재기동 직후 바로 찍혔다 — `tailscale serve` 경유로 Pi가 SSE에 실제로 붙는다는 뜻이다(`architecture.md` 4.3절과 같은 확인).
+- 재기동 중 남아 있던 `attempting` 명령 1건이 기동 정리로 `missed` 처리·업로드됨을 로그로 확인했다(9절 "중복 방지" 설계대로).
 
 ## 6. systemd unit 개요 [확인됨·실물, 2026-09-16]
 

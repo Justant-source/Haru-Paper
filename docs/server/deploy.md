@@ -42,9 +42,9 @@
 - `haru-api`: `depends_on: haru-db (healthy)`, `mem_limit: 1.5g`, `shm_size: 1g`, 외부 인터넷 출구 필요(Open-Meteo), 비루트 실행([`rendering.md`](rendering.md) 6절)
 - `haru-db`: healthcheck, `utf8mb4`, 루트 비밀번호·앱 계정은 `.env`
 - `haru-web` nginx: `client_max_body_size 30m`(가져오기 30MB, 업로드 10MB), SPA 폴백(`try_files $uri /index.html`), `/api/` 프록시에 타임아웃 60초(미리보기 렌더 대기)
-- **SSE 전용 location(`app/web/nginx.conf`, `[미검증]`)**: `GET /api/device/events`(기기 깨우기 채널, [`../architecture.md`](../architecture.md) 4.3절)는 `location /api/`와 별도로 `location = /api/device/events`(정확 매칭, prefix 매칭보다 우선)에 둔다. 별도 블록이 필요한 이유는 `location /api/`의 기본값이 SSE와 맞지 않기 때문이다: 기본 `proxy_buffering on`이면 이벤트가 nginx 버퍼에 갇혀 flush되지 않고, 프록시가 업스트림에 HTTP/1.0을 쓰면 chunked 스트리밍(연결을 계속 열어 두는 응답)이 성립하지 않는다. 그래서 이 블록만 `proxy_http_version 1.1`·`proxy_buffering off`·`proxy_cache off`와 `proxy_read_timeout 90s`(서버 하트비트 15초의 6배 여유)를 쓴다. **적용에는 `haru-web` 이미지 재빌드·재기동이 필요하다** — nginx 설정은 이미지 안에 구워지므로 `docker compose build && docker compose up -d haru-web`(또는 전체 재기동) 없이는 반영되지 않는다.
-- **`tailscale serve`는 이 저장소에서 설정할 수 없는 불투명한 프록시 홉이다.** 거기서 SSE 연결이 실제로 끊기지 않고 통과하는지는 이 저장소 코드로 보장할 수 없고 `[미검증]`이다 — 15초 하트비트(4.3절 "타임아웃 순서 불변식")가 유일한 방어선이다. 하트비트 없이 더 긴 침묵이 이어지면 중간 홉이 연결을 끊어도 알아챌 방법이 없다.
-- **SSE 적용(nginx 재빌드·재기동)은 CLAUDE.md "서버 시스템 변경은 적용 직전 사용자 승인" 규칙 대상이다** — `tailscale serve`·포트 바인딩·compose 서비스 추가와 같은 급이다. 코드·설정 파일(`nginx.conf`, `.env.example`)은 지금 커밋해도, 실제 적용(재빌드·재기동)은 사용자 승인 후 별도 단계로 진행한다.
+- **SSE 전용 location(`app/web/nginx.conf`, `[확인됨, 2026-09-18 적용]`)**: `GET /api/device/events`(기기 깨우기 채널, [`../architecture.md`](../architecture.md) 4.3절)는 `location /api/`와 별도로 `location = /api/device/events`(정확 매칭, prefix 매칭보다 우선)에 둔다. 별도 블록이 필요한 이유는 `location /api/`의 기본값이 SSE와 맞지 않기 때문이다: 기본 `proxy_buffering on`이면 이벤트가 nginx 버퍼에 갇혀 flush되지 않고, 프록시가 업스트림에 HTTP/1.0을 쓰면 chunked 스트리밍(연결을 계속 열어 두는 응답)이 성립하지 않는다. 그래서 이 블록만 `proxy_http_version 1.1`·`proxy_buffering off`·`proxy_cache off`와 `proxy_read_timeout 90s`(서버 하트비트 15초의 6배 여유)를 쓴다. **적용에는 `haru-web` 이미지 재빌드·재기동이 필요하다** — nginx 설정은 이미지 안에 구워지므로 `docker compose build && docker compose up -d haru-web`(또는 전체 재기동) 없이는 반영되지 않는다. **2026-09-18 사용자 승인 후 이 세션이 `docker compose build && docker compose up -d`로 적용** — 컨테이너 안 `/etc/nginx/conf.d/default.conf`에 블록이 반영됐음을 확인했고, `curl -N`으로 `http://127.0.0.1:18080/api/device/events`에서 실제 스트리밍(버퍼링 없이 `event:ready` 즉시 도착)을 확인했다.
+- **`tailscale serve`는 이 저장소에서 설정할 수 없는 불투명한 프록시 홉이다.** 이 저장소 코드로는 SSE 통과를 보장할 수 없지만, **2026-09-18에 실측으로 확인됐다** `[확인됨]` — `https://justant-server2.tail2b65d1.ts.net/api/device/events`에 `curl -N`으로 직접 붙어 `event:ready`가 즉시 도착하고 `:hb` 하트비트가 이어지는 것을 봤다. 15초 하트비트(4.3절 "타임아웃 순서 불변식")가 여전히 유일한 방어선이라는 점은 동일하다 — 하트비트 없이 더 긴 침묵이 이어지면 중간 홉이 연결을 끊어도 알아챌 방법이 없다.
+- **SSE 적용(nginx 재빌드·재기동)은 CLAUDE.md "서버 시스템 변경은 적용 직전 사용자 승인" 규칙 대상이었고, 2026-09-18에 사용자 승인을 받아 적용했다.**
 
 ### 볼륨
 
@@ -160,7 +160,9 @@ docker compose start haru-api
 > `claim-legacy`를 V4보다 먼저 돌리면 **모든 사용자의 렌더가 관리자 소유로 넘어가고, 코드로는 되돌릴 수 없다**(`V4__backfill_render_owner.sql` 주석, [`auth.md`](auth.md) 6절 "운영 주의").
 > 전 구간 `~/Data/Haru-Paper/server`에서 실행한다. 다른 프로젝트 컨테이너는 건드리지 않는다.
 
-**배경**: `renders.owner_user_id`는 `RenderServiceImpl`이 렌더 저장 시 한 번도 채우지 않아 M6 이후 지금까지 항상 NULL이었다(커밋 `b762c6c`에서 수정, 이제 `format.getOwnerUserId()`를 복사한다). `server/src/main/resources/db/migration/V4__backfill_render_owner.sql`이 기존 NULL 행을 `formats.owner_user_id`에서 백필하도록 작성돼 있지만, **아직 적용되지 않았다.** Flyway는 `spring.flyway.enabled: true`(`application.yml:23-24`)로 `haru-api` 기동 시 자동 적용되므로, 재빌드·재기동 전까지는 V4 파일이 저장소에 있을 뿐 DB에는 반영되지 않은 상태다.
+**배경**: `renders.owner_user_id`는 `RenderServiceImpl`이 렌더 저장 시 한 번도 채우지 않아 M6 이후 지금까지 항상 NULL이었다(커밋 `b762c6c`에서 수정, 이제 `format.getOwnerUserId()`를 복사한다). `server/src/main/resources/db/migration/V4__backfill_render_owner.sql`이 기존 NULL 행을 `formats.owner_user_id`에서 백필하도록 작성돼 있다.
+
+> **2026-09-18 실제 적용 경과(아래 절차대로가 아니었다는 점을 그대로 남긴다)**: SSE 기능 배포(`docker compose build && up -d`)를 위해 재기동하면서 Flyway가 대기 중이던 V4를 **자동으로** 적용했다 — 아래 0~6단계의 신중한 절차(특히 1단계 "직전 백업")를 밟지 않고, 일반 배포의 부수 효과로 실행됐다. 가장 최근 백업은 그 시점 기준 약 21시간 전(`db-20260917-0300.sql.gz`)이었다. 되돌리는 마이그레이션이 없다는 경고와 어긋난 순서였지만, `V4__backfill_render_owner.sql`의 실제 내용이 `owner_user_id IS NULL AND format.owner_user_id IS NOT NULL`인 행만 채우는 **순수 추가·비파괴** UPDATE라는 것을 적용 전에 직접 읽어 확인했고, 적용 후 3단계 쿼리로 `null_renders=0`(적용 전 NULL이던 렌더가 전부 포맷 소유자로 채워짐), `null_formats=24`(claim-legacy 전 레거시 포맷, 렌더와는 무관), `users=1`을 확인했다. **4단계(`claim-legacy`)는 실행하지 않았다** — 그 단계가 진짜 위험한 지점(전 사용자 리소스가 관리자로 넘어감)이고, 이번 목적(SSE 배포)과 무관하므로 여전히 사용자 판단을 기다린다. `HARU_OWNERSHIP_STRICT`도 그대로 `false`다.
 
 #### 0단계 — 사전 확인
 
