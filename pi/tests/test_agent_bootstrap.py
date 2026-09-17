@@ -39,6 +39,7 @@ def make_config(**overrides) -> AgentConfig:
         h_offset_mm=2.0,
         data_dir="/tmp/haru-paper-test-unused",
         sent_retention_days=30,
+        command_ttl_sec=600,
     )
     defaults.update(overrides)
     return AgentConfig(**defaults)

@@ -90,6 +90,23 @@ class TestCheckPaperPolicyFailClosed:
         assert should_print is False
         assert reason == "skipped_no_paper"
 
+    def test_status_query_printer_status_exception_fails_closed_without_raising(self, tmp_path):
+        """④[중요, 2026-09-17 Opus 검토로 발견]: status_query 분기의 printer.status()는
+        _preflight_printer와 달리 try로 감싸여 있지 않았다 — 예외가 그대로
+        execute_occurrence 밖까지 새 나가면 begin_occurrence_attempt가 이미 찍어 둔
+        'checking' 행이 finalize되지 않은 채 남는다(정상 종결 경로를 못 탄다).
+        여기서는 _check_paper_policy 단위로, 예외가 새지 않고 fail-closed로
+        떨어지는지만 확인한다(CLAUDE.md 절대 금지 1)."""
+
+        class ExplodingStatusPrinter(FakePrinter):
+            def status(self):
+                raise RuntimeError("BT 연결 실패(예: 콜드 ACL 타임아웃)")
+
+        ex = make_executor(tmp_path, paper_policy="status_query", printer=ExplodingStatusPrinter(connected=True))
+        should_print, reason = ex._check_paper_policy({})  # 예외 없이 반환해야 한다
+        assert should_print is False
+        assert reason == "skipped_printer_offline"
+
 
 class TestLoadRenderBytes:
     """render dict는 스냅샷의 서버 원본 JSON(RenderDto)이라 'path' 키가 없다."""
@@ -241,43 +258,59 @@ class TestSaveExecutedOccurrenceAttempts:
         assert stored["attempts"] == 1
 
 
+class TestGetUnfinishedOccurrences:
+    """storage.get_unfinished_occurrences()는 final=0인 행 전부를 돌려준다(.temp/05
+    설계 4.2). 지금은 어떤 호출부도 쓰지 않는다 — 유예 만료 처리는 그 틱의
+    candidates(현재 스냅샷에서 계산한 occurrence)만 보므로, 스냅샷에서 이미
+    사라진(예약이 삭제/비활성화된) occurrence까지 훑는 "되돌아보기"는
+    kv.last_tick_at 기반 되돌아보기와 함께 범위 밖으로 남겼다(.temp/05 설계 9절).
+    이 테스트는 메서드 자체의 정확성만 확인한다."""
+
+    def test_returns_only_non_final_rows(self, tmp_path):
+        storage = Storage(tmp_path / "agent.db")
+        storage.save_executed_occurrence("s1@2026-09-17T07:00", status="attempting", final=False)
+        storage.save_executed_occurrence("s1@2026-09-17T08:00", status="skipped_no_paper", final=False)
+        storage.save_executed_occurrence("s1@2026-09-17T09:00", status="printed", final=True)
+
+        unfinished = storage.get_unfinished_occurrences()
+
+        keys = {row["occurrence_key"] for row in unfinished}
+        assert keys == {"s1@2026-09-17T07:00", "s1@2026-09-17T08:00"}
+
+    def test_empty_when_nothing_stored(self, tmp_path):
+        storage = Storage(tmp_path / "agent.db")
+        assert storage.get_unfinished_occurrences() == []
+
+
 class TestCleanupStaleAttempts:
     """docs/pi/agent.md 9절: 전송 도중 죽은 채로 남은 'attempting' 레코드는 기동 시
-    failed·final=1로 정리해 재실행(중복 인쇄)을 막는다."""
+    failed·final=1로 정리해 재실행(중복 인쇄)을 막는다.
 
-    def test_cleans_attempting_final_zero_records(self, tmp_path):
+    ★2026-09-17 동작 변경(.temp/05 설계 4.2, 과제 3)★: Storage.cleanup_stale_attempts()는
+    이제 UPDATE하지 않고 **행을 읽어서 돌려주기만** 한다. 종결(final=1로 바꾸기)과
+    결과 큐잉(results_queue)은 호출부(Executor.finalize_occurrence)가 한 곳에서
+    한다 — 예전에는 여기서 종결만 시키고 서버에 결과가 전혀 올라가지 않았다(과제 3의
+    미보고 결함). Executor를 통한 종결 확인은 TestExecutorFinalizesStaleAttempts와
+    tests/test_agent_cleanup.py(Agent 통합)에 있다."""
+
+    def test_returns_attempting_final_zero_records_without_mutating(self, tmp_path):
         storage = Storage(tmp_path / "agent.db")
         key = "s1@2026-09-17T07:00"
-        storage.save_executed_occurrence(key, status="attempting", result_id="r-1", attempts=1, final=False)
+        storage.save_executed_occurrence(
+            key, status="attempting", result_id="r-1", format_id="fmt1", render_id="rnd1", attempts=1, final=False
+        )
 
         cleaned = storage.cleanup_stale_attempts()
 
-        assert cleaned == [key]
+        assert [row["occurrence_key"] for row in cleaned] == [key]
+        assert cleaned[0]["format_id"] == "fmt1"
+        assert cleaned[0]["render_id"] == "rnd1"
+
+        # 읽기만 했을 뿐 DB는 그대로다(status='attempting', final=0) — 종결은
+        # 호출부(Executor.finalize_occurrence)의 몫이다.
         stored = storage.get_executed_occurrence(key)
-        assert stored["status"] == "failed"
-        assert stored["final"] == 1
-        # 재시도 카운트는 건드리지 않는다(그대로 1)
-        assert stored["attempts"] == 1
-
-    def test_prevents_re_execution_via_scheduler_filter(self, tmp_path):
-        """정리 후에는 scheduler.filter_executable_occurrences가 이 occurrence를
-        다시 실행 대상으로 잡지 않아야 한다(final=1만 보므로)."""
-        from agent.scheduler import filter_executable_occurrences
-
-        storage = Storage(tmp_path / "agent.db")
-        key = "s1@2026-09-17T07:00"
-        storage.save_executed_occurrence(key, status="attempting", result_id="r-1", attempts=1, final=False)
-        storage.cleanup_stale_attempts()
-
-        occ = Occurrence(
-            occurrence_key=key,
-            schedule_id="s1",
-            format_id="fmt1",
-            scheduled_at=datetime.now(KST).replace(hour=7, minute=0, second=0, microsecond=0),
-        )
-        existing = {key: storage.get_executed_occurrence(key)}
-        executable = filter_executable_occurrences([occ], datetime.now(KST), 30, existing)
-        assert executable == []
+        assert stored["status"] == "attempting"
+        assert stored["final"] == 0
 
     def test_does_not_touch_final_records(self, tmp_path):
         storage = Storage(tmp_path / "agent.db")
@@ -291,9 +324,8 @@ class TestCleanupStaleAttempts:
         assert stored["status"] == "printed"
 
     def test_does_not_touch_non_attempting_unfinished_records(self, tmp_path):
-        """final=0이라도 status가 'attempting'이 아니면(예: 아직 존재하지 않는 다른
-        중간 상태) 건드리지 않는다 — 지금 코드에서 final=0으로 남는 상태는
-        'attempting'뿐이지만, 메서드 자체는 status 조건도 함께 건다."""
+        """final=0이라도 status가 'attempting'이 아니면(예: 재시도 대상으로 남은
+        'checking'/'failed') 대상에 넣지 않는다."""
         storage = Storage(tmp_path / "agent.db")
         key = "s1@2026-09-17T07:00"
         with __import__("sqlite3").connect(storage.db_path) as conn:
@@ -311,3 +343,54 @@ class TestCleanupStaleAttempts:
     def test_no_stale_records_returns_empty(self, tmp_path):
         storage = Storage(tmp_path / "agent.db")
         assert storage.cleanup_stale_attempts() == []
+
+
+class TestExecutorFinalizesStaleAttempts:
+    """cleanup_stale_attempts()가 돌려준 행을 Executor.finalize_occurrence로
+    종결하면 (a) final=1로 바뀌고 (b) results_queue에 정확히 한 번 payload가
+    들어가는지(과제 3의 핵심 — T10)."""
+
+    def test_finalize_queues_a_result_with_format_and_render_id(self, tmp_path):
+        ex = make_executor(tmp_path)
+        key = "s1@2026-09-17T07:00"
+        ex.storage.save_executed_occurrence(
+            key,
+            status="attempting",
+            result_id="r-1",
+            format_id="fmt1",
+            render_id="rnd1",
+            scheduled_at="2026-09-17T07:00:00+09:00",
+            attempts=1,
+            final=False,
+        )
+
+        stale = ex.storage.cleanup_stale_attempts()
+        assert len(stale) == 1
+
+        payload = ex.finalize_occurrence(stale[0]["occurrence_key"], status="failed", detail="전송 중 중단(재시작)")
+
+        assert payload["status"] == "failed"
+        assert payload["formatId"] == "fmt1"
+        assert payload["renderId"] == "rnd1"
+        assert payload["scheduledAt"] == "2026-09-17T07:00:00+09:00"
+
+        stored = ex.storage.get_executed_occurrence(key)
+        assert stored["status"] == "failed"
+        assert stored["final"] == 1
+
+        queued = ex.storage.get_queued_results()
+        assert len(queued) == 1
+        assert queued[0]["payload_json"]["resultId"] == "r-1"
+
+        # 재실행 대상이 아니다(final=1)
+        occ = Occurrence(
+            occurrence_key=key,
+            schedule_id="s1",
+            format_id="fmt1",
+            scheduled_at=datetime.now(KST).replace(hour=7, minute=0, second=0, microsecond=0),
+        )
+        from agent.scheduler import filter_executable_occurrences
+
+        existing = {key: ex.storage.get_executed_occurrence(key)}
+        executable = filter_executable_occurrences([occ], datetime.now(KST), 30, existing, 60)
+        assert executable == []

@@ -35,6 +35,7 @@ def make_config(data_dir: str) -> AgentConfig:
         h_offset_mm=2.0,
         data_dir=data_dir,
         sent_retention_days=30,
+        command_ttl_sec=600,
     )
 
 

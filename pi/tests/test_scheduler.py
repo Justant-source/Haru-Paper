@@ -163,7 +163,7 @@ class TestFilterExecutableOccurrences:
         from agent.scheduler import Occurrence
 
         candidates = [Occurrence(f"s1@{scheduled.strftime('%Y-%m-%d')}T{scheduled.strftime('%H:%M')}", "s1", "f1", scheduled)]
-        executable = filter_executable_occurrences(candidates, now, 30, {})
+        executable = filter_executable_occurrences(candidates, now, 30, {}, 60)
         assert len(executable) == 0
 
     def test_at_scheduled_time(self):
@@ -174,7 +174,7 @@ class TestFilterExecutableOccurrences:
         from agent.scheduler import Occurrence
 
         candidates = [Occurrence(f"s1@{scheduled.strftime('%Y-%m-%d')}T{scheduled.strftime('%H:%M')}", "s1", "f1", scheduled)]
-        executable = filter_executable_occurrences(candidates, now, 30, {})
+        executable = filter_executable_occurrences(candidates, now, 30, {}, 60)
         assert len(executable) == 1
 
     def test_within_grace_period(self):
@@ -185,7 +185,7 @@ class TestFilterExecutableOccurrences:
         from agent.scheduler import Occurrence
 
         candidates = [Occurrence(f"s1@{scheduled.strftime('%Y-%m-%d')}T{scheduled.strftime('%H:%M')}", "s1", "f1", scheduled)]
-        executable = filter_executable_occurrences(candidates, now, 30, {})
+        executable = filter_executable_occurrences(candidates, now, 30, {}, 60)
         assert len(executable) == 1
 
     def test_after_grace_period(self):
@@ -196,7 +196,7 @@ class TestFilterExecutableOccurrences:
         from agent.scheduler import Occurrence
 
         candidates = [Occurrence(f"s1@{scheduled.strftime('%Y-%m-%d')}T{scheduled.strftime('%H:%M')}", "s1", "f1", scheduled)]
-        executable = filter_executable_occurrences(candidates, now, 30, {})
+        executable = filter_executable_occurrences(candidates, now, 30, {}, 60)
         assert len(executable) == 0
 
     def test_already_executed(self):
@@ -210,5 +210,5 @@ class TestFilterExecutableOccurrences:
         existing = {
             f"s1@{scheduled.strftime('%Y-%m-%d')}T{scheduled.strftime('%H:%M')}": {"final": True}
         }
-        executable = filter_executable_occurrences(candidates, now, 30, existing)
+        executable = filter_executable_occurrences(candidates, now, 30, existing, 60)
         assert len(executable) == 0

@@ -38,6 +38,7 @@ class AgentConfig:
     h_offset_mm: float
     data_dir: str
     sent_retention_days: int
+    command_ttl_sec: int
 
     @classmethod
     def from_env(cls, env_path: Path = None) -> AgentConfig:
@@ -85,4 +86,8 @@ class AgentConfig:
             h_offset_mm=float(os.environ["HARU_H_OFFSET_MM"]),
             data_dir=os.environ["HARU_DATA_DIR"],
             sent_retention_days=int(os.environ["HARU_SENT_RETENTION_DAYS"]),
+            # 필수 키 목록에는 넣지 않는다 — 기존 Pi의 .env에 없으면 기동이 실패해
+            # 배포 사고가 난다. 서버 만료(10분, DeviceSyncService.java)와 맞춘 값
+            # [기본값](.temp/05 설계 4.6).
+            command_ttl_sec=int(os.environ.get("HARU_COMMAND_TTL_SEC", "600")),
         )
