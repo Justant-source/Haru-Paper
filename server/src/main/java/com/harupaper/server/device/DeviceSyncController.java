@@ -89,9 +89,11 @@ public class DeviceSyncController {
      * 렌더 PNG 파일 다운로드
      */
     @GetMapping("/renders/{renderId}.png")
-    public ResponseEntity<Resource> getRenderImage(@PathVariable String renderId) {
+    public ResponseEntity<Resource> getRenderImage(HttpServletRequest request, @PathVariable String renderId) {
+        Device device = (Device) request.getAttribute(DeviceTokenAuthFilter.DEVICE_ATTRIBUTE);
         Render render = renderRepository.findById(renderId)
                 .orElseThrow(() -> new NotFoundException("Render not found: " + renderId));
+        assertOwnership(device, render, renderId);
 
         // 파일 경로: {filesDir}/renders/{renderId}.png
         Path filePath = Paths.get(filesDir, render.getPath());
@@ -106,7 +108,9 @@ public class DeviceSyncController {
             return ResponseEntity.ok()
                     .contentType(MediaType.IMAGE_PNG)
                     .header(HttpHeaders.ETAG, "\"" + render.getSha256() + "\"")
-                    .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                    // 개인 인쇄물이므로 공유 캐시(CDN·프록시)에는 두지 않는다 — public이면 다른 기기의
+                    // 캐싱 경유지에 저장될 수 있다.
+                    .header(HttpHeaders.CACHE_CONTROL, "private, max-age=31536000")
                     .body(resource);
         } catch (Exception e) {
             log.error("Failed to read render file: {}", renderId, e);
@@ -120,9 +124,11 @@ public class DeviceSyncController {
      * (docs/architecture.md 3.4). PBM이 없는 렌더(V3 마이그레이션 이전 또는 생성 실패)면 404.
      */
     @GetMapping("/renders/{renderId}.pbm")
-    public ResponseEntity<Resource> getRenderPbm(@PathVariable String renderId) {
+    public ResponseEntity<Resource> getRenderPbm(HttpServletRequest request, @PathVariable String renderId) {
+        Device device = (Device) request.getAttribute(DeviceTokenAuthFilter.DEVICE_ATTRIBUTE);
         Render render = renderRepository.findById(renderId)
                 .orElseThrow(() -> new NotFoundException("Render not found: " + renderId));
+        assertOwnership(device, render, renderId);
 
         if (render.getPbmPath() == null) {
             throw new NotFoundException("PBM not available for render: " + renderId);
@@ -141,11 +147,39 @@ public class DeviceSyncController {
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType("image/x-portable-bitmap"))
                     .header(HttpHeaders.ETAG, "\"" + render.getPbmSha256() + "\"")
-                    .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                    // 개인 인쇄물이므로 공유 캐시에는 두지 않는다 (getRenderImage와 동일한 이유).
+                    .header(HttpHeaders.CACHE_CONTROL, "private, max-age=31536000")
                     .body(resource);
         } catch (Exception e) {
             log.error("Failed to read render PBM file: {}", renderId, e);
             throw new NotFoundException("Failed to read render PBM file");
+        }
+    }
+
+    /**
+     * 폴링한 기기의 소유자와 렌더 소유자가 다르면 404로 응답한다(존재 여부를 노출하지 않는다,
+     * docs/server/auth.md 7절). renderId는 UUIDv4라 추측이 사실상 불가능하지만, 유효한 기기 토큰
+     * 하나로 남의 renderId를 넣으면 지금까지는 그대로 통과했다(IDOR).
+     *
+     * render.ownerUserId가 NULL인 경우는 레거시로 보고 허용하되 경고 로그를 남긴다. NULL이 되는 경로는
+     * 둘뿐이다: (a) V4 백필 이전에 만들어진 렌더, (b) 소유자가 아직 NULL인 레거시 포맷(claim-legacy 전)에서
+     * 파생된 렌더. **포맷이 지워진 "고아 렌더"는 NULL 사유가 아니다** — V1의 `fk_renders_format`이
+     * `ON DELETE CASCADE`라 포맷이 지워지면 렌더 행도 함께 지워진다.
+     * 허용하는 이유는 Pi가 상시 구동 중이기 때문이다. V4 적용 + claim-legacy를 마치면 NULL은 0이 되고
+     * 더 생기지 않으므로, 그 시점 이후의 NULL은 버그 신호다 — 허용을 거부로 바꿀 것(후속 과제).
+     */
+    private void assertOwnership(Device device, Render render, String renderId) {
+        if (device == null) {
+            throw new NotFoundException("Render not found: " + renderId);
+        }
+        String renderOwnerId = render.getOwnerUserId();
+        if (renderOwnerId == null) {
+            log.warn("Render {} has no owner_user_id (V4 백필 전 레거시) — " +
+                    "allowing download by device {}", renderId, device.getId());
+            return;
+        }
+        if (!renderOwnerId.equals(device.getOwnerUserId())) {
+            throw new NotFoundException("Render not found: " + renderId);
         }
     }
 

@@ -196,6 +196,10 @@ public class RenderServiceImpl implements RenderService {
         Instant now = Instant.now();
         Render render = Render.builder()
                 .id(renderId)
+                // 렌더는 포맷에서 파생되므로 렌더 시점 포맷 소유자를 복사한다(이력 보존, Render.ownerUserId 주석).
+                // format.getOwnerUserId()가 NULL이면(M6 이전 레거시 포맷, 아직 claim-legacy 전) 렌더도 NULL로 남는다 —
+                // V4 백필 마이그레이션이 기존 행을, 이 필드가 이후 생성되는 모든 렌더를 채운다.
+                .ownerUserId(format.getOwnerUserId())
                 .formatId(format.getId())
                 .targetDate(targetDate)
                 .profileKey(profile.profileKey())

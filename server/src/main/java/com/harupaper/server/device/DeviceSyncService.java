@@ -97,7 +97,9 @@ public class DeviceSyncService {
         String currentHash = snapshotHashCalculator.calculate(snapshot.schedules(), snapshot.renders());
         boolean snapshotChanged = !currentHash.equals(request.snapshotHash());
 
-        // 4. 만료 처리
+        // 4. 만료 처리 — 전역으로 스캔한다(기기별로 스코핑하면 페어링만 되고 한 번도 폴링하지 않은
+        // 기기의 명령이 영영 만료되지 않고 pending으로 남기 때문). 상태만 "expired"로 바꿀 뿐 다른 사용자에게
+        // 아무것도 노출하지 않으므로 전역 스캔이어도 소유권 경계를 침범하지 않는다.
         Instant expireThreshold = now.minusSeconds(600); // 10분
         List<Command> expiredCommands = commandRepository.findAllByStatusInAndCreatedAtBefore(
                 List.of("pending", "delivered"), expireThreshold);
@@ -108,8 +110,13 @@ public class DeviceSyncService {
             commandRepository.saveAll(expiredCommands);
         }
 
-        // 5. 남은 pending+delivered 명령을 commands[]로 실어 보내고, pending은 delivered로 상태 변경
-        List<Command> activeCommands = commandRepository.findAllByStatusIn(List.of("pending", "delivered"));
+        // 5. 이 기기의 소유자로 스코핑해 pending+delivered 명령만 commands[]로 실어 보내고, pending은 delivered로 상태 변경.
+        // 예전에는 전역 조회라 다른 사용자의 "지금 인쇄"가 이 기기로도 내려갔다(IDOR류 버그).
+        // device_id가 아니라 owner_user_id로 거르는 이유는 CommandRepository.findAllByOwnerUserIdAndStatusIn
+        // 주석 참조 — 페어링 전에 만든 명령(device_id가 NULL)을 조용히 버리지 않기 위해서다.
+        // V2의 uk_devices_owner(owner_user_id UNIQUE)가 1인 1기기를 보장하므로 기기 스코핑과 보안상 동등하다.
+        List<Command> activeCommands = commandRepository.findAllByOwnerUserIdAndStatusIn(
+                device.getOwnerUserId(), List.of("pending", "delivered"));
         List<DeviceDto.CommandDto> commandDtos = new ArrayList<>();
 
         for (Command cmd : activeCommands) {
