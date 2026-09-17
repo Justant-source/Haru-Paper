@@ -14,6 +14,7 @@
 폰 웹앱(PWA, s21) ─HTTPS(tailscale serve)─ 서버(justant-server2, Docker) ─30초 폴링─ Pi(Orange Pi Zero 2W) ─BT(SPP/RFCOMM)─ M832
                               (전 구간 Tailscale 내부망)
 ```
+> 폴링이 기본 채널이다. 서버 → Pi SSE 깨우기 채널(선택, 4.3절)은 폴링 간격을 줄이는 보조 장치일 뿐 폴링을 대체하지 않는다 — `[미검증]`.
 
 | 구성 | 디렉터리 | 하는 일 | 모르는 것 |
 |---|---|---|---|
@@ -316,6 +317,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | GET | `/api/device/renders/{renderId}.png` | PNG 다운로드(sha256 검증) |
 | GET | `/api/device/renders/{renderId}.pbm` | 같은 렌더의 1-bpp(PBM P4) 다운로드(`sha256Pbm` 검증). 2단계 기기용 — 3.4 [확인됨·코드] |
 | POST | `/api/device/results` | 결과 묶음 업로드. `resultId`로 멱등. 명령 처리 완료도 여기서 보고 |
+| GET | `/api/device/events` | SSE 상시 연결(선택). **깨우기 신호만** 싣는다 — 받으면 즉시 `POST /api/device/poll`을 한 번 더 한다. 명령 데이터·소유권 판정·중복 제거·TTL은 전부 poll 경로에 남는다. `[미검증]` — 코드는 있으나 실제 배포·tailscale serve 경유 스트리밍은 확인 전 |
 
 #### 요청·응답 필드
 
@@ -390,6 +392,30 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 
 응답: `200 {"accepted": ["…"], "duplicates": ["…"]}` — 이미 받은 `resultId`는 `duplicates`로 돌려주고 성공 처리
 
+**`GET /api/device/events`** — SSE 깨우기 채널(선택, `[미검증]`)
+
+- 인증은 다른 4개 Pi 경로와 동일한 `Authorization: Bearer <기기별 토큰>`. 응답 `Content-Type: text/event-stream`
+- 이벤트 형식: 연결 직후 `event: ready` 1회(Pi가 연결 성립·백오프 초기화 신호로 씀) → 이후 `event: wake` + `data: {"reason":"command"|"paperState"|"snapshot"}` 반복. 그 사이사이 `HARU_SSE_HEARTBEAT_SEC`(기본 15초)마다 SSE 주석(`:`)으로 하트비트
+- 깨우기 트리거 3종:
+
+  | 트리거 | reason |
+  |---|---|
+  | "지금 인쇄" 명령 생성(`POST /api/print-now`) | `command` |
+  | 용지 상태 토글(`PUT /api/device/paper-state`) | `paperState` |
+  | 예약·포맷·날씨 설정 변경(스냅샷이 바뀌는 모든 지점 — 기존 `RenderScanTrigger.requestScan()` 호출 지점과 동일 집합) | `snapshot` |
+
+- **명령 전달·소유권 판정·중복 제거·TTL은 전부 기존 poll 경로에 그대로 남는다.** 이 채널은 wake 신호만 나르고, 신호를 받은 Pi는 `POST /api/device/poll`을 즉시 한 번 더 돈다
+- 이벤트를 잃어도 손해는 최대 폴링 주기(30초)뿐이다 — 폴링은 계속 유지되고, 이 채널은 순수 지연 단축용 보조 장치다
+- **`lastPollAt`/`online`은 SSE 연결로 갱신되지 않는다.** 그 값의 의미는 "poll을 완주해 프린터 프로필·상태가 실제로 갱신됐다"이고, SSE는 소켓이 열려 있다는 것만 증명한다
+- 실패해도 안전: Pi가 404(서버가 옛 버전)나 401/403(토큰 문제)을 받으면 긴 간격(약 600초)으로 물러나 계속 재시도하되 폴링은 건드리지 않는다. `HARU_EVENTS_ENABLED=false`로 Pi에서 이 기능 자체를 끌 수 있다(폴링만으로 동작, 기존과 완전히 동일)
+- **타임아웃 순서 불변식**(어긋나면 오류 없이 조용한 재연결 루프가 된다):
+
+  ```
+  서버 하트비트 15초 < Pi read 타임아웃 45초 < nginx proxy_read_timeout 90초 ≤ emitter 타임아웃 30분
+  ```
+
+- 아직 실물로 검증되지 않았다 — 코드는 있으나 `tailscale serve`를 통과하는 실제 스트리밍, nginx 설정 적용, Pi 배포는 사용자 승인 후 별도 단계다(`[미검증]`)
+
 ---
 
 ## 5. 동기화 흐름
@@ -428,7 +454,7 @@ sequenceDiagram
     Srv-->>App: 결과 목록
 ```
 
-**지금 인쇄**: 앱 `POST /api/print-now` → 서버가 오늘 날짜로 렌더·명령 생성 → 다음 poll 응답 `commands[]`에 포함(최대 30초 지연) →
+**지금 인쇄**: 앱 `POST /api/print-now` → 서버가 오늘 날짜로 렌더·명령 생성 → SSE 이벤트로 즉시 깨우고(연결돼 있으면), 이벤트가 유실되거나 채널이 꺼져 있으면 최대 30초 →
 Pi가 명령의 `renderId` PNG를 받아 `sha256` 검증·정책 확인 후 인쇄 → `results`로 `commandId` 보고(서버는 명령을 `done`으로). 10분 안에 `done`이 안 되면 `expired`.
 
 ---
@@ -442,6 +468,7 @@ Pi가 명령의 `renderId` PNG를 받아 `sha256` 검증·정책 확인 후 인�
 | 오프라인 + 재부팅(정전) | RTC가 없어 시각을 모름 → NTP 동기 전까지 인쇄 보류(`skipped_clock_unsynced`). RTC(DS3231)는 선택 부품 |
 | 예약 시각에 Pi 꺼짐·프린터 무응답 | 유예 30분 안에 60초 간격 재시도, 넘기면 `missed` |
 | "지금 인쇄" 중 Pi 오프라인 | 명령은 서버에 남아 있다가 Pi가 다시 poll하면 받음. **단 생성 후 10분 안에 처리되지 않으면 `expired`**되어 인쇄되지 않음 |
+| SSE 연결이 끊김 | 폴링이 그대로 보장선. 인쇄 동작·최대 지연 모두 변화 없음 |
 
 정책 현재값의 원본은 [`pi/policy.md`](pi/policy.md).
 
@@ -477,7 +504,7 @@ Pi가 명령의 `renderId` PNG를 받아 `sha256` 검증·정책 확인 후 인�
 | 위젯 에디터·마켓(M9) | `/studio/widgets/:id`, 게시·설치·업데이트 | 미착수 — `.temp/03` 7절 |
 | 외부 공개(M10) | 공인 도메인 + TLS, Tailscale 밖 노출(사용자 승인 필요) | 미착수 — `.temp/03` 8절 |
 | 다른 프린터 | `/pi/printer/<model>` 드라이버 추가 + 프로필 보고. 서버·앱·포맷(mm/pt 단위)은 그대로 | 미착수 |
-| 실시간 동기화 | 상용화 시 poll을 WebSocket으로. Pi 에이전트는 "동기화 채널"을 인터페이스로 둔다 | 미착수 |
+| 실시간 동기화 | 상용화 시 poll을 WebSocket으로. Pi 에이전트는 "동기화 채널"을 인터페이스로 둔다 | 부분 — poll 보조 깨우기(SSE) 구현, poll을 완전히 대체하는 방향은 미착수 |
 | 네이티브 앱 | `/app/android`, `/app/ios` 예약. 기술 미정(React Native/Expo, Kotlin+Swift, Flutter) — [`app/native.md`](app/native.md) | 미착수 |
 | HTML 템플릿 포맷 | JS·네트워크를 완전히 차단한 샌드박스 렌더러가 생긴 뒤에만 재검토 | 보류 |
 | 날씨 출처 | Open-Meteo → 기상청 단기예보로 교체 가능(출처 인터페이스 분리) | 미착수 |

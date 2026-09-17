@@ -29,6 +29,7 @@
 | `DeviceManagementController`(복수 `/api/devices`) | `GET/PATCH /api/devices/me`, `POST /api/devices/me/token`, `POST /api/devices/pairing-codes` | 세션 |
 | `SettingsController` | `GET/PUT /api/settings` | 세션 |
 | `DeviceSyncController`(Pi용) | `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/{renderId}.png`, `GET /api/device/renders/{renderId}.pbm`(1-bpp PBM P4, 2단계 기기용, `architecture.md` 3.4, 2026-09-17 승인 — 구현됨, PBM 없는 렌더는 404), `POST /api/device/results` | **Bearer** + 렌더 다운로드 2종은 컨트롤러가 추가로 소유권 검사(`assertOwnership`, 2026-09-17 — Bearer 필터의 경로 기반 보호와 별개. `NULL` 소유자는 `HARU_OWNERSHIP_STRICT` 플래그로 갈림, 기본값 `false`=허용). [`auth.md`](auth.md) 4.1절 |
+| `DeviceEventsController`(Pi용) | `GET /api/device/events` — SSE 깨우기 채널(선택). 깨우기 신호만, 명령 데이터 없음. `[미검증]` — [`../architecture.md`](../architecture.md) 4.3절 | **Bearer**(다른 Pi 경로와 동일) |
 
 인증·계정·기기 관리(`AuthController`~`DeviceManagementController`)의 세션·CSRF 메커니즘, 필드 상세는 [`auth.md`](auth.md)가 원본이다. `DeviceController`(단수)와 `DeviceManagementController`(복수, `/api/devices`)는 이름이 비슷하지만 다른 클래스다 — 헷갈리지 않도록 주의.
 
@@ -42,7 +43,7 @@ M6부터 이메일/비밀번호 로그인 + HttpOnly 세션 쿠키(Spring Sessio
 
 - `OncePerRequestFilter`(`DeviceTokenAuthFilter`) 하나로 처리 [확인됨·코드]
 - **대상 경로를 정확히 나열한다. `/api/device/**` 접두사로 걸면 안 된다.** `GET /api/device`, `PUT /api/device/paper-state`는 **세션 인증(앱용)**, `POST /api/device/pair`는 **무인증**(코드 자체가 1회용 비밀)이다.
-  - 인증 대상: `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/*`, `POST /api/device/results`
+  - 인증 대상(5개): `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/*`, `POST /api/device/results`, `GET /api/device/events`(SSE 깨우기 채널, 선택, `[미검증]`)
 - **M6부터 서버 `.env`의 단일 `HARU_DEVICE_TOKEN`은 없다.** 토큰은 기기별로 DB에 SHA-256 해시로 저장(`devices.token_hash`)하고, 요청 헤더의 토큰을 해시해 조회한다([`auth.md`](auth.md) 4절)
 - 헤더 없음·불일치 → 401(`application/problem+json`)
 - 토큰은 로그에 찍지 않는다
@@ -263,6 +264,9 @@ CSRF=$(grep XSRF-TOKEN "$JAR" | awk '{print $NF}')
 
 # 1. 기기 토큰 발급(Pi TOKEN — 응답의 token 필드는 이번 한 번만 표시된다)
 TOKEN=$(curl -sS -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" -X POST "$BASE/api/devices/me/token" | jq -r .token)
+
+# SSE 이벤트 스트림 확인용(선택, [미검증]). -N은 버퍼링 비활성화
+curl -N -H "Authorization: Bearer $DEVICE_TOKEN" "$BASE/api/device/events"
 ```
 
 | # | 시나리오 | 기대 |

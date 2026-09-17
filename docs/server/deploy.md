@@ -42,6 +42,9 @@
 - `haru-api`: `depends_on: haru-db (healthy)`, `mem_limit: 1.5g`, `shm_size: 1g`, 외부 인터넷 출구 필요(Open-Meteo), 비루트 실행([`rendering.md`](rendering.md) 6절)
 - `haru-db`: healthcheck, `utf8mb4`, 루트 비밀번호·앱 계정은 `.env`
 - `haru-web` nginx: `client_max_body_size 30m`(가져오기 30MB, 업로드 10MB), SPA 폴백(`try_files $uri /index.html`), `/api/` 프록시에 타임아웃 60초(미리보기 렌더 대기)
+- **SSE 전용 location(`app/web/nginx.conf`, `[미검증]`)**: `GET /api/device/events`(기기 깨우기 채널, [`../architecture.md`](../architecture.md) 4.3절)는 `location /api/`와 별도로 `location = /api/device/events`(정확 매칭, prefix 매칭보다 우선)에 둔다. 별도 블록이 필요한 이유는 `location /api/`의 기본값이 SSE와 맞지 않기 때문이다: 기본 `proxy_buffering on`이면 이벤트가 nginx 버퍼에 갇혀 flush되지 않고, 프록시가 업스트림에 HTTP/1.0을 쓰면 chunked 스트리밍(연결을 계속 열어 두는 응답)이 성립하지 않는다. 그래서 이 블록만 `proxy_http_version 1.1`·`proxy_buffering off`·`proxy_cache off`와 `proxy_read_timeout 90s`(서버 하트비트 15초의 6배 여유)를 쓴다. **적용에는 `haru-web` 이미지 재빌드·재기동이 필요하다** — nginx 설정은 이미지 안에 구워지므로 `docker compose build && docker compose up -d haru-web`(또는 전체 재기동) 없이는 반영되지 않는다.
+- **`tailscale serve`는 이 저장소에서 설정할 수 없는 불투명한 프록시 홉이다.** 거기서 SSE 연결이 실제로 끊기지 않고 통과하는지는 이 저장소 코드로 보장할 수 없고 `[미검증]`이다 — 15초 하트비트(4.3절 "타임아웃 순서 불변식")가 유일한 방어선이다. 하트비트 없이 더 긴 침묵이 이어지면 중간 홉이 연결을 끊어도 알아챌 방법이 없다.
+- **SSE 적용(nginx 재빌드·재기동)은 CLAUDE.md "서버 시스템 변경은 적용 직전 사용자 승인" 규칙 대상이다** — `tailscale serve`·포트 바인딩·compose 서비스 추가와 같은 급이다. 코드·설정 파일(`nginx.conf`, `.env.example`)은 지금 커밋해도, 실제 적용(재빌드·재기동)은 사용자 승인 후 별도 단계로 진행한다.
 
 ### 볼륨
 

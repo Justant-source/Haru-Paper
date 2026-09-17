@@ -29,7 +29,8 @@ pi/
 │   ├── 스케줄러 (occurrence 계산)
 │   ├── 실행기 (렌더 선택 → 용지 정책 → Printer.print_image → 결과 기록, "지금 인쇄" 명령 실행 포함)
 │   ├── 결과 업로더
-│   └── 보낸 바이트 순환 삭제 (`retention.py`, 2026-09-17 신설 — `prune_sent_bytes` 순수 함수. 4절)
+│   ├── 보낸 바이트 순환 삭제 (`retention.py`, 2026-09-17 신설 — `prune_sent_bytes` 순수 함수. 4절)
+│   └── SSE 깨우기 채널 수신기 (`events.py`, 2026-09-17 신설 — 서버 하트비트·wake 이벤트를 받아 폴링 루프를 즉시 깨운다. 프린터·Storage를 전혀 모른다. 6절)
 ├── printer/      # 공통 인터페이스 — printer.md
 │   ├── m832/     # M832 드라이버 — printer-m832.md
 │   └── fake/     # 가짜 프린터 — printer.md 4절
@@ -56,6 +57,8 @@ pi/
 | `HARU_COMMAND_TTL_SEC` | "지금 인쇄" 명령의 Pi측 자체 TTL(초, 기본 600 [기본값]). 서버가 명령을 10분 뒤 `expired` 처리하는 것과 맞춘 값이며, 서버 만료에 기대지 않고 Pi가 독립적으로 판단한다. 필수 키가 아니다(생략하면 600, 기존 Pi의 `.env`에 없어도 기동된다) — 8절 |
 | `HARU_H_OFFSET_MM` | M832 정렬 보정 |
 | `HARU_DATA_DIR`, `HARU_SENT_RETENTION_DAYS` | 로컬 데이터 위치·보관 |
+| `HARU_EVENTS_ENABLED` | SSE 깨우기 채널(`GET /api/device/events`) 사용 여부(기본 `true`). `false`면 순수 폴링으로 동작 — 필수 키 아님 |
+| `HARU_EVENT_READ_TIMEOUT_SEC` | 이벤트 스트림 read 타임아웃(초, 기본 45). 이 시간 동안 하트비트조차 안 오면 죽은 연결로 보고 재연결 — 필수 키 아님 |
 
 서버에서 개발할 때 `HARU_DATA_DIR`은 저장소 **밖**의 쓰기 가능한 경로(예: `~/.local/share/haru-paper`)로 둔다 [기본값]. 저장소 안에 두면 gitignore 관리가 필요해진다.
 
@@ -86,7 +89,7 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 
 **멱등 마이그레이션(2026-09-17 신설)**: `Storage.__init__`은 `_init_schema()`(없으면 `CREATE TABLE`) 다음에 `_migrate()`를 부른다. `_migrate()`는 `PRAGMA table_info(table)`로 테이블의 실제 컬럼을 조회해 위 표의 새 컬럼(4+3개) 중 없는 것만 `ALTER TABLE ... ADD COLUMN`으로 추가하고 `PRAGMA user_version`을 기록한다. 이미 컬럼이 있으면 아무 것도 하지 않으므로 몇 번을 다시 실행해도 안전하다. 상시 구동 중인 Pi의 기존 `agent.db`도 데이터를 잃지 않고(테이블 재작성 없음, 기존 행의 새 컬럼은 NULL) 열린다 — `user_version`은 기록용일 뿐 마이그레이션 여부 판정 근거가 아니다(`table_info`가 근거). 옛 행의 `scheduled_at`이 NULL이면 종결 시 `occurrence_key`(`{scheduleId}@{YYYY-MM-DD}T{HH:mm}`)에서 복원을 시도하고(`Executor._recover_scheduled_at`), 그것도 실패하면 `null`로 올린다(서버 검증이 `scheduledAt` NULL을 허용).
 
-## 6. 동기화 (폴링)
+## 6. 동기화 (폴링 + 이벤트 알림)
 
 ### 동기화 채널 인터페이스
 
@@ -114,6 +117,17 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
    - `pollIntervalSec`: 다음 주기에 반영(없으면 `HARU_POLL_INTERVAL_SEC`)
 3. `results_queue`에 미업로드 결과가 있으면 `upload_results`. 성공하면 `uploaded_at` 기록.
 4. 네트워크 오류는 로그만 남기고 다음 주기에 다시 시도한다. **동기화 실패가 스케줄러를 멈추게 하면 안 된다.**
+
+### 이벤트 리스너(SSE) — `agent/events.py`, 2026-09-17 신설, `[미검증]`
+
+`GET /api/device/events`에 **연결 1개만** 유지하는 `PushListener`. 서버 규약(형식·트리거·타임아웃 불변식)은 [../architecture.md](../architecture.md) 4.3절 "`GET /api/device/events`"가 원본이다.
+
+- 연결은 `requests(stream=True)` + `iter_lines()`로 연다(새 의존성 없음). `event: ready` 1회로 연결 성립·백오프 초기화를 인지하고, 이후 `event: wake` + `data: {"reason":...}`를 받을 때마다 폴링 루프를 즉시 깨운다. **깨우기 신호만 받고 명령 데이터는 없다** — 다음 `poll`이 항상 실제 내용을 가져온다
+- **별도 `threading.Event`(`_poll_wake`)를 쓴다.** 기존 `_wake`(8절, "지금 인쇄" 명령 도착 시 스케줄러 틱을 깨우는 용도)는 스케줄러 전용이고 매 대기 후 무조건 `clear()`한다 — 이벤트 리스너가 같은 `_wake`를 같이 쓰면, 리스너가 `set()`한 신호를 스케줄러가 먼저 `clear()`해 버리거나 그 반대로 신호를 잡아먹는 경합이 생긴다. 소비자(폴링 루프 vs 스케줄러 루프)가 다르므로 `Event`도 분리한다
+- 404(서버가 옛 버전)나 401/403(토큰 문제)을 받으면 긴 간격(약 600초)으로 물러나 계속 재시도한다. **폴링에는 영향을 주지 않는다** — 이 스레드가 완전히 죽어도 폴링 루프는 `HARU_POLL_INTERVAL_SEC` 주기로 그대로 돈다
+- 디바운스(약 2초): 짧은 시간에 여러 wake가 겹쳐 와도 폴링을 그만큼 여러 번 추가로 돌리지 않는다
+- **불변식(가장 중요한 안전 규칙): 리스너 스레드는 프린터·Storage·Executor에 절대 접근하지 않는다 — 콜백은 `Event.set()` 한 줄뿐이다.** 이 스레드는 서버가 준 문자열(`reason`)을 신뢰하지 않고 그냥 깨우기 신호로만 쓴다. 실제 명령 조회·소유권 판정·중복 제거·TTL 판단은 전부 기존 폴링 루프(→ `Agent._do_poll`)가 한다
+- `HARU_EVENTS_ENABLED=false`면 이 리스너 자체를 기동하지 않는다(폴링만으로 기존과 완전히 동일하게 동작)
 
 ## 7. 스케줄러 (occurrence 계산)
 
@@ -167,6 +181,8 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 ### 실행 스레드와 직렬화 (2026-09-17 구현)
 
 폴링 스레드와 스케줄러 스레드 2개가 돈다(`Agent.run`). **프린터로 나가는 모든 경로(예약 occurrence + "지금 인쇄" 명령)는 스케줄러 스레드 하나로 모인다** — 폴링 스레드는 명령을 받아 **저장만** 하고(`_handle_command`) 실행하지 않는다. 이유: BT 전송 데드라인이 60초라, 폴링 스레드에서 직접 실행하면 그동안 결과 업로드·`paperState` 갱신·다음 poll이 밀린다.
+
+**(2026-09-17 신설) SSE 이벤트 리스너가 추가돼 이제 스레드가 3개(폴링·스케줄러·SSE 리스너)다.** 리스너 스레드는 `_poll_wake`를 `set()`하는 것 말고는 아무 것도 하지 않고, 명령 도착 시 스케줄러 틱을 깨우는 `_wake`와는 소비자(폴링 루프 vs 스케줄러 루프)가 달라 별도 `Event`로 분리돼 있다(6절 "이벤트 리스너(SSE)").
 
 - 새 명령이 도착하면 `_handle_command`가 `self._wake.set()`(`threading.Event`)으로 스케줄러 틱을 **즉시** 깨운다. 스케줄러 루프는 `time.sleep(tick_interval)` 대신 `self._wake.wait(tick_interval)`로 대기하므로, 명령은 poll 직후에 실행되고 평상시 틱 주기(10초)는 그대로 유지된다 — poll(최대 30초) + 다음 틱(최대 10초) = 최대 40초를 기다리지 않는다.
 - **(2026-09-17 구현) 종료 처리도 같은 메커니즘으로 모인다.** `Agent.run()`의 `KeyboardInterrupt` 처리와 `main()`의 `SIGINT`/`SIGTERM` 핸들러 모두 `agent.running = False`를 직접 건드리지 않고 `Agent.stop()`을 부른다 — `stop()`이 `self.running = False`에 이어 `self._wake.set()`도 호출해 `_scheduler_loop`를 즉시 깨운다. `self.running = False`만으로는 `_scheduler_loop`가 `self._wake.wait(tick_interval)`(최대 10초)에서 잠들어 있을 수 있는데, `Agent.run()`의 스레드 종료 대기(`join(timeout=5)`)가 그보다 먼저 끝나면 데몬 스레드가 (운이 나쁘면) 인쇄 도중에 프로세스 종료로 강제 중단될 수 있었다.

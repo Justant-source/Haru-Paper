@@ -187,6 +187,7 @@ M5 실물 인쇄(9절)는 이 세 커밋 **이전** 코드로 이뤄졌다. 이 
 - **SQLite 마이그레이션은 기동 시 자동으로, 조용히 실행된다** [확인됨·코드, `pi/agent/storage.py`의 `Storage.__init__` → `_migrate()`] — `PRAGMA table_info`로 `executed_occurrences`·`commands` 테이블의 실제 컬럼을 보고 없는 것만 `ALTER TABLE ... ADD COLUMN`으로 추가한다(기본값 없이 붙이므로 즉시 완료, 테이블 재작성 없음). **기존 `agent.db`의 데이터는 지워지지 않는다** — 기존 행의 새 컬럼은 NULL로 채워지고, 옛 코드가 이 컬럼을 읽지 않으므로 구현을 되돌려도 DB가 깨지지 않는다. 별도 수동 마이그레이션 절차가 필요 없다.
 - **동작이 눈에 띄게 달라질 수 있는 지점**: `HARU_PAPER_POLICY`가 운영 Pi에서 `status_query`나 `manual_flag`로 이미 바뀌어 있었다면, 이 배포 이후 `status_query`는 (H4 미판정이므로) 인쇄가 완전히 멈추고 `manual_flag`는 `paperState` 키가 없거나 파싱 실패 시 인쇄가 멈춘다(둘 다 이번 fail-closed 수정의 의도된 동작, [policy.md](policy.md) 2절) — 이전에는 반대로 fail-open이었다. 배포 직후 이 정책값과 실제 인쇄 여부를 확인한다.
 - 이 배포 자체와 위 세 항목의 실물 동작은 아직 **[미검증]**이다 — 배포한 뒤 폴링·스케줄러 틱이 예외 없이 도는지 로그로 확인한다([policy.md](policy.md) 4절 "시계 게이트"가 새로 개입하므로, 재부팅 직후 로그에 `NTPSynchronized` 관련 경고가 없는지도 함께 본다).
+- 이번 배포에 SSE 깨우기 채널 설정 `HARU_EVENTS_ENABLED`·`HARU_EVENT_READ_TIMEOUT_SEC`도 새로 추가되지만([agent.md](agent.md) 3절), 둘 다 선택 설정이라 **없어도 기존 `.env`로 그대로 기동된다**.
 
 ## 6. systemd unit 개요 [확인됨·실물, 2026-09-16]
 
