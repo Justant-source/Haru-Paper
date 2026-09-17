@@ -70,6 +70,8 @@ pi/
 
 systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유로 둔다 [기본값] ([setup.md](setup.md)).
 
+**`sent/` 30일 순환 삭제, 구현됨(2026-09-17, `pi/agent/retention.py`의 `prune_sent_bytes`)**: `HARU_SENT_RETENTION_DAYS`가 실제로 쓰인다(이전에는 읽히기만 하고 아무도 부르지 않았다). 하루 1회, **시계 동기화 게이트를 통과한 뒤에만**(`Agent._maybe_prune_sent_bytes` → `_do_scheduler_tick` 0단계, 7절) 돈다 — RTC가 없어 부팅 직후 `now`를 못 믿는 동안은 `today` 판정 자체가 틀릴 수 있어서다. 보관 경계는 "오늘부터 거슬러 `retention_days`일치(오늘 포함 `retention_days+1`개 날짜)는 항상 남긴다" — `age = (today − 디렉터리날짜).days`가 `retention_days`를 넘는 디렉터리만 지운다(기본 30이면 31일째부터 삭제). 날짜 판정은 **디렉터리 이름**(`sent/YYYY-MM-DD/`)만 쓰고 mtime은 쓰지 않는다(RTC 없는 Pi는 부팅 직후 mtime이 틀린 시각일 수 있다). 이름이 `^\d{4}-\d{2}-\d{2}$` 정규식에 맞고 `date.fromisoformat()`으로도 파싱되는 디렉터리만 대상으로 한다 — 정규식만으로는 부족한 이유는 Python 3.11의 `date.fromisoformat("20260901")`(대시 없이 8자리)도 파싱에 성공하는 함정이 있어서다. 그 밖의 안전장치: 심볼릭 링크는 추적·삭제하지 않음, 삭제 직전 `resolve()`로 `sent_dir` 바로 아래인지 재확인(밖으로 못 나감), 미래 날짜 디렉터리는 보존, `retention_days <= 0`이면 아무것도 안 지움, **가장 최근 날짜 디렉터리는 나이와 무관하게 항상 보존**, **시계 폭주 방지**(`today`가 가장 최근 디렉터리보다 `retention_days × 3`일[기본값] 넘게 앞서 있으면 시계가 미래로 튄 것으로 보고 전체 삭제를 거부). 개별 삭제 실패는 로그만 남기고 나머지를 계속 처리하며, 순환 삭제 자체의 실패는 인쇄 경로를 막지 않는다([policy.md](policy.md) 7절에 보관 경계·안전장치 표).
+
 ## 5. 로컬 SQLite 테이블 (확정, `pi/agent/storage.py`)
 
 | 테이블 | 주요 컬럼 | 용도 |
@@ -130,11 +132,23 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 - 재시도: 마지막 시도 후 `HARU_RETRY_INTERVAL_SEC`(60초)가 지났을 때만. **(2026-09-17 구현)** `scheduler.filter_executable_occurrences(candidates, now, grace_minutes, existing_occurrences, retry_interval_sec)`가 판정한다 — `retry_interval_sec`는 **필수 인자(기본값 없음)**다. 재시도 대상이 되는 것은 `checking` 단계(렌더 선택·용지 판단·프린터 상태 조회, 아직 `print_image`를 부르지 않음)에서 끝난 시도뿐이다. `attempting` 표식(`print_image` 호출 직전) 이후의 실패는 재시도 후보에서 빠지고 무조건 종결된다 — 상세 상태 표는 [policy.md](policy.md) 3절. 이 구분의 근거는 9절의 원칙과 같다 — 프린터로 바이트가 나갔을 수 있는 시도(`attempting`)는 "같은 내용이 두 번 나오는 것보다 한 번 빠지는 쪽"을 택해 **이 프로세스 안에서는 영구히** 재시도 후보에서 제외하고(`filter_executable_occurrences`가 `existing.get("status") == "attempting"`이면 매 틱마다 건너뜀), 프로세스가 `attempting` 상태로 멈춘 채 죽었다면 재시작 시 기동 정리(9절, `cleanup_stale_attempts`)가 `failed`로 종결한다. 반대로 `checking`(바이트 전송 **전** — 렌더 선택·용지 판단·프린터 상태 조회 중)은 바이트가 안 나갔으므로 재시도 간격만 지나면 다시 후보가 된다 — 재시작을 기다리지 않는다
 - 유예가 지났는데 `final`이 아니면 마지막 사유로 `final=1` 기록 ([policy.md](policy.md) 3절). **(2026-09-17 구현)** 이 종결은 `_run_occurrence_tick`의 4단계가 하며, 반드시 `Executor.finalize_occurrence(...)`를 거쳐 `results_queue`에도 결과를 쌓는다(9절). 4단계는 3단계가 같은 틱에서 방금 기록한 값을 봐야 하므로 **저장소를 다시 읽는다**(틱 시작 시점의 `existing_occs` 스냅샷을 그대로 쓰지 않는다). 직전 상태가 비종결 값(`checking`/`attempting`)으로 남아 있으면 `failed`로 매핑해 서버 ENUM을 지킨다
 
-### 재부팅·중단 후 되돌아보기
+### 재부팅·중단 후 되돌아보기 (구현됨, 2026-09-17)
 
-- 시작하면 `kv.last_tick_at`부터 지금까지 지나간 occurrence를 확인한다. 유예 안이면 실행하고, 유예를 넘었으면 `missed`로 최종 기록한다. 되돌아보는 범위는 최대 24시간 [기본값].
+- 시작하면 `kv.last_tick_at`부터 지금까지 지나간 occurrence를 확인한다. 유예 안이면 실행하고, 유예를 넘었으면 `missed`(또는 `skipped_clock_unsynced`, 아래)로 최종 기록한다. 되돌아보는 범위는 최대 24시간 [기본값](`scheduler.LOOKBACK_MAX_HOURS`).
 - **시계가 동기화되지 않았으면 이 계산 자체를 보류**한다. 동기화된 뒤 계산하고, 그 사이 유예를 넘긴 것은 `skipped_clock_unsynced`.
-- 매 틱마다 `kv.last_tick_at`을 갱신한다(SD 쓰기를 줄이려면 갱신 간격을 늘린다 — M4에서 정함).
+- **쓰기 간격 60초 [기본값]**(`Agent.LAST_TICK_WRITE_INTERVAL_SEC`) — 매 틱(10초)마다 쓰면 하루 8,640회 SD 쓰기가 되므로 하루 최대 1,440회로 줄였다. 기록된 `last_tick_at`은 실제 마지막 정상 틱보다 최대 (간격 − 1)초 더 과거일 수 있지만, 재시작 시 `calculate_occurrences`가 그만큼 더 넓은 범위를 다시 훑을 뿐이고 이미 `final=1`인 occurrence는 `filter_executable_occurrences`·`_finalize_expired_occurrences`가 `occurrence_key`로 정확히 재조회해 건너뛰므로 중복 인쇄나 잘못된 재기록은 없다 — 손해는 약간의 재계산 비용뿐이다.
+
+**계산 범위**: `pi/agent/scheduler.py::calculate_occurrences(snapshot, now, grace_minutes, storage_kv_last_tick)`가 `[max(kv.last_tick_at, now − 24시간), now]` 구간의 **모든 날짜**를 훑어 `recurring`/`once` occurrence를 만든다(자정을 넘겨 꺼져 있었어도 그 전날 회차가 잡힌다). `kv.last_tick_at`이 없거나 파싱 실패면(최초 기동, 옛 값 형식 오류) 기존 동작(오늘 00:00부터만)을 그대로 유지한다. 범위 밖(24시간 상한을 넘긴 부분)의 occurrence는 애초에 **만들지 않는다** — "생성되지 않음"(앱 이력에 흔적 없음)과 "생성됐지만 유예를 넘겨 `missed`"(이력에 남음)는 다르다. `grace_minutes` 인자는 이 함수가 참고하지 않는다(유예 판정은 `filter_executable_occurrences` 몫) — 호출부 호환을 위해 시그니처만 남아 있다.
+
+**유예 만료 종결 대상 확장**: `Agent._finalize_expired_occurrences`는 두 집합의 합을 본다 — (a) 방금 계산한 `candidates`(현재 스냅샷 + 되돌아보기 범위), (b) `storage.get_unfinished_occurrences()`(`final=0`으로 남은 행 전부). 스냅샷에서 예약이 **삭제되거나 꺼지면** (a)에 다시 나타나지 않으므로, 이미 한 번이라도 시도된(= 행이 존재하는) occurrence는 (b)가 없으면 `final=0`인 채 영원히 남는 고아 행이 된다. **판단**: 스냅샷에서 사라진/비활성화된 예약의 **한 번도 시도 안 된** 과거 회차는 만들지 않는다(사용자가 예약을 지우거나 끈 것을 "이 예약에 대한 새 이력을 만들지 말라"는 의사로 해석 — 모르는 예약을 `missed`로 만들면 앱 이력이 오염될 수 있다). 반대로 이미 시도 이력이 있는 행은 (b) 경로로 **반드시** 종결한다. `attempting`으로 멈춘 채 유예를 넘긴 행도 이 경로를 거쳐 `_coerce_result_status`가 `failed`로 매핑해 종결한다([policy.md](policy.md) 3절 "서버 업로드 매핑").
+
+**`missed` vs `skipped_clock_unsynced` 구분 규칙**(`ClockGate.expired_during_unsynced_window(expiry_at)`): 이 프로세스가 **동기화를 확인하기 전에** 실제로 미동기 상태를 관측한 적이 있고(`ever_unsynced`), 그 occurrence의 유예 만료 시각(`scheduled_at + grace`)이 **이 프로세스가 처음 동기화를 확인한 시각**(`first_synced_at`) **이전**일 때만 `skipped_clock_unsynced`다. 그 밖의 모든 "시도 기록 없이 유예를 넘긴" 회차는 `missed`. 시각 경계로 좁힌 이유: 그렇지 않으면 부팅 직후 잠깐 미동기였던 프로세스가 그 뒤 수십 일(30일 연속 운영 목표) 동안 겪는 모든 **진짜** `missed`까지 `skipped_clock_unsynced`로 영구히 오분류하게 된다 — `ever_unsynced` 플래그 하나만으로는 "그 프로세스가 살아 있는 동안"이라는 조건만 남고 "언제"가 빠지기 때문이다.
+
+**시계 동기화 게이트(`pi/agent/clock.py`의 `check_ntp_synchronized`·`ClockGate`)**:
+- 판정은 `timedatectl show -p NTPSynchronized --value`(타임아웃 5초 [기본값], `TIMEDATECTL_TIMEOUT_SEC`). 명령 실패·타임아웃·`timedatectl` 자체가 없는 환경은 전부 **미동기로 취급**한다(fail-closed) — 반대로 취급하면 `timedatectl`이 고장 난 Pi에서 게이트가 아예 없는 것과 같아진다. 실패·미동기 판정마다 경고 로그를 남긴다.
+- **sticky 판정**: 한 번 `True`를 관측하면 이 프로세스가 사는 동안 `check_fn`(`timedatectl` 호출)을 다시 부르지 않는다 — 동기화 이후 시스템 시계는 RTC 없이도 커널 타이머로 정상 진행하고, "동기화가 풀리는" 시나리오는 정책 대상이 아니다. 매 스케줄러 틱(10초)마다 서브프로세스를 fork하는 비용을 동기화 전 짧은 구간으로만 제한하려는 설계다.
+- **미동기 동안은 예약·"지금 인쇄" 명령 실행·`kv.last_tick_at` 갱신·`sent/` 순환 삭제를 전부 보류**한다(`_do_scheduler_tick`의 0단계, [policy.md](policy.md) 4절). "지금 인쇄" 명령까지 보류하는 것은 이번에 새로 정한 규칙이다 — TTL 계산(`Executor._command_ttl_expired`)과 결과 payload의 `executedAt`이 전부 `now_kst()`에 의존해, 시계를 못 믿는 동안은 명령 실행 판단도 신뢰할 수 없기 때문이다.
+- **`pi/deploy/haru-paper-agent.service`의 `After=network-online.target time-sync.target` + `install.sh`의 `systemd-time-wait-sync.service` 활성화**: 인터넷이 있는 정상 부팅에서는 `systemd-timesyncd`가 곧바로 NTP 동기화를 마치므로 `time-sync.target` 도달과 `ClockGate`의 첫 확인이 거의 동시에 통과해 체감상 게이트가 없는 것처럼 보인다. 이 관계가 실제로 드러나는 것은 **인터넷 없는 재부팅**뿐이다 — 그때는 `time-sync.target`(과 `systemd-time-wait-sync`)이 동기화를 기다리며 도달하지 않고, 에이전트 프로세스는 이미 떠서 스케줄러 틱을 돌지만 `ClockGate.is_synced()`가 계속 `False`를 돌려줘 예약·명령·`last_tick_at`·순환 삭제가 전부 보류된 채 매 틱 경고 로그만 남긴다.
 
 ## 8. 실행 흐름
 

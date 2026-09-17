@@ -12,7 +12,7 @@
 | 늦은 실행 유예 | 30분 | `HARU_GRACE_MINUTES` |
 | 재시도 간격 | 60초 | `HARU_RETRY_INTERVAL_SEC` |
 | 폴링 주기 | 30초 | `HARU_POLL_INTERVAL_SEC` |
-| 시각 미동기 시 | 인쇄 보류 | — |
+| 시각 미동기 시 | 예약·"지금 인쇄" 명령 실행·`last_tick_at` 갱신·보낸 바이트 순환 삭제 전부 보류(fail-closed, sticky) | — |
 | RTC | 없음 (DS3231은 선택 부품) | — |
 | 보낸 바이트 보관 | 30일 순환 | `HARU_SENT_RETENTION_DAYS` |
 | journald | 크기 제한 | ([setup.md](setup.md)) |
@@ -94,6 +94,14 @@ Orange Pi Zero 2W에는 RTC(시계 배터리)가 없다.
 - 동기화 판정은 `timedatectl`의 `NTPSynchronized` [기본값]. 서버 응답의 `serverTime`과 크게 어긋나면 로그에 경고만 남긴다(시각을 서버 시간으로 바꾸지는 않음) [기본값].
 - 완전한 오프라인 보장이 필요해지면 **RTC 모듈 DS3231**(40핀 I2C)을 단다 — 선택 부품, PoC에서는 달지 않는다.
 
+### 게이트 구현 (구현됨, 2026-09-17 — `pi/agent/clock.py`, `ClockGate`/`check_ntp_synchronized`)
+
+- **판정 명령·타임아웃**: `timedatectl show -p NTPSynchronized --value`, 타임아웃 5초 [기본값](`TIMEDATECTL_TIMEOUT_SEC`). **명령 실패·타임아웃·`timedatectl` 부재는 전부 미동기(fail-closed)로 취급**하고 매번 경고 로그를 남긴다 — 로그가 없으면 "왜 인쇄가 멈췄는지"를 운영자가 journald에서 찾을 방법이 없어진다.
+- **sticky 판정**: `ClockGate`는 한 번 동기화를 확인하면 그 프로세스가 사는 동안 `check_ntp_synchronized`를 다시 부르지 않는다 — 동기화 이후 시스템 시계는 RTC 없이도 커널 타이머로 정상 진행하므로 "동기화가 풀리는" 시나리오는 이 정책이 다루는 위험(재부팅 직후의 임의값)과 성격이 다르다고 보고 설계에서 제외했다. 대가는 NTP 데몬이 몇 시간 뒤 죽어도 이 프로세스는 감지하지 못한다는 것 — 수용 가능하다고 판단했다.
+- **명령("지금 인쇄")도 보류한다 — 이번에 새로 정한 규칙이다.** 예전 문서는 "인쇄 보류"만 언급했지만, "지금 인쇄"의 TTL 계산(`Executor._command_ttl_expired`)과 결과 payload의 `executedAt`이 전부 `now_kst()`에 의존하므로 미동기 상태에서는 명령 실행 여부 판단 자체를 신뢰할 수 없다. `_do_scheduler_tick`의 0단계가 `ClockGate.is_synced()`를 먼저 확인하고, 미동기면 occurrence 처리와 명령 처리(`_run_command_tick`)를 **둘 다** 건너뛴 채 `kv.last_tick_at`도 건드리지 않고 그 틱을 끝낸다.
+- **`missed` vs `skipped_clock_unsynced` 구분**(`ClockGate.expired_during_unsynced_window`): 이 프로세스가 동기화 전 미동기를 실제로 관측했고, occurrence의 유예 만료 시각이 **이 프로세스가 처음 동기화를 확인한 시각** 이전인 경우에만 `skipped_clock_unsynced`다. 그 밖(예: 이 프로세스는 부팅 내내 동기화 상태였음, 또는 동기화 이후 한참 지나 유예를 넘김)은 `missed`. 시각 경계로 좁힌 이유: 그렇지 않으면 부팅 직후 잠깐 미동기였던 프로세스가 그 뒤 30일 연속 운영 동안 겪는 모든 **진짜** `missed`까지 `skipped_clock_unsynced`로 영구히 오분류하게 된다.
+- **`pi/deploy/haru-paper-agent.service`(`After=network-online.target time-sync.target`) + `install.sh`의 `systemd-time-wait-sync.service` 활성화와의 관계**: 인터넷이 있으면 `systemd-timesyncd`가 부팅 직후 곧바로 NTP 동기화를 마쳐 `time-sync.target` 도달과 `ClockGate`의 첫 확인이 사실상 동시에 통과한다 — 평소에는 게이트가 있다는 사실 자체가 드러나지 않는다. 이 게이트가 실제로 발동하는 것은 **인터넷이 없는 재부팅**뿐이다: 그때는 `time-sync.target`이 도달하지 않아도 `Restart=always`인 에이전트 프로세스 자체는 뜨고 스케줄러 틱도 돌지만, `ClockGate.is_synced()`가 계속 `False`를 돌려줘 예약·명령·`last_tick_at`·`sent/` 순환 삭제가 모두 보류된 채 매 틱 경고 로그만 남는다.
+
 ## 5. 결과 status
 
 | status | 의미 |
@@ -122,3 +130,23 @@ Orange Pi Zero 2W에는 RTC(시계 배터리)가 없다.
 - 보낸 바이트(`.bin`)는 `HARU_DATA_DIR/sent/`에 저장하고 **30일이 지난 것은 지운다**(detox-printer의 "보낸 바이트 전부 저장" 규칙을 SD카드 용량·수명에 맞게 순환 보관으로 바꾼 것).
 - PNG 캐시는 예약에서 더 이상 참조하지 않는 오래된 렌더를 정리한다(보관 기준은 M4에서 정함).
 - journald 크기 제한, 불필요한 디스크 쓰기 줄이기는 [setup.md](setup.md).
+
+### 보낸 바이트 순환 삭제 구현 (2026-09-17, `pi/agent/retention.py::prune_sent_bytes`)
+
+`HARU_SENT_RETENTION_DAYS`가 이제 실제로 연결됐다(이전에는 값만 읽히고 아무도 쓰지 않았다). **시계 동기화 게이트 뒤에서만, 하루 1회** 돈다(`Agent._maybe_prune_sent_bytes` — 4절 게이트가 미동기면 이 함수 자체를 부르지 않는다). `prune_sent_bytes(sent_dir, retention_days, today)`는 순수 함수이고 시계를 직접 읽지 않는다 — `today`는 호출자가 동기화 확인 후 계산해 넘긴다.
+
+**보관 경계**: 디렉터리 날짜 `d`, 나이 `age = (today − d).days`라 하면 `age ≤ retention_days`는 남기고 `age > retention_days`만 지운다 — `retention_days=30`이면 오늘부터 거슬러 31개 날짜(오늘 포함)는 항상 남고 31일째부터 지워진다.
+
+**안전장치**(`prune_sent_bytes` 독스트링, 코드 그대로):
+
+| # | 안전장치 |
+|---|---|
+| 1 | 날짜 판정은 **디렉터리 이름**(`YYYY-MM-DD`)만 쓴다 — mtime은 안 믿는다(RTC 없음, 부팅 직후 mtime이 틀릴 수 있음). 이름이 `^\d{4}-\d{2}-\d{2}$` 정규식에 맞고 `date.fromisoformat()`으로도 파싱되는 것만 대상. 정규식 없이 `fromisoformat`만 쓰면 Python 3.11에서 `"20260901"`(대시 없는 8자리)도 파싱에 성공하는 함정이 있어 **이중 검사**한다 |
+| 2 | 심볼릭 링크는 이름이 형식에 맞아도 절대 따라가거나 지우지 않는다 |
+| 3 | 지우기 직전 `resolve()`로 대상이 `sent_dir` 바로 아래인지 재확인 — `sent_dir` 밖으로 나가는 경로는 절대 지우지 않는다 |
+| 4 | **시계 폭주 방지**: `today`가 실제로 존재하는 가장 최근 날짜 디렉터리보다 `retention_days × RUNAWAY_MULTIPLIER`(3배 [기본값])일 넘게 앞서 있으면(RTC 없어 재부팅 직후 시각이 미래로 튈 수 있음, 예: 2038년) 삭제를 전부 거부하고 경고만 남긴다. 정상 범위 안이어도 **가장 최근 날짜 디렉터리는 나이와 무관하게 항상 남긴다** — 이 둘을 합치면 "이 함수를 한 번도 성공적으로 못 부른 채 오래 방치된 Pi"에서도 최소 하나의 증거는 남고, 시계가 미래로 튄 단일 호출이 전체를 지우는 일은 없다 |
+| 5 | 미래 날짜(`d > today`) 디렉터리는 지우지 않는다 |
+| 6 | `retention_days ≤ 0`이면 설정 실수로 전부 삭제되는 것을 막기 위해 아무것도 지우지 않고 경고만 남긴다 |
+| 7 | 개별 삭제 실패는 `logger.error`로 남기고 나머지 항목 처리를 계속한다(예외를 삼키지 않는다) |
+
+**삭제 실패·전체 보류는 인쇄 경로를 막지 않는다** — `_maybe_prune_sent_bytes`는 실패를 로그로만 남기고 다음 날 다시 시도한다. 순환 삭제가 SD 용량을 못 줄이는 것은 SD 용량 문제이지 인쇄 사고가 아니라는 판단.

@@ -94,8 +94,8 @@ Pi가 한 번도 poll하지 않았으면 `devices.printer_profile`이 없다. �
 | `DELETE /api/formats/{id}` | 참조하는 `schedules`가 있으면 409. 없으면 삭제 + 렌더 행·파일 정리 → 204 |
 | `POST /api/formats/import` | [`format-schema.md`](format-schema.md) 5절 순서 그대로. 요청 본문 최대 30MB [기본값](에셋 base64 포함) → 201 |
 | `GET /api/formats/{id}/export` | `assets` 내장 JSON, `Content-Disposition: attachment; filename="<name>.haru-format.json"` |
-| `GET /api/formats/{id}/preview.png` | 저장된 포맷. 쿼리 `date=YYYY-MM-DD`(선택, 기본 KST 오늘). 현재 프로필(없으면 기본 프로필)로 즉시 렌더(`kind=preview`) → `image/png`. 같은 (포맷 `updated_at`, date, profile_key) 렌더가 10분 안에 있으면 재사용 [기본값] |
-| `POST /api/formats/preview` | **저장하지 않은 편집본** 미리보기. 본문 = 포맷 문서(`assets` 없음), 쿼리 `date` 선택. `POST /api/formats`와 같은 엄격 검증(실패 422) → 현재 프로필로 렌더 → `200 image/png`. **`formats`·`renders` 행과 렌더 파일을 남기지 않는다**(PNG 바이트를 바로 응답) [기본값]. 앱 편집기가 입력이 멈춘 뒤 1초 디바운스로 부른다 |
+| `GET /api/formats/{id}/preview.png` | 저장된 포맷(소유자만, 아니면 404). 쿼리 `date=YYYY-MM-DD`(선택, 기본 KST 오늘). **그 포맷 소유자의 기기 프로필(기기 없으면 기본 프로필)**로 즉시 렌더(`kind=preview`) → `image/png`. 같은 (포맷 `updated_at`, date, profile_key) 렌더가 10분 안에 있으면 재사용 [기본값]. **(2026-09-17)** 이전에는 "아무 기기나 하나"인 전역 폴백 프로필로 렌더했다 — 멀티유저에서 다른 사용자 기기의 폭으로 잘못 렌더될 수 있던 것을 소유자 기준으로 고쳤다(`PrinterProfileProvider.getCurrentProfile(ownerUserId)`) |
+| `POST /api/formats/preview` | **저장하지 않은 편집본** 미리보기. 본문 = 포맷 문서(`assets` 없음), 쿼리 `date` 선택. `POST /api/formats`와 같은 엄격 검증(실패 422) → **요청한 로그인 사용자 소유 기기의 프로필**(기기 없으면 기본 프로필)로 렌더 → `200 image/png`. **`formats`·`renders` 행과 렌더 파일을 남기지 않는다**(PNG 바이트를 바로 응답) [기본값]. 앱 편집기가 입력이 멈춘 뒤 1초 디바운스로 부른다. **(2026-09-17)** `renderEphemeral`이 `ownerUserId` 인자를 받도록 바뀌어, 이전의 "아무 기기나 하나" 전역 폴백 프로필 대신 요청자 자신의 기기 프로필을 쓴다(세션 인증은 이 절 헤더대로 기존과 동일하게 필수 — 미로그인 401) |
 
 ### 에셋
 

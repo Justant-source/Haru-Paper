@@ -17,6 +17,10 @@
 - `printableWidthPx`는 잠정 1300이다. M1에서 detox-printer `07_print_image.py`(WIDTH_DOTS=1304, h-offset 2mm) 기준으로 확정되어 Pi가 보고한다. **서버 코드에 1300을 박지 않는다.** 예외: Pi가 한 번도 보고하지 않았을 때의 기본 프로필([`api.md`](api.md) 4.1절).
 - `profile_key` = `{model}-{dpi}-{paperWidthMm}-{printableWidthPx}` (예: `m832-300-110-1300`, 규약 [`../architecture.md`](../architecture.md) 3.4). 프로필이 바뀌면 렌더를 새로 만든다.
 
+**"아무 기기나 하나" 폴백 제거(2026-09-17, [확인됨·코드])**: `PrinterProfileProvider.getCurrentProfile()`(인자 없음, `deviceRepository.findAll().stream().findFirst()`로 아무 기기나 골라 쓰던 메서드)는 **삭제됐다**. 조회 경로는 `getCurrentProfile(ownerUserId)` 하나뿐이다 — `ownerUserId`가 `null`이면 DB 조회 없이 `PrinterProfile.DEFAULT`를 돌려준다. 이 메서드를 부르던 5곳(`HtmlTemplateBuilder.buildHtml`, `RenderServiceImpl`의 `renderEphemeral`/`renderWithCache`/`doRender`, `RenderCleanupScheduler`)이 전부 소유자 기준으로 바뀌었다(`RenderScheduler`는 원래부터 `getCurrentProfile(ownerUserId)`로 기기별 순회를 하고 있어 대상이 아니었다). `HtmlTemplateBuilder.buildHtml(document, targetDate, profile)`도 프로필을 직접 조회하지 않고 호출자(`RenderServiceImpl`)가 이미 구한 값을 인자로 받는다 — 호출자가 쓴 프로필(소유자별)과 스크린샷 폭·CSS px 기준이 어긋나지 않게 하려는 것이다.
+
+**운영 주의(반드시 읽을 것)**: 지금 Pi가 보고하는 프로필 `("m832", 300, 110, 1300)`은 서버 `PrinterProfile.DEFAULT`와 값이 같다. 기기 1대뿐인 지금은 이 변경으로 동작이 바뀌지 않는다. 하지만 Pi의 `printable_width_px=1300`은 `[기본값]`("M1에서 확정")일 뿐이고, **[`deploy.md`](deploy.md) 7.1절의 V4 백필 + claim-legacy를 아직 안 돌렸다면 `renders.owner_user_id`/`formats.owner_user_id`가 NULL인 레거시 행이 남아 있다.** 그 상태에서 Pi 프로필 값(`printableWidthPx` 등)을 바꾸면, NULL 소유자 렌더·포맷은 여전히 `getCurrentProfile(null)` → `PrinterProfile.DEFAULT`(옛 1300)로 비교·렌더되는 반면, 소유자가 있는 렌더·포맷은 새 프로필로 렌더돼 두 값이 어긋난다. **V4 + claim-legacy를 먼저 마쳐 NULL 소유자 행을 없앤 뒤에 프로필 값을 바꿔야 한다** — [`deploy.md`](deploy.md) 7.1절 런북(백업 → rebuild → V4 확인 → claim-legacy → 최종 검증)과 모순되지 않는다.
+
 ## 2. 파이프라인
 
 ```
@@ -98,7 +102,7 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 
 매 실행:
 
-1. 현재 `profile_key` 결정(없으면 기본 프로필)
+1. 기기를 하나씩 순회하며 **그 기기 소유자의** `profile_key` 결정(`getCurrentProfile(ownerUserId)`, 기기가 없으면 기본 프로필)
 2. **켜진 예약**의 occurrence 중 **지금부터 36시간 안**의 것을 KST로 계산
 3. 각 occurrence의 `(formatId, targetDate)`에 대해
    - 최신 렌더가 없거나, `format_updated_at < formats.updated_at`(포맷이 바뀜)이거나, `profile_key`가 다르면 → 렌더
@@ -108,7 +112,7 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 
 즉시 렌더(스케줄러를 거치지 않음):
 - **미리보기** `GET /api/formats/{id}/preview.png` → `kind=preview`
-- **편집본 미리보기** `POST /api/formats/preview` → 렌더 결과를 바로 응답하고 **행·파일을 남기지 않는다** [기본값]
+- **편집본 미리보기** `POST /api/formats/preview` → 렌더 결과를 바로 응답하고 **행·파일을 남기지 않는다** [기본값]. **(2026-09-17)** `renderEphemeral(document, targetDate, ownerUserId)`가 세션 로그인한 요청자 자신의 기기 프로필로 렌더한다(이전의 "아무 기기나 하나" 폴백 제거) — [`api.md`](api.md) 참고
 - **지금 인쇄** `POST /api/print-now` → `kind=command`, targetDate = KST 오늘
 
 ## 5. 렌더 파일 정리 [기본값]
@@ -118,8 +122,10 @@ CSS px = 장치 px로 맞춘다(뷰포트 폭 = `printableWidthPx`, `deviceScale
 - `kind=preview`: 24시간 지난 것 삭제
 - `kind=command`: 해당 명령이 `done`/`expired`가 되고 24시간 지난 것 삭제
 - `kind=scheduled`: `target_date < KST 오늘 − 7일` 삭제
-- **단, 포맷마다 현재 `profile_key`의 가장 최근 렌더 1개는 항상 남긴다**(Pi 오프라인 폴백, 스냅샷의 "날짜 무관 최신 렌더")
+- **단, 포맷마다 "현재 `profile_key`"의 가장 최근 렌더 1개는 항상 남긴다**(Pi 오프라인 폴백, 스냅샷의 "날짜 무관 최신 렌더")
 - 행과 파일을 같이 지운다. 파일만 남거나 행만 남은 고아는 로그 경고 후 정리
+
+**멀티유저 수정(2026-09-17, `RenderCleanupScheduler`, [확인됨·코드])**: "현재 `profile_key`"는 기기 전체에서 공통인 값이 아니다 — 사용자마다 기기(프로필)가 다를 수 있으므로, 렌더 하나하나에 대해 **"그 렌더를 만들 당시의 소유자(`Render.ownerUserId`)가 지금 쓰는 기기 프로필"**을 기준으로 "현재"를 판단한다(`currentProfileKeyFor`, `printerProfileProvider.getCurrentProfile(ownerUserId)`를 소유자별로 캐시해 실행 1회당 기기 수만큼만 조회). `RenderScheduler`(4절)가 기기별로 순회하며 소유자별 프로필을 쓰는 것과 같은 원칙이다. `owner_user_id`가 `NULL`인 레거시 렌더(claim-legacy 전)는 `PrinterProfileProviderImpl.getCurrentProfile(null)`이 DB 조회 없이 `PrinterProfile.DEFAULT`로 폴백해 처리하므로, 그 렌더는 `profileKey`가 `DEFAULT.profileKey()`와 같을 때만 "최신 유지" 대상이 된다.
 
 ## 6. 컨테이너 주의
 
