@@ -16,8 +16,12 @@ public interface RenderService {
      */
     RenderResult renderSavedFormatPreview(String formatId, LocalDate targetDate);
 
-    /** 저장하지 않은 편집본을 렌더한다. DB 행·파일을 남기지 않고 PNG 바이트만 돌려준다. */
-    byte[] renderEphemeral(FormatDocument document, LocalDate targetDate);
+    /**
+     * 저장하지 않은 편집본을 렌더한다. DB 행·파일을 남기지 않고 PNG 바이트만 돌려준다.
+     * ownerUserId는 요청한 로그인 사용자 — 그 사용자의 기기 프로필로 렌더한다(멀티유저,
+     * "아무 기기나 하나" 폴백 제거, 2026-09-17). 기기가 없으면 PrinterProfile.DEFAULT로 렌더한다.
+     */
+    byte[] renderEphemeral(FormatDocument document, LocalDate targetDate, String ownerUserId);
 
     /** "지금 인쇄" 전용: kind=command로 즉시 렌더해 렌더 행을 만든다. */
     RenderResult renderForCommand(String formatId, LocalDate targetDate);

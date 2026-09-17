@@ -18,30 +18,19 @@ public class PrinterProfileProviderImpl implements PrinterProfileProvider {
     private final DeviceRepository deviceRepository;
     private final ObjectMapper objectMapper;
 
-    @Override
-    public PrinterProfile getCurrentProfile() {
-        // 폴백: 아무 기기나 하나 (RenderScheduler가 호출할 때, 여러 기기가 있으면
-        // 이 메서드는 각각을 순회해야 하므로 3번 개선에서 없어진다)
-        Device device = deviceRepository.findAll().stream().findFirst().orElse(null);
-
-        if (device == null || device.getPrinterProfile() == null || device.getPrinterProfile().isBlank()) {
-            log.debug("Device printer profile not found or empty, using DEFAULT");
-            return PrinterProfile.DEFAULT;
-        }
-
-        try {
-            return objectMapper.readValue(device.getPrinterProfile(), PrinterProfile.class);
-        } catch (Exception e) {
-            log.error("Failed to deserialize printer profile from device, using DEFAULT", e);
-            return PrinterProfile.DEFAULT;
-        }
-    }
-
     /**
-     * 특정 사용자의 기기 프로필을 가져온다 (렌더링에서 소유자별로 호출).
+     * 특정 사용자의 기기 프로필을 가져온다 (렌더링·정리 스케줄러가 소유자별로 호출).
+     * ownerUserId가 null이면(레거시 리소스, claim-legacy 전이라 소유자를 모름) 어떤 기기와도
+     * 연결 지을 수 없으므로 DEFAULT로 폴백한다 — deviceRepository.findByOwnerUserId(null)의
+     * null 동치 비교 의미론에 기대지 않고 여기서 먼저 걸러낸다.
      */
     @Override
     public PrinterProfile getCurrentProfile(String ownerUserId) {
+        if (ownerUserId == null) {
+            log.debug("ownerUserId is null (unclaimed legacy resource), using DEFAULT");
+            return PrinterProfile.DEFAULT;
+        }
+
         Device device = deviceRepository.findByOwnerUserId(ownerUserId).orElse(null);
 
         if (device == null || device.getPrinterProfile() == null || device.getPrinterProfile().isBlank()) {

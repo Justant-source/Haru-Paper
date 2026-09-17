@@ -73,8 +73,8 @@ class RenderServiceImplOwnerTest {
         );
         ReflectionTestUtils.setField(renderService, "filesDir", tempDir.toString());
 
-        when(printerProfileProvider.getCurrentProfile()).thenReturn(PrinterProfile.DEFAULT);
-        when(htmlTemplateBuilder.buildHtml(any(), any())).thenReturn("<html></html>");
+        when(printerProfileProvider.getCurrentProfile(nullable(String.class))).thenReturn(PrinterProfile.DEFAULT);
+        when(htmlTemplateBuilder.buildHtml(any(), any(), any())).thenReturn("<html></html>");
         when(playwrightRenderer.captureScreenshot(any(), anyInt())).thenReturn(fakePngBytes());
         when(grayscaleConverter.convertToGrayscale(any(), anyInt())).thenReturn(fakePngBytes());
         when(pbmConverter.convertToPbm(any())).thenReturn(new byte[]{1, 2, 3});

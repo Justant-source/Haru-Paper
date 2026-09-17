@@ -245,7 +245,12 @@ public class FormatController {
     @PostMapping(value = "/preview", produces = MediaType.IMAGE_PNG_VALUE)
     public ResponseEntity<byte[]> previewEphemeralFormat(
         @RequestBody Map<String, Object> rawBody,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+        @AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).build();
+        }
+
         if (date == null) {
             date = TimeUtils.todayInKST();
         }
@@ -254,7 +259,8 @@ public class FormatController {
         FormatDocument document = formatService.getFormatValidator()
                 .validateAndParse(rawBody, false, objectMapper);
 
-        byte[] pngBytes = renderService.renderEphemeral(document, date);
+        // 요청한 사용자의 기기 프로필로 렌더한다(멀티유저, "아무 기기나 하나" 폴백 제거)
+        byte[] pngBytes = renderService.renderEphemeral(document, date, principal.userId());
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.IMAGE_PNG);
         return ResponseEntity.ok()

@@ -59,11 +59,12 @@ public class RenderServiceImpl implements RenderService {
 
     /**
      * 저장하지 않은 편집본 렌더. DB 행·파일을 남기지 않고 PNG 바이트만 반환.
+     * ownerUserId 소유 기기의 프로필을 쓴다(멀티유저) — "아무 기기나 하나" 폴백은 없앴다.
      */
     @Override
-    public byte[] renderEphemeral(FormatDocument document, LocalDate targetDate) {
-        var profile = printerProfileProvider.getCurrentProfile();
-        String html = htmlTemplateBuilder.buildHtml(document, targetDate);
+    public byte[] renderEphemeral(FormatDocument document, LocalDate targetDate, String ownerUserId) {
+        var profile = printerProfileProvider.getCurrentProfile(ownerUserId);
+        String html = htmlTemplateBuilder.buildHtml(document, targetDate, profile);
         byte[] pngBytes = playwrightRenderer.captureScreenshot(html, profile.printableWidthPx());
         return grayscaleConverter.convertToGrayscale(pngBytes, profile.printableWidthPx());
     }
@@ -93,7 +94,8 @@ public class RenderServiceImpl implements RenderService {
      * 내부 렌더 메서드. 캐시를 고려하거나 새로 생성한다.
      */
     private RenderResult renderWithCache(Format format, LocalDate targetDate, String kind, long cacheWindowMs) {
-        var profile = printerProfileProvider.getCurrentProfile();
+        // format 소유자의 기기 프로필을 쓴다(멀티유저) — 여러 기기가 있으면 사용자마다 다를 수 있다.
+        var profile = printerProfileProvider.getCurrentProfile(format.getOwnerUserId());
 
         // 캐시 체크: 같은 (formatId, targetDate, profileKey)이고 cacheWindowMs 안의 렌더
         if ("preview".equals(kind)) {
@@ -123,7 +125,8 @@ public class RenderServiceImpl implements RenderService {
      * 실제 렌더 수행: HTML 생성 → Chromium 스크린샷 → 그레이스케일 변환 → 저장
      */
     private RenderResult doRender(Format format, LocalDate targetDate, String kind) {
-        var profile = printerProfileProvider.getCurrentProfile();
+        // format 소유자의 기기 프로필을 쓴다(멀티유저) — 여러 기기가 있으면 사용자마다 다를 수 있다.
+        var profile = printerProfileProvider.getCurrentProfile(format.getOwnerUserId());
 
         // 포맷 문서 역직렬화
         FormatDocument document;
@@ -133,8 +136,9 @@ public class RenderServiceImpl implements RenderService {
             throw new RuntimeException("Failed to deserialize format body", e);
         }
 
-        // 1. HTML 생성 (변수 치환, 동적 데이터 조회 포함)
-        String html = htmlTemplateBuilder.buildHtml(document, targetDate);
+        // 1. HTML 생성 (변수 치환, 동적 데이터 조회 포함) — 위에서 구한 profile을 그대로 써서
+        // Chromium 스크린샷 폭·CSS px 변환이 서로 다른 프로필을 기준으로 어긋나지 않게 한다.
+        String html = htmlTemplateBuilder.buildHtml(document, targetDate, profile);
 
         // 2. Chromium 스크린샷 (PNG 반환)
         byte[] pngBytes = playwrightRenderer.captureScreenshot(html, profile.printableWidthPx());

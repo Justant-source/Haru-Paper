@@ -2,7 +2,7 @@ package com.harupaper.server.render;
 
 import com.harupaper.server.asset.Asset;
 import com.harupaper.server.asset.AssetRepository;
-import com.harupaper.server.device.PrinterProfileProvider;
+import com.harupaper.server.device.PrinterProfile;
 import com.harupaper.server.format.Block;
 import com.harupaper.server.format.BlockStyle;
 import com.harupaper.server.format.FormatDocument;
@@ -38,18 +38,15 @@ import java.util.Optional;
 @Component
 public class HtmlTemplateBuilder {
 
-    private final PrinterProfileProvider printerProfileProvider;
     private final AssetRepository assetRepository;
     private final WeatherProvider weatherProvider;
     private final WeatherLocationProvider weatherLocationProvider;
     private final String filesDir;
 
-    public HtmlTemplateBuilder(PrinterProfileProvider printerProfileProvider,
-                               AssetRepository assetRepository,
+    public HtmlTemplateBuilder(AssetRepository assetRepository,
                                WeatherProvider weatherProvider,
                                WeatherLocationProvider weatherLocationProvider,
                                @Value("${haru.files-dir}") String filesDir) {
-        this.printerProfileProvider = printerProfileProvider;
         this.assetRepository = assetRepository;
         this.weatherProvider = weatherProvider;
         this.weatherLocationProvider = weatherLocationProvider;
@@ -59,9 +56,12 @@ public class HtmlTemplateBuilder {
     /**
      * FormatDocument을 HTML로 변환한다.
      * 파이프라인: 변수 치환 → 동적 데이터 조회(날씨) → 직접 HTML 생성
+     *
+     * profile은 호출자(RenderServiceImpl)가 이미 구한 값을 그대로 받는다 — 여기서 다시
+     * PrinterProfileProvider를 부르면 호출자가 쓴 프로필(소유자별)과 어긋날 수 있다
+     * ("아무 기기나 하나" 폴백 제거, 2026-09-17).
      */
-    public String buildHtml(FormatDocument document, LocalDate targetDate) {
-        var profile = printerProfileProvider.getCurrentProfile();
+    public String buildHtml(FormatDocument document, LocalDate targetDate, PrinterProfile profile) {
         // 저장된 포맷은 FormatService.normalizeDocument가 이미 채워 왔지만, 즉석 미리보기
         // (POST /api/formats/preview)는 저장을 거치지 않고 바로 여기로 오므로 다시 한번
         // 필드별 기본값을 채운다 — {"style": {}}처럼 부분적으로 빈 입력에서도 안전해야 한다.

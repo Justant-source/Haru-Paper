@@ -29,7 +29,13 @@ import java.util.Optional;
  * - kind=preview: 24시간 지난 것 삭제
  * - kind=command: 명령이 done/expired가 된 후 24시간 지난 것 삭제
  * - kind=scheduled: targetDate < 오늘 - 7일 삭제
- * - 단, 포맷마다 현재 profileKey의 최신 렌더 1개는 항상 유지
+ * - 단, 포맷마다 "현재 profileKey"의 최신 렌더 1개는 항상 유지
+ *
+ * 멀티유저 주의(2026-09-17 수정): "현재 profileKey"는 기기 전체에서 공통인 값이 아니다.
+ * 사용자마다 기기(프로필)가 다를 수 있으므로, 렌더 하나하나에 대해 "그 렌더가 만들어질 때의
+ * 소유자(Render.ownerUserId)가 지금 쓰는 기기 프로필"을 기준으로 판단한다 — RenderScheduler가
+ * 기기별로 순회하며 소유자별 프로필을 쓰는 것과 같은 원칙이다. owner_user_id가 NULL인 레거시
+ * 렌더(claim-legacy 전)는 PrinterProfileProviderImpl이 DEFAULT로 폴백해 처리한다.
  */
 @Slf4j
 @Component
@@ -48,19 +54,21 @@ public class RenderCleanupScheduler {
         log.info("RenderCleanupScheduler: starting cleanup");
 
         try {
-            String currentProfileKey = printerProfileProvider.getCurrentProfile().profileKey();
             LocalDate today = TimeUtils.todayInKST();
             Instant now = Instant.now();
 
+            // 소유자(ownerUserId, null 포함)별 현재 profileKey 캐시 — 실행 1회당 기기 수만큼만 조회한다.
+            Map<String, String> profileKeyByOwner = new HashMap<>();
+
             // 1. kind=preview: 24시간 지난 것 삭제
-            cleanupPreviewRenders(now, currentProfileKey);
+            cleanupPreviewRenders(now, profileKeyByOwner);
 
             // 2. kind=command: done/expired인 것 중 24시간 지난 것 삭제
             // (현재 구현에서는 스킵 — Command 도메인과의 상호작용이 필요)
             // cleanupCommandRenders(now);
 
             // 3. kind=scheduled: targetDate < 오늘 - 7일 삭제
-            cleanupScheduledRenders(today, currentProfileKey);
+            cleanupScheduledRenders(today, profileKeyByOwner);
 
             log.info("RenderCleanupScheduler: cleanup completed");
 
@@ -71,9 +79,9 @@ public class RenderCleanupScheduler {
 
     /**
      * preview 렌더 정리: 24시간 지난 것 삭제
-     * 단, 포맷마다 현재 profileKey의 최신 렌더 1개는 유지
+     * 단, 포맷마다 "현재 profileKey"의 최신 렌더 1개는 유지 — "현재"는 그 렌더 소유자 기준(멀티유저)
      */
-    private void cleanupPreviewRenders(Instant now, String currentProfileKey) {
+    private void cleanupPreviewRenders(Instant now, Map<String, String> profileKeyByOwner) {
         List<Render> previewRenders = renderRepository.findAllByKind("preview");
         Instant cutoff = now.minusSeconds(24 * 3600);  // 24시간 전
 
@@ -86,9 +94,9 @@ public class RenderCleanupScheduler {
         for (String formatId : byFormat.keySet()) {
             List<Render> renders = byFormat.get(formatId);
 
-            // 현재 profileKey의 최신 렌더 찾기
+            // "현재" 프로필과 일치하는 최신 렌더 찾기 — 각 렌더는 자기 소유자의 기기 프로필과 비교한다.
             Optional<Render> latestCurrent = renders.stream()
-                    .filter(r -> currentProfileKey.equals(r.getProfileKey()))
+                    .filter(r -> currentProfileKeyFor(r, profileKeyByOwner).equals(r.getProfileKey()))
                     .max(Comparator.comparing(Render::getRenderedAt));
 
             for (Render render : renders) {
@@ -107,9 +115,9 @@ public class RenderCleanupScheduler {
 
     /**
      * scheduled 렌더 정리: targetDate < 오늘 - 7일인 것 삭제
-     * 단, 포맷마다 현재 profileKey의 최신 렌더 1개는 유지
+     * 단, 포맷마다 "현재 profileKey"의 최신 렌더 1개는 유지 — "현재"는 그 렌더 소유자 기준(멀티유저)
      */
-    private void cleanupScheduledRenders(LocalDate today, String currentProfileKey) {
+    private void cleanupScheduledRenders(LocalDate today, Map<String, String> profileKeyByOwner) {
         List<Render> scheduledRenders = renderRepository.findAllByKind("scheduled");
         LocalDate cutoffDate = today.minusDays(7);
 
@@ -122,9 +130,9 @@ public class RenderCleanupScheduler {
         for (String formatId : byFormat.keySet()) {
             List<Render> renders = byFormat.get(formatId);
 
-            // 현재 profileKey의 최신 렌더 찾기
+            // "현재" 프로필과 일치하는 최신 렌더 찾기 — 각 렌더는 자기 소유자의 기기 프로필과 비교한다.
             Optional<Render> latestCurrent = renders.stream()
-                    .filter(r -> currentProfileKey.equals(r.getProfileKey()))
+                    .filter(r -> currentProfileKeyFor(r, profileKeyByOwner).equals(r.getProfileKey()))
                     .max(Comparator.comparing(Render::getRenderedAt));
 
             for (Render render : renders) {
@@ -139,6 +147,21 @@ public class RenderCleanupScheduler {
                 }
             }
         }
+    }
+
+    /**
+     * 렌더 r의 "현재 profileKey"를 구한다: r을 만들 당시의 소유자(ownerUserId, NULL 가능)가
+     * 지금 쓰는 기기 프로필. ownerUserId(문자열 또는 "NULL 대체 키")별로 캐시해 요청 수를 줄인다.
+     *
+     * 소유자를 모르는 레거시 렌더(ownerUserId=NULL, claim-legacy 전)는 PrinterProfileProviderImpl이
+     * DEFAULT로 폴백하므로, 그 렌더의 profileKey가 DEFAULT.profileKey()와 같을 때만 "최신 유지"
+     * 대상이 된다. 다른 사용자의 기기 프로필과 잘못 비교되는 일은 없다.
+     */
+    private String currentProfileKeyFor(Render render, Map<String, String> profileKeyByOwner) {
+        String ownerUserId = render.getOwnerUserId();
+        String cacheKey = ownerUserId == null ? "" : ownerUserId;
+        return profileKeyByOwner.computeIfAbsent(cacheKey,
+                k -> printerProfileProvider.getCurrentProfile(ownerUserId).profileKey());
     }
 
     /**
