@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { formatsApi } from '../api/formats'
 import { deviceApi } from '../api/device'
+import { DEFAULT_PRINTER_PROFILE } from '../types/device'
 import {
   DEFAULT_STYLE,
   type FormatDocument,
@@ -27,10 +28,6 @@ import { WeatherBlockForm } from '../format-editor/blocks/WeatherBlockForm'
 import { Preview } from '../format-editor/Preview'
 import { LayoutEditor } from '../format-editor/LayoutEditor'
 import { useI18n } from '../i18n'
-
-// PrinterProfile.DEFAULT 값 (서버와 같은 값)
-// 기준: 110mm 롤, 300dpi → 1304px
-const DEFAULT_PRINTER_WIDTH_PX = 1304
 
 export function FormatEditPage() {
   const { t } = useI18n()
@@ -58,7 +55,7 @@ export function FormatEditPage() {
   // 슬롯 선택 상태: rowId와 slotId 쌍
   const [selectedSlot, setSelectedSlot] = useState<{ rowId: string; slotId: string } | null>(null)
 
-  const [printerWidthPx, setPrinterWidthPx] = useState(DEFAULT_PRINTER_WIDTH_PX)
+  const [printerWidthPx, setPrinterWidthPx] = useState(DEFAULT_PRINTER_PROFILE.printableWidthPx)
 
   const initialDocRef = useRef<FormatDocument | null>(null)
   const savedRef = useRef(true)

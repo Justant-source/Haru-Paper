@@ -7,6 +7,19 @@ export interface PrinterProfile {
   printableWidthPx: number
 }
 
+/**
+ * Pi가 아직 프로필을 보고하지 않았을 때 서버가 쓰는 기본 프로필과 같은 값.
+ * 원본: server/src/main/java/com/harupaper/server/device/PrinterProfile.java
+ *       (PrinterProfile.DEFAULT), docs/server/api.md 4.1절.
+ * 앱은 프린터 프로필만 알고 프린터 프로토콜 상수는 모른다(CLAUDE.md "구성요소 경계").
+ */
+export const DEFAULT_PRINTER_PROFILE: PrinterProfile = {
+  model: 'm832',
+  dpi: 300,
+  paperWidthMm: 110,
+  printableWidthPx: 1300,
+}
+
 export type PrinterState = 'ok' | 'offline' | 'error' | 'unknown'
 
 export interface PrinterStatus {

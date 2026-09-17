@@ -1,13 +1,7 @@
 import React from 'react'
 import type { Block } from '../types/format'
+import { DEFAULT_PRINTER_PROFILE } from '../types/device'
 import { ptToPx } from '../lib/layout-math'
-
-/**
- * 프린터 프로필 기본값 (PrinterProfile.DEFAULT와 일치)
- * m832, 300 dpi, 110mm, 1300px printableWidth
- */
-const DEFAULT_PRINTER_WIDTH_PX = 1300
-const DEFAULT_DPI = 300
 
 /**
  * 슬롯 내용을 클라이언트 CSS로 근사 렌더링한다.
@@ -16,7 +10,7 @@ const DEFAULT_DPI = 300
  */
 export function SlotContent({
   block,
-  printerWidthPx = DEFAULT_PRINTER_WIDTH_PX,
+  printerWidthPx = DEFAULT_PRINTER_PROFILE.printableWidthPx,
   slotWidthFraction: _slotWidthFraction = 1,
 }: {
   block: Block
@@ -44,7 +38,7 @@ export function SlotContent({
 function renderText(block: Block): React.JSX.Element {
   const text = (block.props?.text as string) || ''
   const fontSizePt = block.style?.fontSizePt ?? 11 // 기본값 11pt (docs/server/format-schema.md 3.2절)
-  const fontSizePx = ptToPx(fontSizePt, DEFAULT_DPI)
+  const fontSizePx = ptToPx(fontSizePt, DEFAULT_PRINTER_PROFILE.dpi)
   const align = block.style?.align ?? 'left'
   const bold = block.style?.bold ?? false
 
@@ -112,7 +106,7 @@ function renderImage(block: Block, _printerWidthPx: number): React.JSX.Element {
 function renderDateHeader(block: Block): React.JSX.Element {
   const pattern = (block.props?.pattern as string) ?? 'YYYY년 M월 D일 dddd'
   const fontSizePt = block.style?.fontSizePt ?? 11
-  const fontSizePx = ptToPx(fontSizePt, DEFAULT_DPI)
+  const fontSizePx = ptToPx(fontSizePt, DEFAULT_PRINTER_PROFILE.dpi)
   const align = block.style?.align ?? 'center'
   const bold = block.style?.bold ?? false
 
