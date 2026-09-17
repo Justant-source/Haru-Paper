@@ -10,15 +10,17 @@ import sys
 import threading
 import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable, Optional
 
 from printer import Printer, PrinterStatus
 from transport import Transport
 
-from .clock import now_kst, parse_local_iso
+from .clock import ClockGate, check_ntp_synchronized, now_kst, parse_local_iso
 from .config import AgentConfig
 from .executor import Executor
+from .retention import prune_sent_bytes
 from .scheduler import calculate_occurrences, filter_executable_occurrences
 from .storage import Storage
 from .sync import HttpPollSyncChannel
@@ -35,7 +37,20 @@ logger = logging.getLogger(__name__)
 class Agent:
     """Pi 에이전트 메인 루프."""
 
-    def __init__(self, config: AgentConfig):
+    # kv.last_tick_at 쓰기 간격(초) [기본값]. 매 틱(10초)마다 쓰면 하루 8,640회
+    # SD카드 쓰기가 된다(과제 2 지시문) — 60초로 늘려 하루 최대 1,440회로 줄인다.
+    # 되돌아보기 정확도에 주는 영향은 _maybe_update_last_tick 참고.
+    LAST_TICK_WRITE_INTERVAL_SEC = 60
+
+    def __init__(self, config: AgentConfig, clock_synced_check: Optional[Callable[[], bool]] = None):
+        """
+        Args:
+            config: 에이전트 설정.
+            clock_synced_check: NTP 동기화 판정 함수 주입점(과제 1 지시문 "판정
+                함수를 주입 가능하게"). 생략하면 운영 구현(`clock.check_ntp_synchronized`,
+                `timedatectl` 호출)을 쓴다. 테스트에서 하드웨어/실제 timedatectl 없이
+                동기화 상태를 흉내낼 때 넘긴다.
+        """
         self.config = config
         self.running = False
 
@@ -101,6 +116,17 @@ class Agent:
         # 새 명령이 도착하면 스케줄러 틱을 즉시 깨운다(.temp/05 설계 Q5) — poll(최대
         # 30초) + 다음 틱(최대 10초) = 최대 40초를 기다리지 않고 poll 직후 실행되게 한다.
         self._wake = threading.Event()
+
+        # 시계 동기화 게이트(과제 1, clock.py의 ClockGate 참고). 미동기 동안은
+        # _do_scheduler_tick이 예약·명령 처리를 전부 보류한다.
+        self._clock_gate = ClockGate(check_fn=clock_synced_check or check_ntp_synchronized)
+        # kv.last_tick_at 마지막 기록 시각(메모리 캐시) — 매번 kv를 읽지 않고 쓰기
+        # 간격을 판정한다.
+        self._last_tick_write_at: Optional[datetime] = None
+        # 보낸 바이트 순환 삭제를 마지막으로 돌린 날짜(KST, 메모리). 하루 1회만
+        # 돌린다 — 디렉터리가 날짜 단위라 그 이상 자주 돌 이유가 없다. 재시작하면
+        # None이라 첫 동기화 틱에 한 번 더 돌지만, prune_sent_bytes는 멱등이다.
+        self._last_prune_date = None
 
     def _load_printer(self, driver_name: str) -> Printer:
         """프린터 드라이버 로드."""
@@ -398,17 +424,36 @@ class Agent:
     def _do_scheduler_tick(self):
         """스케줄러 틱: 실행할 occurrence와 대기 중인 명령을 처리한다.
 
-        순서(.temp/05 설계 4.5):
+        순서(.temp/05 설계 4.5, 2026-09-17 시계 게이트 추가로 순서 앞에 0단계 추가):
+          0) **시계 동기화 게이트**(과제 1). 미동기면 occurrence·명령 처리를 전부
+             보류하고 kv.last_tick_at도 건드리지 않은 채 틱을 끝낸다 — 신뢰할 수
+             없는 `now`를 되돌아보기 기준점으로 남기지 않기 위해서다. "지금 인쇄"
+             명령도 여기 포함된다: TTL 계산(`Executor._command_ttl_expired`)과
+             결과 payload의 `executedAt`이 전부 `now_kst()`에 의존하므로, 시계를
+             못 믿는 동안은 명령 실행도 같이 보류한다(과제 1 지시문 "판단하세요"의
+             결론 — docs 갱신 필요 항목으로 보고).
           1) 스냅샷이 없어도 명령 처리는 계속한다(명령은 스냅샷과 무관하다).
-          2) occurrence 계산 → 실행 가능한 것 필터링(재시도 간격 포함) → 실행.
+          2) occurrence 계산(kv.last_tick_at부터 되돌아봄, 과제 2) → 실행 가능한
+             것 필터링(재시도 간격 포함) → 실행.
           3) **저장소를 다시 읽어** 유예 만료 처리 → Executor.finalize_occurrence.
              (2단계에서 막 기록한 값을 4단계가 봐야 한다 — 틱 시작 시점의 스냅샷을
              쓰면 재시도 도입 후 방금 기록한 결과를 덮어쓸 수 있다.)
           4) 명령 처리: 재시도 간격을 지킨 pending 명령을 예약 시각 순서 없이(명령은
              먼저 온 순서) execute_command에 넘긴다.
+          5) kv.last_tick_at 갱신(쓰기 간격 적용, 과제 2).
         """
         logger.debug("Scheduler tick")
         now = now_kst()
+
+        if not self._clock_gate.is_synced():
+            # 매 틱 경고를 남긴다 — check_ntp_synchronized 자체도 매 호출 경고를
+            # 남기지만(동기화 전까지는 매 틱 실제로 다시 불린다), 이 틱이 "왜
+            # 아무 것도 안 했는지"를 스케줄러 관점에서도 분명히 남긴다.
+            logger.warning(
+                "Pi 시계가 아직 NTP 동기화되지 않음 — 이번 틱은 예약·명령 실행을 "
+                "보류한다(docs/pi/policy.md 4절). last_tick_at도 갱신하지 않는다."
+            )
+            return
 
         if self.snapshot:
             self._run_occurrence_tick(now)
@@ -416,10 +461,73 @@ class Agent:
             logger.debug("No snapshot yet — occurrence 처리는 건너뛰고 명령만 처리한다")
 
         self._run_command_tick(now)
+        self._maybe_update_last_tick(now)
+        self._maybe_prune_sent_bytes(now)
+
+    def _maybe_prune_sent_bytes(self, now: datetime) -> None:
+        """보낸 바이트(`sent/<YYYY-MM-DD>/`)를 `HARU_SENT_RETENTION_DAYS` 순환 보관한다.
+
+        CLAUDE.md 코드 규칙 "보낸 바이트는 30일 순환 보관", `docs/pi/policy.md` 7절.
+
+        **시계 동기화 게이트 뒤에서만 불린다**(`_do_scheduler_tick`의 0단계). Pi에는
+        RTC가 없어 부팅 직후 `now`가 틀릴 수 있고, 틀린 `today`로 순환 삭제를
+        돌리면 멀쩡한 기록을 지운다. `prune_sent_bytes`에도 시계 폭주 방지가 있지만
+        그건 마지막 방어선이고, 정상 경로는 "동기화된 시계로만 부른다"이다.
+
+        하루 1회만 돈다(`_last_prune_date`). 실패해도 인쇄 경로를 막지 않도록
+        예외는 로그로 남기고 틱을 계속한다 — 보관 삭제가 안 되는 것은 SD 용량
+        문제이지 인쇄 사고가 아니다.
+        """
+        today = now.date()
+        if self._last_prune_date == today:
+            return
+        try:
+            report = prune_sent_bytes(
+                self.data_dir / "sent", self.config.sent_retention_days, today
+            )
+        except Exception:
+            logger.error("보낸 바이트 순환 삭제 실패 — 다음 날 다시 시도한다", exc_info=True)
+        else:
+            if report.aborted:
+                logger.warning(f"보낸 바이트 순환 삭제 보류: {report.abort_reason}")
+            elif report.deleted or report.failed:
+                logger.info(
+                    f"보낸 바이트 순환 삭제: {len(report.deleted)}개 삭제, "
+                    f"{len(report.failed)}개 실패"
+                )
+        # 실패·보류여도 오늘은 다시 돌리지 않는다 — 10초마다 같은 실패를 반복해
+        # 로그를 채우는 것보다 하루 한 번 시도가 낫다.
+        self._last_prune_date = today
+
+    def _maybe_update_last_tick(self, now: datetime) -> None:
+        """kv.last_tick_at을 갱신한다(과제 2). 이 메서드는 시계가 동기화된 뒤에만
+        불린다(`_do_scheduler_tick`의 0단계 게이트) — 미동기 동안의 신뢰할 수 없는
+        `now`가 되돌아보기 기준점으로 남는 일은 없다.
+
+        **쓰기 간격**: 매 틱(10초)마다 쓰면 하루 8,640회 SD 쓰기가 된다 — 여기서는
+        `LAST_TICK_WRITE_INTERVAL_SEC`(60초 [기본값]) 이상 지났을 때만 쓴다.
+
+        **되돌아보기 정확도에 주는 영향**: 기록된 `last_tick_at`은 실제 마지막
+        정상 틱보다 최대 (간격 − 1)초 더 과거일 수 있다. 재시작 시
+        `calculate_occurrences`가 그만큼 더 넓은 범위를 다시 훑지만, 이미
+        `final=1`로 종결된 occurrence는 `filter_executable_occurrences`와
+        `_finalize_expired_occurrences`가 그대로 건너뛰므로(occurrence_key로
+        정확히 재조회) 중복 인쇄나 잘못된 재기록은 없다 — 손해는 약간의 재계산
+        비용뿐이다.
+        """
+        if self._last_tick_write_at is not None and (
+            now - self._last_tick_write_at
+        ) < timedelta(seconds=self.LAST_TICK_WRITE_INTERVAL_SEC):
+            return
+        self.storage.set_kv("last_tick_at", now.isoformat())
+        self._last_tick_write_at = now
 
     def _run_occurrence_tick(self, now) -> None:
-        # 1. occurrence 계산
-        candidates = calculate_occurrences(self.snapshot, now, self.config.grace_minutes)
+        # 1. occurrence 계산. kv.last_tick_at부터 되돌아본다(과제 2, agent.md:135) —
+        # last_tick_at이 없으면(최초 기동) calculate_occurrences가 기존 동작(오늘만)을
+        # 그대로 유지한다.
+        last_tick_at = self.storage.get_kv("last_tick_at")
+        candidates = calculate_occurrences(self.snapshot, now, self.config.grace_minutes, last_tick_at)
 
         # 2. executed_occurrences 조회 — candidates가 이미 정확한 occurrence_key를
         # 계산해 뒀으므로 그 key로 직접 조회한다.
@@ -440,35 +548,84 @@ class Agent:
 
         # 4. 유예 시간이 지난 것들을 최종 기록. 저장소를 다시 읽는다(3단계가 방금
         # 쓴 값을 보기 위해 — existing_occs는 틱 시작 시점 스냅샷이라 쓰지 않는다).
+        self._finalize_expired_occurrences(candidates, now)
+
+    def _finalize_expired_occurrences(self, candidates: list, now) -> None:
+        """유예가 지난 occurrence를 최종 기록한다(과제 2).
+
+        대상은 두 집합의 합이다:
+          (a) `candidates` — 현재 스냅샷에 남아 있는 예약에서 계산된 occurrence
+              (오늘 + 되돌아보기 범위).
+          (b) `storage.get_unfinished_occurrences()` — `final=0`으로 남은 행
+              전부. 이미 최소 한 번 시도된(= `begin_occurrence_attempt`를 지난)
+              occurrence는, 그 뒤 스냅샷에서 예약이 지워지거나 꺼지면 (a)에
+              다시 나타나지 않는다 — (b)가 없으면 그 행은 `final=0`인 채
+              영원히 남는 고아 행이 된다(이전 구현자가 만들어 두고 호출부가
+              없던 메서드를 여기서 쓴다).
+
+        **판단 — 스냅샷에서 사라진/비활성화된 예약의 "한 번도 시도 안 된" 과거
+        회차는 만들지 않는다.** (a)는 항상 "지금 스냅샷에 있는 예약"만 후보로
+        내놓으므로, 삭제되거나 꺼진 예약의 미시도 과거 회차는 애초에 후보에
+        오르지 않는다 — 별도 분기가 필요 없다. 사용자가 예약을 지우거나 끈 것은
+        "이 예약에 대한 새 이력을 만들지 말라"는 의사로 해석했다(지시문 그대로:
+        "모르는 예약을 missed로 만들면 앱 이력이 오염될 수 있다"). 반대로 이미
+        시도 이력이 있는(= 행이 존재하는) 것은 (b) 경로로 반드시 종결한다 —
+        "예약이 사라졌다"는 이유로 이미 벌어진 시도의 결과를 영원히 감추면
+        안 된다.
+        """
         grace_delta = timedelta(minutes=self.config.grace_minutes)
-        for occ in candidates:
-            row = self.storage.get_executed_occurrence(occ.occurrence_key)
+        candidates_by_key = {occ.occurrence_key: occ for occ in candidates}
+        unfinished_keys = {row["occurrence_key"] for row in self.storage.get_unfinished_occurrences()}
+        keys_to_check = set(candidates_by_key) | unfinished_keys
+
+        for key in keys_to_check:
+            row = self.storage.get_executed_occurrence(key)
             if row and row.get("final"):
                 continue
 
-            if now <= occ.scheduled_at + grace_delta:
+            occ = candidates_by_key.get(key)
+            if occ is not None:
+                scheduled_at = occ.scheduled_at
+            else:
+                # 스냅샷에는 없지만(예약 삭제·비활성화) 시도 이력은 남은 고아
+                # occurrence — 저장된 scheduled_at으로 유예를 판단한다
+                # (storage.py 마이그레이션 컬럼, executor._recover_scheduled_at과
+                # 같은 목적).
+                scheduled_at = parse_local_iso(row.get("scheduled_at")) if row else None
+                if scheduled_at is None:
+                    # 복원 불가 — 잘못 missed 처리하는 것보다 다음 틱에 다시
+                    # 보는 쪽이 안전하다.
+                    continue
+
+            if now <= scheduled_at + grace_delta:
                 continue
 
             if row:
-                # 시도한 적이 있으면 마지막 사유를 그대로 최종 status로(policy.md 3절
-                # "재시도했지만 조건 미충족이면 마지막 사유"). checking/attempting처럼
-                # 비종결 status가 남아 있으면 finalize_occurrence가 서버 ENUM 보호를
-                # 위해 failed로 매핑한다.
+                # 이미 최소 한 번 시도된 적이 있다(checking/attempting을 거쳤다는
+                # 뜻) — 이 시점은 반드시 clock_gate가 동기화된 이후다(미동기
+                # 동안은 _do_scheduler_tick이 애초에 이 메서드까지 오지 않는다).
+                # 시계 탓으로 돌리지 않고 마지막 사유를 그대로 최종 status로
+                # 쓴다(policy.md 3절 "재시도했지만 조건 미충족이면 마지막 사유").
                 self.executor.finalize_occurrence(
-                    occ.occurrence_key, status=row.get("status") or "missed", detail=row.get("detail") or ""
+                    key, status=row.get("status") or "missed", detail=row.get("detail") or ""
                 )
             else:
-                # 처음 본 것인데 유예가 지났으면 missed(policy.md:46 "시도 기록이
-                # 아예 없는 회차"). finalize_occurrence는 저장소 행이 있어야 하므로
-                # 먼저 빈 시도를 만든다.
+                # 한 번도 시도되지 않은 채 유예가 지남(policy.md:46 "시도 기록이
+                # 아예 없는 회차"). "미동기라 놓친 것"과 "에이전트가 꺼져 있어
+                # 놓친 것"을 구분한다(과제 1, ClockGate.expired_during_unsynced_window).
+                status = (
+                    "skipped_clock_unsynced"
+                    if self._clock_gate.expired_during_unsynced_window(scheduled_at + grace_delta)
+                    else "missed"
+                )
                 self.storage.begin_occurrence_attempt(
-                    occ.occurrence_key,
+                    key,
                     format_id=occ.format_id,
                     render_id="",
-                    scheduled_at=occ.scheduled_at.isoformat(),
+                    scheduled_at=scheduled_at.isoformat(),
                     result_id=str(uuid.uuid4()),
                 )
-                self.executor.finalize_occurrence(occ.occurrence_key, status="missed", detail="")
+                self.executor.finalize_occurrence(key, status=status, detail="")
 
     def _run_command_tick(self, now) -> None:
         retry_delta = timedelta(seconds=self.config.retry_interval_sec)

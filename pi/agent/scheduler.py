@@ -10,6 +10,11 @@ from .clock import KST, parse_local_iso
 
 logger = logging.getLogger(__name__)
 
+# 되돌아보는 범위의 최대 폭(시간). agent.md:135 "되돌아보는 범위는 최대
+# 24시간 [기본값]" — Pi가 며칠씩 꺼져 있던 뒤 되살아나도, occurrence 계산이
+# 무한정 과거로 자라지 않게 상한을 둔다.
+LOOKBACK_MAX_HOURS = 24
+
 
 @dataclass(frozen=True)
 class Occurrence:
@@ -45,6 +50,15 @@ def make_occurrence_key(schedule_id: str, dt: datetime) -> str:
     return f"{schedule_id}@{kst_dt.strftime('%Y-%m-%d')}T{kst_dt.strftime('%H:%M')}"
 
 
+def _iter_dates(start_date, end_date):
+    """start_date부터 end_date까지(양끝 포함) 날짜를 하루씩 돌려준다."""
+    d = start_date
+    one_day = timedelta(days=1)
+    while d <= end_date:
+        yield d
+        d += one_day
+
+
 def calculate_occurrences(
     snapshot: dict, now: datetime, grace_minutes: int, storage_kv_last_tick: str = None
 ) -> list[Occurrence]:
@@ -54,14 +68,40 @@ def calculate_occurrences(
     Args:
         snapshot: {schedules: [...], renders: [...]}
         now: 현재 시각 (KST로 간주)
-        grace_minutes: 유예 시간(분)
-        storage_kv_last_tick: 마지막 scheduler tick 시각 (ISO-8601). 없으면 되돌아보기 안 함.
+        grace_minutes: 유예 시간(분) — 이 함수는 참고하지 않는다(재시도·유예 판정은
+            filter_executable_occurrences 몫). 호출부 호환을 위해 시그니처만 유지한다.
+        storage_kv_last_tick: 마지막 scheduler tick 시각(kv.last_tick_at, ISO-8601).
+
+    ★2026-09-17 구현(agent.md:135 "재부팅·중단 후 되돌아보기", 과제 2)★:
+    `storage_kv_last_tick`이 있으면(파싱 성공) "오늘"만이 아니라
+    `[max(last_tick_at, now - LOOKBACK_MAX_HOURS시간), now]` 범위 전체의 날짜를
+    훑어 occurrence를 만든다. 자정을 넘겨 꺼져 있었어도 그 전날 회차가 여기서
+    잡힌다. `storage_kv_last_tick`이 없거나 파싱에 실패하면(최초 기동, 옛 값
+    형식 오류) **기존 동작을 그대로 유지한다** — 오늘 00:00부터만 본다(이전
+    동작과 동일, 과거로 훑지 않음).
+
+    범위 밖(예: 24시간 상한을 넘긴 부분)의 occurrence는 아예 만들지 않는다 —
+    "생성되지 않음"과 "생성됐지만 유예를 넘겨 missed"는 다르다. 전자는 앱
+    이력에 흔적을 남기지 않고, 후자는 남긴다.
 
     Returns:
-        실행할 occurrence 목록
+        실행할(또는 되돌아볼) occurrence 목록. 예약 시각이 아직 오지 않은
+        오늘치 occurrence도 포함한다(filter_executable_occurrences가 시간
+        조건으로 거른다) — 기존 동작과 동일.
     """
-    now_kst = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+    now_kst_val = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+
+    last_tick_dt = parse_local_iso(storage_kv_last_tick)
+    if last_tick_dt is not None:
+        lookback_floor = now_kst_val - timedelta(hours=LOOKBACK_MAX_HOURS)
+        range_start = max(last_tick_dt, lookback_floor)
+    else:
+        # 최초 기동 등 되돌아볼 기준점이 없으면 기존 동작(오늘 00:00부터)을 유지한다.
+        range_start = now_kst_val.replace(hour=0, minute=0, second=0, microsecond=0)
+
     occurrences = []
+    # Python weekday: Monday=0, Sunday=6. 스냅샷은 MON~SUN 문자열을 쓴다.
+    py_weekdays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
     schedules = snapshot.get("schedules", [])
     for sched in schedules:
@@ -73,41 +113,32 @@ def calculate_occurrences(
         sched_type = sched.get("type", "")
         time_str = sched.get("time", "")  # HH:mm
 
-        if sched_type == "recurring":
-            # 요일이 오늘 포함되는가
-            days_of_week = sched.get("daysOfWeek", [])
-            today_weekday = now_kst.strftime("%a").upper()
-            weekday_map = {"MON": "MON", "TUE": "TUE", "WED": "WED", "THU": "THU", "FRI": "FRI", "SAT": "SAT", "SUN": "SUN"}
-            # Python weekday: Monday=0, Sunday=6
-            # 스냅샷은 MON~SUN 문자열 사용
-            py_weekdays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
-            today_weekday_str = py_weekdays[now_kst.weekday()]
+        try:
+            h_str, m_str = time_str.split(":")
+            hour, minute = int(h_str), int(m_str)
+        except ValueError:
+            logger.error(f"Invalid time format: {time_str}")
+            continue
 
-            if today_weekday_str in days_of_week:
-                # 오늘 예약 시각에 실행
-                try:
-                    h, m = time_str.split(":")
-                    scheduled_dt = now_kst.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
-                except ValueError:
-                    logger.error(f"Invalid time format: {time_str}")
+        for day in _iter_dates(range_start.date(), now_kst_val.date()):
+            if sched_type == "recurring":
+                days_of_week = sched.get("daysOfWeek", [])
+                if py_weekdays[day.weekday()] not in days_of_week:
                     continue
-
-                occ_key = make_occurrence_key(sched_id, scheduled_dt)
-                occurrences.append(Occurrence(occ_key, sched_id, fmt_id, scheduled_dt))
-
-        elif sched_type == "once":
-            # 특정 날짜
-            date_str = sched.get("date", "")  # YYYY-MM-DD
-            if date_str == now_kst.strftime("%Y-%m-%d"):
-                try:
-                    h, m = time_str.split(":")
-                    scheduled_dt = now_kst.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
-                except ValueError:
-                    logger.error(f"Invalid time format: {time_str}")
+            elif sched_type == "once":
+                date_str = sched.get("date", "")  # YYYY-MM-DD
+                if date_str != day.isoformat():
                     continue
+            else:
+                continue
 
-                occ_key = make_occurrence_key(sched_id, scheduled_dt)
-                occurrences.append(Occurrence(occ_key, sched_id, fmt_id, scheduled_dt))
+            scheduled_dt = datetime(day.year, day.month, day.day, hour, minute, tzinfo=KST)
+            if scheduled_dt < range_start:
+                # 되돌아보기 범위(24시간 상한 포함)보다 이른 시각 — 만들지 않는다.
+                continue
+
+            occ_key = make_occurrence_key(sched_id, scheduled_dt)
+            occurrences.append(Occurrence(occ_key, sched_id, fmt_id, scheduled_dt))
 
     return occurrences
 
