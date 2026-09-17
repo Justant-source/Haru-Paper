@@ -53,7 +53,7 @@ BlockType      = 'text' | 'image' | 'dateHeader' | 'weather'
 ## 5. 저장 흐름 (`FormatEditPage.tsx`)
 
 - 신규: `{ schemaVersion: 2, meta: {name:'', author:'', description:''}, style: DEFAULT_STYLE, rows: [] }`로 시작. 기존: `formatsApi.get(id)`로 로드.
-- 프린터 폭: `deviceApi.get()` → `device.printerProfile.printableWidthPx`를 `LayoutCanvas`·`SlotContent`에 `printerWidthPx`로 내려준다(기본값 1304px, 로드 실패 시 그대로 기본값 사용).
+- 프린터 폭: `deviceApi.get()` → `device.printerProfile.printableWidthPx`를 `LayoutCanvas`·`SlotContent`에 `printerWidthPx`로 내려준다(기본값 1300px(`app/web/src/types/device.ts`의 `DEFAULT_PRINTER_PROFILE`, 서버 `PrinterProfile.DEFAULT`와 같은 값), 로드 실패 시 그대로 기본값 사용). 이 값은 현재 `SlotContent`에서 쓰이지 않는 예비 prop이다.
 - 저장 버튼(`handleSave`) → 신규면 `formatsApi.create(document)`, 기존이면 `formatsApi.update(id, document)` — **자동 저장 없음**, 명시적 저장 버튼만.
 - 슬롯 탭(`onSelectSlot`) → `{rowId, slotId}`를 상태로 저장해 속성 편집 시트(`BottomSheet`)를 연다.
 - "정확히 보기" → `previewOpen` 상태로 `Preview` 컴포넌트가 든 시트를 연다.

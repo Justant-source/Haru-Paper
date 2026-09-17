@@ -52,7 +52,16 @@
 
 `DeviceTokenAuthFilter`는 **경로 기반**으로만 보호한다 — 유효한 기기 토큰이면 "그 경로에 접근 가능"까지만 보장하고, 그 기기가 요청한 `renderId`가 **자기 소유인지는 검사하지 않는다.** 그래서 `GET /api/device/renders/{renderId}.png`·`.pbm`(둘 다) 컨트롤러 메서드(`DeviceSyncController`)에 **별도로** `assertOwnership(device, render, renderId)`를 추가했다(2026-09-17) [확인됨·코드] — 유효한 기기 토큰 하나로 다른 사용자의 `renderId`를 넣으면(`renderId`는 UUIDv4라 추측은 사실상 불가능하지만, IDOR 자체는 토큰 소유자와 무관하게 성립) 지금까지는 그대로 통과했다. 이제는 `render.ownerUserId`와 `device.ownerUserId`가 다르면 **404**로 응답한다(403이 아니라 404 — 존재 여부를 노출하지 않는다, 7절과 같은 관례).
 
-**예외 — NULL 소유자(레거시 렌더)는 허용**: `render.ownerUserId`가 NULL이면(V4 백필 마이그레이션 적용 전의 기존 렌더, 또는 포맷이 나중에 삭제된 고아 렌더) 소유권 불일치로 보지 않고 다운로드를 허용한다(경고 로그만 남김). 상시 구동 중인 Pi가 있는 상태에서 백필 적용 전/후 사이에 "지금까지 되던 다운로드가 갑자기 404"가 되어 운영이 끊기면 안 되기 때문이다.
+**NULL 소유자(레거시 렌더) 처리 — `HARU_OWNERSHIP_STRICT` 플래그로 갈린다(2026-09-17)**: `render.ownerUserId`가 NULL이면(V4 백필 마이그레이션 적용 전의 기존 렌더, 또는 포맷이 나중에 삭제된 고아 렌더) 어떻게 할지를 `@Value("${haru.ownership-strict:false}")`(환경변수 `HARU_OWNERSHIP_STRICT`, `server/.env.example`) 값이 결정한다 [확인됨·코드: `DeviceSyncController.ownershipStrict`, `assertOwnership()`].
+
+| 값 | 동작 |
+|---|---|
+| `false`(기본값) | 소유권 불일치로 보지 않고 **허용**(다운로드 진행, `log.warn`만 남김: "strict=false라 허용") |
+| `true` | **404**로 거부하고 `log.error`에 고정 토큰 `RENDER_OWNER_NULL`을 남긴다(`renderId`·`device.getId()` 포함) — 로그를 `grep RENDER_OWNER_NULL`로 감시할 수 있게 하려는 의도 |
+
+기본값이 `false`인 이유: 상시 구동 중인 Pi가 있는 상태에서 기존 렌더가 전부 `owner_user_id IS NULL`이었다(`RenderServiceImpl`이 M6 이후 지금까지 채우지 않다가 커밋 `b762c6c`에서 수정) — 지금 곧바로 `true`로 거부하면 Pi의 렌더 다운로드가 전부 404가 되어 운영이 끊긴다. `true`로 켜도 되는 시점은 `V4__backfill_render_owner.sql` 백필 + `claim-legacy`(6절)를 마쳐 `renders.owner_user_id IS NULL`인 행이 0이 된 뒤부터다. 켜는 절차(사전 조건 확인 포함)는 [`deploy.md`](deploy.md) 7.2절 "소유권 엄격 모드 켜기"가 원본이다 — 이 문서에서는 복제하지 않고 링크만 한다.
+
+같은 플래그가 `ScheduleService`의 포맷 소유권 검사도 지배한다 — 7절 참고.
 
 `Cache-Control`도 `public, max-age=31536000` → **`private, max-age=31536000`**으로 바꿨다(개인 인쇄물이라 CDN·프록시 같은 공유 캐시에 남으면 안 된다) [확인됨·코드: `DeviceSyncController.getRenderImage()`/`getRenderPbm()`].
 
@@ -109,6 +118,8 @@
 `claim-legacy`는 M6 배포 시 **1회성 마이그레이션 도구**다 — M2~M5의 PoC 데이터(소유자 없음)를 관리자 계정으로 흡수한다.
 
 > **운영 주의**: `V4__backfill_render_owner.sql`(`renders.owner_user_id` 백필, 7절·[`data-model.md`](data-model.md))이 적용되기 **전에는 `claim-legacy`를 실행하지 않는다.** `RenderServiceImpl`이 렌더 생성 시 `owner_user_id`를 채우기 시작한 것도 2026-09-17부터라(그 전에는 항상 NULL), V4 적용 전에는 기존 렌더의 `owner_user_id`가 전부 NULL이다 — 이 상태에서 `claim-legacy`를 돌리면 **모든 사용자의 렌더가 관리자 소유로 넘어간다.**
+>
+> **순서**: V4 백필 적용 → `claim-legacy` 실행 → (검증 통과 후) `HARU_OWNERSHIP_STRICT=true`로 소유권 엄격 모드 켜기(4.1절 "NULL 소유자 처리", [`deploy.md`](deploy.md) 7.1·7.2절). 이 세 단계 전부가 순서대로 끝나기 전에는 플래그를 켜지 않는다 — `claim-legacy`가 소유자를 채워도, V4 백필이 이미 적용돼 있지 않으면 `claim-legacy` 자체가 (위 경고대로) 모든 렌더를 관리자에게 몰아주는 사고가 먼저 난다.
 
 ## 7. 소유권 스코핑 (owner_user_id)
 
@@ -124,6 +135,17 @@ V2 마이그레이션이 기존 테이블에 `owner_user_id CHAR(36) NULL`을 �
 | `results` | `owner_user_id`, `device_id` | FK 없음 |
 
 컨트롤러 계층의 규칙: **목록은 현재 사용자 것만, 단건 조회·수정·삭제는 소유자가 아니면 404**(403이 아니라 404 — 존재 여부를 노출하지 않는다) [확인됨·코드: `FormatController`, `ScheduleController`, `AssetController`, `PrintNowController`, `HistoryController` 전부 이 패턴].
+
+### 7.1 예약 생성·수정의 포맷 소유권 검사 — 이것도 `HARU_OWNERSHIP_STRICT`가 지배한다
+
+`POST /api/schedules`·`PUT /api/schedules/{id}`가 부르는 `ScheduleService.createWithOwner()`/`updateWithOwnerCheck()`는 요청한 `formatId`가 현재 사용자 소유인지를 `assertFormatOwnership()`으로 검사한다(2026-09-17 추가) [확인됨·코드: `ScheduleService.java`]. `PrintNowController.printNow()`(6절 위, `PrintNowController.java:72-73`)는 이미 `owner_user_id`가 NULL이든 다른 사용자든 무조건 404였는데, `ScheduleService`만 예외가 있었다:
+
+| `ownershipStrict` | `formatOwnerId == null` | `formatOwnerId != userId`(둘 다 NULL 아님) |
+|---|---|---|
+| `false`(기본값) | **허용** — 알려진 구멍: 소유자가 없는(claim-legacy 전) 레거시 포맷은 **아무 로그인 사용자나** 자기 예약에 가져다 쓸 수 있다 | 404 |
+| `true` | 404 — `PrintNowController`와 동일하게 맞춰진다 | 404 |
+
+`false`가 기본값인 이유와 `true`로 켜는 절차는 4.1절·[`deploy.md`](deploy.md) 7.2절과 같다(같은 플래그, 같은 사전 조건). 즉 지금(`HARU_OWNERSHIP_STRICT=false`) 레거시 포맷(소유자 NULL)이 하나라도 남아 있으면, 그 포맷으로 다른 사용자가 예약을 만들 수 있다는 것이 현재 운영 중인 서버의 실제 동작이다 — V4 백필 + `claim-legacy`로 소유자 없는 포맷을 없애기 전까지는 이 구멍이 열려 있다.
 
 ## 8. 기기 테이블 교체 (`device` → `devices`)
 

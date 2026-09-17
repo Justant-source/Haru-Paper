@@ -38,7 +38,7 @@
 | [`server/format-schema.md`](server/format-schema.md) | **포맷 JSON 스키마 v2(행/슬롯) 원본** |
 | [`server/rendering.md`](server/rendering.md) | 포맷 → HTML → Chromium → 그레이스케일 PNG, 샌드박스, 1-bpp(PBM) 구현됨[확인됨·코드] |
 | [`server/weather.md`](server/weather.md) | 날씨 블록: Open-Meteo, 기본 위치 |
-| [`server/deploy.md`](server/deploy.md) | Docker compose, 포트·`tailscale serve`, 백업, `.env` |
+| [`server/deploy.md`](server/deploy.md) | Docker compose, 포트·`tailscale serve`, 백업, `.env`, 일회성 운영 작업(V4 백필·`claim-legacy`·소유권 엄격 모드) |
 
 ### `docs/app/*` (담당: 서버 세션)
 

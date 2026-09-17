@@ -123,6 +123,7 @@
   - 상태 [기본값]: `pending`(생성) → `delivered`(poll 응답에 처음 실림) → `done`(Pi 결과 수신). **생성 후 10분 안에 `done`이 안 되면 `expired`**
   - `done`/`expired`가 아닌 명령은 **매 poll 응답에 다시 실린다**(at-least-once). Pi는 **`commandId`로 중복을 거른다**
   - 만료 이유: Pi가 오프라인이었다가 몇 시간 뒤 접속했을 때 뜬금없이 인쇄되지 않게 하기 위해서다
+  - **결과 업로드는 이미 `expired`인 명령도 `done`으로 덮어쓴다** [확인됨·코드: `ResultIngestService.ingestNew()` — `commandId`가 있는 결과를 받으면 명령의 현재 `status`를 보지 않고 무조건 `cmd.setStatus("done")`]. Pi가 자체 TTL로 뒤늦게 명령을 종결하고 결과를 올리면, 서버가 이미 만료 처리해 둔 명령이라도 `done`으로 되돌아간다 — 수용하는 비대칭이다. 앱 이력에는 Pi가 올린 결과의 `status`(`missed`/`failed`/`skipped_*`)가 그대로 남으므로, 명령 자체의 서버 내부 상태가 `done`으로 보이는 것보다 "왜 안 나왔는지"가 이력에 남는 쪽을 선택했다
   - **poll 응답의 `commands[]`는 호출한 기기의 소유자로 스코핑된다(2026-09-17 수정)** [확인됨·코드: `DeviceSyncService.processPoll()`, `CommandRepository.findAllByOwnerUserIdAndStatusIn`]. 예전에는 `commandRepository.findAllByStatusIn(...)`처럼 전역 조회라, 다른 사용자가 만든 "지금 인쇄" 명령이 이 기기의 poll 응답에도 실리는 소유권 경계 버그(IDOR류)였다.
   - 기기(`device_id`)가 아니라 **소유자(`owner_user_id`)** 로 거르는 이유: "지금 인쇄"는 기기 페어링 전에도 만들 수 있고(그때 `PrintNowController`가 `device_id`를 NULL로 둔다), `device_id`로 거르면 그 명령은 나중에 페어링해도 영영 전달되지 않고 10분 뒤 조용히 `expired`가 된다(앱에는 202만 뜨고 아무 일도 일어나지 않는다). V2의 `uk_devices_owner`(`owner_user_id` UNIQUE)가 1인 1기기를 보장하므로 소유자 스코핑은 기기 스코핑과 보안상 동등하다.
   - **만료 처리는 의도적으로 전역 스캔을 유지한다**(기기별로 스코핑하지 않는다) [확인됨·코드: `DeviceSyncService.poll()` 4단계]. 기기별로 하면 페어링만 되고 한 번도 poll하지 않은 기기의 명령이 영영 만료되지 않고 `pending`으로 남기 때문이다. 만료 처리는 명령의 `status`만 `expired`로 바꿀 뿐 다른 사용자에게 아무 내용도 노출하지 않으므로, 전역 스캔이어도 소유권 경계를 침범하지 않는다 — 위의 "commands[] 스코핑"과는 다른 비대칭이다.

@@ -146,7 +146,169 @@ docker compose start haru-api
 
 - 복구 후 렌더는 스케줄러가 다시 만든다.
 
-## 7. M2 통과 조건
+## 7. 일회성 운영 작업
+
+> 정기 배포 절차(5절)에 포함되지 않는, **순서가 중요한 1회성 절차**를 여기 모은다. 백업·복구(6절)와 같은 문서 안에 있어야 절차 사이 참조가 끊기지 않는다. 계획 원본: `.temp/06-서버-앱-잔여과제-설계.md` 3절(런북 C) — 이 문서로 옮긴 뒤 지운다(CLAUDE.md "진행 방식").
+
+### 7.1 V4 백필 + claim-legacy (1회)
+
+> **되돌리는 마이그레이션이 없다. 6절의 백업이 유일한 롤백 수단이다.**
+> `claim-legacy`를 V4보다 먼저 돌리면 **모든 사용자의 렌더가 관리자 소유로 넘어가고, 코드로는 되돌릴 수 없다**(`V4__backfill_render_owner.sql` 주석, [`auth.md`](auth.md) 6절 "운영 주의").
+> 전 구간 `~/Data/Haru-Paper/server`에서 실행한다. 다른 프로젝트 컨테이너는 건드리지 않는다.
+
+**배경**: `renders.owner_user_id`는 `RenderServiceImpl`이 렌더 저장 시 한 번도 채우지 않아 M6 이후 지금까지 항상 NULL이었다(커밋 `b762c6c`에서 수정, 이제 `format.getOwnerUserId()`를 복사한다). `server/src/main/resources/db/migration/V4__backfill_render_owner.sql`이 기존 NULL 행을 `formats.owner_user_id`에서 백필하도록 작성돼 있지만, **아직 적용되지 않았다.** Flyway는 `spring.flyway.enabled: true`(`application.yml:23-24`)로 `haru-api` 기동 시 자동 적용되므로, 재빌드·재기동 전까지는 V4 파일이 저장소에 있을 뿐 DB에는 반영되지 않은 상태다.
+
+#### 0단계 — 사전 확인
+
+```bash
+cd ~/Data/Haru-Paper
+git pull --ff-only          # 실패하면 멈춘다 (CLAUDE.md Git 규칙)
+git log --oneline -1        # b762c6c 이상인지
+cd server
+docker compose ps           # haru-db / haru-api / haru-web / haru-db-backup 상태
+```
+
+- **확인할 것**: 지금 떠 있는 `haru-api` 이미지가 `b762c6c` 이전이면, 이번 배포에 V4뿐 아니라 "렌더 소유자 기입 + 다운로드 IDOR 차단 + poll 명령 스코핑"이 **함께** 들어간다. 로그를 볼 때 이 점을 감안한다.
+- Pi가 지금 인쇄 대기 중인 예약이 임박했으면(예: 07:00 직전) 뒤로 미룬다. 재기동 중 poll이 몇 번 실패한다.
+
+#### 1단계 — 백업 (필수, 먼저)
+
+6절의 기존 절차를 **그대로** 쓴다. 새로 만들지 않는다.
+
+```bash
+cd ~/Data/Haru-Paper/server
+docker compose run --rm haru-db-backup /scripts/backup.sh
+docker run --rm -v haru-paper_haru-backups:/backups busybox ls -lh /backups/
+```
+
+- **검증**: 방금 시각의 `db-YYYYMMDD-HHMM.sql.gz`가 목록에 있고 크기가 0이 아니다. 그 파일 이름을 메모해 둔다 — 이하 `$DUMP`.
+- **실패하면 여기서 멈춘다.** 백업 없이 2단계로 넘어가지 않는다.
+
+#### 2단계 — 재빌드·재기동 (Flyway가 V4를 자동 적용)
+
+```bash
+cd ~/Data/Haru-Paper/server
+docker compose build            # V4 SQL은 jar 안 리소스라 rebuild가 필요하다
+docker compose up -d
+docker compose ps
+docker compose logs --tail=200 haru-api | grep -i -E "flyway|migrat|error"
+curl -fsS http://127.0.0.1:<포트>/api/health      # 포트는 .env의 HARU_WEB_BIND
+```
+
+- **왜 rebuild인가**: `haru-api`는 `docker-compose.yml`의 `build: .`(멀티스테이지, `server/Dockerfile`)로 빌드된다. 빌더 스테이지가 `./gradlew build`로 만든 jar를 런타임 이미지에 `COPY`하고, `V4__backfill_render_owner.sql`은 `server/src/main/resources/db/migration/`에 있어 그 jar 안 리소스로 들어간다. `docker compose up -d`만 실행하면 이미 떠 있는 옛 이미지가 그대로 재시작될 뿐이라 V4가 컨테이너 안에 없다 — 반드시 `docker compose build`를 먼저 한다.
+- **검증**: 로그에 `Migrating schema ... to version "4 - backfill render owner"`와 `Successfully applied 1 migration` 류의 줄. `/api/health` 200.
+- **실패 시**: Flyway가 실패하면 `haru-api`가 아예 뜨지 않는다(5절 "Flyway 마이그레이션은 ... 실패하면 컨테이너가 뜨지 않으므로 로그 확인"). 로그를 읽고, 스키마가 반쯤 바뀌었다고 판단되면 6단계 롤백.
+
+#### 3단계 — V4 결과 확인 (claim-legacy **전에**)
+
+```bash
+cd ~/Data/Haru-Paper/server
+docker compose exec haru-db sh -c \
+  'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" haru_paper -e "
+     SELECT (SELECT COUNT(*) FROM renders  WHERE owner_user_id IS NULL) AS null_renders,
+            (SELECT COUNT(*) FROM formats  WHERE owner_user_id IS NULL) AS null_formats,
+            (SELECT COUNT(*) FROM users)                                AS users,
+            (SELECT COUNT(DISTINCT owner_user_id) FROM renders
+              WHERE owner_user_id IS NOT NULL)                          AS render_owners;"'
+```
+
+- 기대: `null_renders`가 크게 줄었고, 남은 값은 `null_formats`에서 파생된 것뿐이다.
+- **`users`가 2 이상이면 여기서 멈추고 생각한다.** claim-legacy는 NULL인 모든 행을 관리자 한 명에게 몰아준다. 다른 사용자의 레거시 리소스까지 가져가도 되는지 판단한 뒤 진행한다.
+- `null_renders`와 `null_formats`가 이미 0이면 4단계를 건너뛰어도 된다.
+
+#### 4단계 — `claim-legacy` 실행
+
+엔드포인트: `POST /api/admin/claim-legacy` — **세션 로그인 + ADMIN 역할 + CSRF 헤더**가 필요하다
+(`AdminController.java:135-148`, `SecurityConfig.java`의 `.requestMatchers("/api/admin/**").hasRole("ADMIN")`, [`auth.md`](auth.md) 6절).
+관리자는 `.env`의 `HARU_ADMIN_EMAIL`로 가입한 계정이다(`server/.env.example`, [`auth.md`](auth.md) 3절).
+
+[`api.md`](api.md) 7절의 curl 관례를 그대로 따른다:
+
+```bash
+BASE=https://justant-server2.tail2b65d1.ts.net      # 또는 http://127.0.0.1:<HARU_WEB_BIND 포트>
+JAR=$(mktemp)
+
+# CSRF 쿠키를 먼저 받는다. /api/auth/login은 permitAll이지만 CSRF 면제는 아니다
+# (SecurityConfig의 면제 경로는 기기 Bearer 경로뿐) — 이 GET 없이 POST하면 403이다.
+curl -sS -c "$JAR" "$BASE/api/health" >/dev/null
+CSRF=$(grep XSRF-TOKEN "$JAR" | awk '{print $NF}')
+
+# 관리자 로그인. 비밀번호는 프롬프트로 받고, curl argv가 아니라 stdin으로 넘긴다
+# (argv는 같은 호스트의 ps에 그대로 보인다 — CLAUDE.md 절대금지 4)
+read -rsp 'admin password: ' PW; echo
+printf '{"email":"%s","password":"%s"}' "<HARU_ADMIN_EMAIL>" "$PW" |
+  curl -sS -c "$JAR" -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" -X POST "$BASE/api/auth/login" \
+    -H 'Content-Type: application/json' --data-binary @-
+unset PW
+
+# 로그인 응답으로 세션이 바뀌면 CSRF 토큰도 새로 발급된다 — 다시 읽는다
+CSRF=$(grep XSRF-TOKEN "$JAR" | awk '{print $NF}')
+
+curl -sS -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" -X POST "$BASE/api/admin/claim-legacy"
+rm -f "$JAR"
+```
+
+- **기대 응답**(`AdminController.ClaimLegacyResponse`):
+  `{"updatedFormatCount":N,"updatedScheduleCount":N,"updatedAssetCount":N,"updatedRenderCount":N,"updatedCommandCount":N,"updatedResultCount":N}`
+- **403이 나면**: 로그인 계정이 admin이 아니거나(`users.role`), CSRF 헤더가 빠졌다. `SecurityConfig.java` 클래스 Javadoc의 함정 두 가지(평문 `CsrfTokenRequestAttributeHandler`·쿠키를 강제로 심는 `csrfCookieFilter`)는 이미 코드에 반영돼 있으므로, `XSRF-TOKEN` 쿠키 값을 **그대로** `X-XSRF-TOKEN` 헤더에 넣으면 된다.
+- **401이 나면**: 로그인 실패. 응답 본문의 ProblemDetail을 읽는다.
+
+#### 5단계 — 최종 검증
+
+```bash
+cd ~/Data/Haru-Paper/server
+docker compose exec haru-db sh -c \
+  'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" haru_paper -e "
+     SELECT COUNT(*) AS null_renders FROM renders WHERE owner_user_id IS NULL;
+     SELECT COUNT(*) AS null_formats FROM formats WHERE owner_user_id IS NULL;
+     -- 소유권 엄격 모드(아래 7.2) 전환의 두 번째 사전 조건:
+     -- 활성 예약이 자기 소유가 아닌 포맷을 가리키면 그 렌더는 엄격 모드에서 404가 된다.
+     SELECT s.id AS schedule_id, s.owner_user_id AS sched_owner, f.owner_user_id AS fmt_owner
+       FROM schedules s JOIN formats f ON s.format_id = f.id
+      WHERE s.enabled = 1
+        AND (f.owner_user_id IS NULL OR s.owner_user_id IS NULL
+             OR f.owner_user_id <> s.owner_user_id);"'
+```
+
+- **통과 조건**: `null_renders = 0`, `null_formats = 0`, 세 번째 쿼리 **0행**.
+- Pi 정상 확인:
+  ```bash
+  docker compose logs --tail=100 haru-api | grep -E "Poll received|Render saved|no owner_user_id"
+  ssh haru-pi 'journalctl -u haru-agent -n 50 --no-pager'
+  ```
+  `no owner_user_id`류 WARN이 더는 안 나와야 한다.
+- 그 다음 예약 인쇄가 **실제로 종이에 나오는 것까지** 확인한 뒤에야 7.2(소유권 엄격 모드 켜기)로 넘어간다(CLAUDE.md 기록 규칙: 전송 성공은 [미검증], 눈으로 봐야 [확인됨]).
+
+#### 6단계 — 롤백
+
+| 상황 | 대응 |
+|---|---|
+| 2단계에서 Flyway 실패 / `haru-api`가 안 뜸 | 로그 확인 → `docker compose stop haru-api` → 위 "복구" 절차(6절)로 `$DUMP` 복원 → `git checkout <이전 커밋>` 후 `docker compose build && up -d` |
+| 4단계를 **잘못된 순서로** 실행함(V4 전에 claim-legacy) | **코드 롤백 불가.** 위 "복구" 절차(6절)로 `$DUMP` 복원이 유일한 수단. 복원 후 2단계부터 다시 |
+| 5단계에서 교차 소유 예약이 나옴 | 롤백하지 않는다. 그 예약을 앱에서 지우거나 올바른 포맷으로 다시 만든 뒤 재확인. **7.2(소유권 엄격 모드)는 그 전까지 보류** |
+| 인쇄가 안 됨 | `docker compose logs haru-api | grep -i render`, Pi의 `journalctl`. 엄격 모드는 아직 안 켰으므로 이번 배포의 소유권 코드가 원인일 가능성은 낮다 |
+
+`renders/` 파일은 백업 대상이 아니다(6절) — DB 복원 후 렌더 스케줄러가 다시 만든다.
+
+### 7.2 소유권 엄격 모드 켜기 (`HARU_OWNERSHIP_STRICT`)
+
+7.1의 5단계 검증(`null_renders = 0`, `null_formats = 0`, 교차 소유 예약 0행)이 **전부 통과한 뒤에만** 켠다. 이 플래그는 렌더 다운로드 소유권 검사(`DeviceSyncController`)뿐 아니라 예약 생성의 포맷 소유권 검사(`ScheduleService`)까지 지배한다.
+
+```bash
+# server/.env에 추가
+HARU_OWNERSHIP_STRICT=true
+```
+
+```bash
+cd ~/Data/Haru-Paper/server
+docker compose up -d     # 재빌드 불필요 — env_file: .env로 컨테이너 환경변수만 바뀐다
+```
+
+- **재빌드가 필요 없는 이유**: `docker-compose.yml`의 `haru-api`가 `env_file: .env`로 `.env` 전체를 컨테이너 환경변수로 주입하고, Spring의 완화 바인딩이 `HARU_OWNERSHIP_STRICT` → `haru.ownership-strict`로 매핑한다(`DeviceSyncController`의 `@Value("${haru.ownership-strict:false}")`). 코드는 이미 배포돼 있으므로 `.env` 값만 바꾸고 컨테이너를 재시작하면 된다.
+- **문제가 생기면**: `server/.env`에서 `HARU_OWNERSHIP_STRICT=false`로 되돌리고 `docker compose up -d`만 하면 수십 초 안에 이전 동작(NULL 허용)으로 복구된다. 재빌드도, DB 복원도 필요 없다.
+- 켠 뒤에는 `docker compose logs haru-api | grep RENDER_OWNER_NULL`로 감시한다. 이 로그가 나오면 7.1의 사전 조건이 실은 만족되지 않았다는 뜻이다 — 즉시 `false`로 되돌린다.
+
+## 8. M2 통과 조건
 
 - [x] `docker compose up -d`로 haru-db/haru-api/haru-web/haru-db-backup 기동
 - [x] `tailscale serve` HTTPS(사용자 승인 후)에서 `GET /api/health` 200 — 2026-09-14 확인

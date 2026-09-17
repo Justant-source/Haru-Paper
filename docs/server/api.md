@@ -28,7 +28,7 @@
 | `DeviceController`(단수, 앱+무인증 혼재) | `GET /api/device`(세션), `PUT /api/device/paper-state`(세션), `POST /api/device/pair`(**없음** — 코드가 인증) | 혼재 |
 | `DeviceManagementController`(복수 `/api/devices`) | `GET/PATCH /api/devices/me`, `POST /api/devices/me/token`, `POST /api/devices/pairing-codes` | 세션 |
 | `SettingsController` | `GET/PUT /api/settings` | 세션 |
-| `DeviceSyncController`(Pi용) | `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/{renderId}.png`, `GET /api/device/renders/{renderId}.pbm`(1-bpp PBM P4, 2단계 기기용, `architecture.md` 3.4, 2026-09-17 승인 — 구현됨, PBM 없는 렌더는 404), `POST /api/device/results` | **Bearer** + 렌더 다운로드 2종은 컨트롤러가 추가로 소유권 검사(`assertOwnership`, 2026-09-17 — Bearer 필터의 경로 기반 보호와 별개. `NULL` 소유자는 레거시로 허용). [`auth.md`](auth.md) 4.1절 |
+| `DeviceSyncController`(Pi용) | `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/{renderId}.png`, `GET /api/device/renders/{renderId}.pbm`(1-bpp PBM P4, 2단계 기기용, `architecture.md` 3.4, 2026-09-17 승인 — 구현됨, PBM 없는 렌더는 404), `POST /api/device/results` | **Bearer** + 렌더 다운로드 2종은 컨트롤러가 추가로 소유권 검사(`assertOwnership`, 2026-09-17 — Bearer 필터의 경로 기반 보호와 별개. `NULL` 소유자는 `HARU_OWNERSHIP_STRICT` 플래그로 갈림, 기본값 `false`=허용). [`auth.md`](auth.md) 4.1절 |
 
 인증·계정·기기 관리(`AuthController`~`DeviceManagementController`)의 세션·CSRF 메커니즘, 필드 상세는 [`auth.md`](auth.md)가 원본이다. `DeviceController`(단수)와 `DeviceManagementController`(복수, `/api/devices`)는 이름이 비슷하지만 다른 클래스다 — 헷갈리지 않도록 주의.
 
@@ -111,8 +111,8 @@ Pi가 한 번도 poll하지 않았으면 `devices.printer_profile`이 없다. �
 | 요청 | 구현 |
 |---|---|
 | `GET /api/schedules` | **내 것만**(켜짐/꺼짐 모두 포함, `architecture.md` 4.2 규약) — M2 시절 "전체 목록"이던 서술을 M6 소유권 스코핑에 맞춰 정정 |
-| `POST /api/schedules` | 본문: init_plan 6.2 형태에서 `id` 제외. 검증: `formatId` 존재, `time` `HH:mm`, `recurring`이면 `daysOfWeek` 1개 이상, `once`면 `date` 필수이고 **과거 시각이면 422** [기본값] → 201 |
-| `PUT /api/schedules/{id}` | 전체 교체. 켜기/끄기도 `enabled`를 바꾼 PUT |
+| `POST /api/schedules` | 본문: init_plan 6.2 형태에서 `id` 제외. 검증: `formatId`가 존재하고 소유자여야 함(아니면 404 — `formatId`의 `owner_user_id`가 NULL인 경우는 `HARU_OWNERSHIP_STRICT`를 따름: 기본 `false`면 허용, `true`면 404, [`auth.md`](auth.md) 7.1절), `time` `HH:mm`, `recurring`이면 `daysOfWeek` 1개 이상, `once`면 `date` 필수이고 **과거 시각이면 422** [기본값] → 201 |
+| `PUT /api/schedules/{id}` | 전체 교체(`formatId` 소유권 검사는 `POST`와 동일 — strict일 때 소유자가 NULL인 포맷은 404). 켜기/끄기도 `enabled`를 바꾼 PUT |
 | `DELETE /api/schedules/{id}` | 204 |
 
 예약·포맷이 바뀌면 렌더 스케줄러를 즉시 한 번 깨운다([`rendering.md`](rendering.md)).
@@ -224,7 +224,7 @@ Pi가 한 번도 poll하지 않았으면 `devices.printer_profile`이 없다. �
 
 - `image/png`, `ETag: "<sha256>"`, `Cache-Control: private, max-age=31536000`(2026-09-17까지는 `public` — 개인 인쇄물이라 공유 캐시에 두지 않도록 바꿨다) [확인됨·코드]
 - 정리돼서 없으면 404(Pi는 다음 스냅샷을 기다린다)
-- **소유권 검사(2026-09-17)**: `Authorization: Bearer` 필터를 통과했더라도, 요청한 `renderId`의 `owner_user_id`가 이 기기의 소유자와 다르면 404(`assertOwnership`, [`auth.md`](auth.md) 4.1절). `.pbm`도 동일하다. `owner_user_id`가 NULL(레거시 렌더, V4 백필 이전 또는 포맷 삭제된 고아 렌더)이면 허용한다.
+- **소유권 검사(2026-09-17)**: `Authorization: Bearer` 필터를 통과했더라도, 요청한 `renderId`의 `owner_user_id`가 이 기기의 소유자와 다르면 404(`assertOwnership`, [`auth.md`](auth.md) 4.1절). `.pbm`도 동일하다. `owner_user_id`가 NULL(레거시 렌더, V4 백필 이전 또는 포맷 삭제된 고아 렌더)이면 `HARU_OWNERSHIP_STRICT`(기본 `false`)를 따른다: `false`면 허용(경고 로그), `true`면 404(`log.error`에 `RENDER_OWNER_NULL`) — 켜는 시점·절차는 [`auth.md`](auth.md) 4.1절·[`deploy.md`](deploy.md) 7.2절.
 
 ### `POST /api/device/results`
 

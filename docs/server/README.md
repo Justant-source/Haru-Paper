@@ -34,4 +34,4 @@ M2(서버 스캐폴드·도메인·API)·M3(웹앱)·M6(계정·기기·소유�
 
 ## M2·M6 통과 기록
 
-M2 통과 조건(`init_plan.md` 10절: compose 기동, `tailscale serve` HTTPS 200, curl 시나리오 통과, 미리보기 폭 일치, 한글 렌더, 백업 1회)은 전부 확인됨 — [`deploy.md`](deploy.md) 7절. M6 통과 조건(로그인 세션 격리, 리소스 소유권 스코핑, 기기별 토큰)은 [`auth.md`](auth.md).
+M2 통과 조건(`init_plan.md` 10절: compose 기동, `tailscale serve` HTTPS 200, curl 시나리오 통과, 미리보기 폭 일치, 한글 렌더, 백업 1회)은 전부 확인됨 — [`deploy.md`](deploy.md) 8절(7절은 V4 백필·`claim-legacy` 같은 일회성 운영 작업이다). M6 통과 조건(로그인 세션 격리, 리소스 소유권 스코핑, 기기별 토큰)은 [`auth.md`](auth.md).

@@ -116,7 +116,7 @@
 | `docs/server/api.md` | 컨트롤러별 경로·인증, 오류 형식, 멱등, curl 시나리오 |
 | `docs/server/data-model.md` | 테이블(Flyway V1·V2), 파일 저장 |
 | `docs/server/format-schema.md` | **포맷 JSON 스키마 v2(행/슬롯) 원본** |
-| `docs/server/rendering.md` / `weather.md` / `deploy.md` | 렌더러·샌드박스(+PBM 구현됨) / 날씨 / compose·`tailscale serve`·백업 |
+| `docs/server/rendering.md` / `weather.md` / `deploy.md` | 렌더러·샌드박스(+PBM 구현됨) / 날씨 / compose·`tailscale serve`·백업·일회성 운영 작업(V4 백필·`claim-legacy`) |
 | `docs/app/README.md` | 앱 목차·현재 상태 |
 | `docs/app/web.md` / `screens.md` / `editor.md` / `native.md` | 스택·구조·인증 / 화면 11개 / 드래그 편집기(v2) / 네이티브 예약 |
 | `.temp/01`·`02`·`03`·`04` | 진행 중 계획: Orange Pi PoC v1.4 / ESP32 v1.4(USB 호스트 확정) / 플랫폼 M6~M10 / 드래그 편집기. 완료된 항목은 docs로, 끝나면 삭제 |
