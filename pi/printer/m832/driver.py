@@ -12,7 +12,14 @@ from printer import Printer, PrinterProfile, PrinterStatus, PrintOutcome
 from transport import Transport, TransportError
 
 from . import image as m832_image
-from .constants import DPI, H_OFFSET_DEFAULT_DOT, H_OFFSET_MM_DEFAULT, WIDTH_BYTES, WIDTH_DOTS
+from .constants import (
+    DPI,
+    H_OFFSET_DEFAULT_DOT,
+    H_OFFSET_MM_DEFAULT,
+    USB_WRITE_TIMEOUT_MS,
+    WIDTH_BYTES,
+    WIDTH_DOTS,
+)
 
 if TYPE_CHECKING:
     pass
@@ -116,11 +123,24 @@ class M832Printer(Printer):
         command = m832_image.build_command(packed_bitmap, width_bytes=WIDTH_BYTES, height=height)
 
         # 6. 전송
+        # transport별 청크당 write 타임아웃은 transport 쪽이 더 잘 안다(USB 5000ms vs BT
+        # 20000ms, docs/pi/transport.md 2·3절). 드라이버가 transport 클래스를 isinstance로
+        # 분기하면 새 transport(예: ESP32 경로)가 생길 때마다 이 파일을 고쳐야 하므로,
+        # 대신 두 구현이 공통으로 노출하는 `DEFAULT_WRITE_TIMEOUT_MS` 클래스 속성을 조회한다
+        # (pi/transport/usb.py, pi/transport/bt.py 둘 다 정의함). 속성이 없는 transport가
+        # 오면 USB 값으로 안전하게 폴백하되 경고를 남긴다 — pi/transport/**는 이 드라이버가
+        # 고칠 수 없는 파일이라, ABC에 정식으로 추가하는 대신 duck typing으로 대응한다.
         logger.info(f"프린터 전송 시작: {len(command)} 바이트")
         try:
             with self.transport as transport:
-                from .constants import USB_WRITE_TIMEOUT_MS
-                transport.write(command, timeout_ms=USB_WRITE_TIMEOUT_MS)
+                timeout_ms = getattr(transport, "DEFAULT_WRITE_TIMEOUT_MS", None)
+                if timeout_ms is None:
+                    logger.warning(
+                        f"{type(transport).__name__}에 DEFAULT_WRITE_TIMEOUT_MS 속성이 없음 — "
+                        f"USB 기본값({USB_WRITE_TIMEOUT_MS}ms)으로 폴백"
+                    )
+                    timeout_ms = USB_WRITE_TIMEOUT_MS
+                transport.write(command, timeout_ms=timeout_ms)
         except TransportError as e:
             logger.error(f"프린터 전송 실패: {e}")
             raise

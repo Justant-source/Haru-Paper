@@ -90,6 +90,15 @@ class TestLoadPrinter:
         with pytest.raises(ValueError, match="Unknown printer driver"):
             agent._load_printer("does-not-exist")
 
+    def test_m832_import_error_propagates_not_fake(self, monkeypatch):
+        """회귀 방지(2026-09-17): m832 드라이버 import가 실패해도 FakePrinter로
+        조용히 내려가면 안 된다 — 실물은 백지인데 서버엔 printed로 보고되던 버그의
+        원인이었다. ImportError는 그대로 올라와야 한다."""
+        monkeypatch.setitem(sys.modules, "printer.m832", None)
+        agent = bare_agent(make_config(printer_driver="m832", transport="usb"))
+        with pytest.raises(ImportError):
+            agent._load_printer("m832")
+
 
 class TestLoadTransport:
     def test_usb(self):
@@ -114,3 +123,42 @@ class TestLoadTransport:
         agent = bare_agent(make_config())
         with pytest.raises(ValueError, match="Unknown transport"):
             agent._load_transport("carrier-pigeon")
+
+
+class TestMainErrorHandling:
+    """main()이 설정 로드뿐 아니라 Agent(config) 생성 실패도 sys.exit(1)로 끝내는지.
+
+    2026-09-17 이전에는 `AgentConfig.from_env()`만 try로 감쌌다 — `_load_printer`가
+    ImportError를 fake로 삼키지 않게 된 지금은 `Agent(config)` 생성 중에도 예외가
+    날 수 있으므로, 그 경로도 사람이 읽을 수 있는 오류 + sys.exit(1)로 끝나야
+    systemd 재시작 루프에서 트레이스백만 반복되지 않는다.
+    """
+
+    def test_agent_construction_failure_exits_nonzero(self, monkeypatch, tmp_path):
+        import agent.__main__ as main_module
+
+        # main()은 Agent(config)를 실제로 생성한다 — Storage가 SQLite 파일을 만드는
+        # 경로까지 가므로 data_dir을 tmp_path로 준다. make_config의 기본값
+        # (/tmp/haru-paper-test-unused)을 쓰면 테스트 실행마다 실제 DB가 남고
+        # 다음 실행의 cleanup_stale_attempts가 그 찌꺼기를 대상으로 돈다.
+        broken_config = make_config(
+            printer_driver="m832", transport="bt", bt_address="", data_dir=str(tmp_path)
+        )
+        monkeypatch.setattr(main_module.AgentConfig, "from_env", classmethod(lambda cls, env_path=None: broken_config))
+
+        with pytest.raises(SystemExit) as exc_info:
+            main_module.main()
+        assert exc_info.value.code == 1
+
+    def test_config_load_failure_still_exits_nonzero(self, monkeypatch):
+        """기존 동작(설정 오류) 회귀 방지."""
+        import agent.__main__ as main_module
+
+        def raise_value_error(env_path=None):
+            raise ValueError("Missing required env vars: HARU_SERVER_URL")
+
+        monkeypatch.setattr(main_module.AgentConfig, "from_env", classmethod(lambda cls, env_path=None: raise_value_error()))
+
+        with pytest.raises(SystemExit) as exc_info:
+            main_module.main()
+        assert exc_info.value.code == 1

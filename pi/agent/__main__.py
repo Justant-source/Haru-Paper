@@ -55,6 +55,16 @@ class Agent:
         self.executor = Executor(self.storage, self.sync, self.printer, self.data_dir, config.paper_policy)
         self.uploader = Uploader(self.storage, self.sync)
 
+        # 기동 시 1회: 전송 도중 죽은 채로 남은 'attempting' 레코드 정리
+        # (docs/pi/agent.md 9절 — 재시작 후 자동으로 다시 인쇄하지 않고 failed로
+        # 끝낸다. 같은 내용이 두 번 나오는 것보다 한 번 빠지는 쪽을 택한다.)
+        stale_keys = self.storage.cleanup_stale_attempts()
+        if stale_keys:
+            logger.warning(
+                f"Cleaned up {len(stale_keys)} stale 'attempting' occurrence(s) from a previous run "
+                f"(likely killed mid-print): {stale_keys}"
+            )
+
         # 폴링 상태
         self.snapshot = None
         self.snapshot_hash = None
@@ -67,15 +77,16 @@ class Agent:
             logger.info("Using fake printer")
             return FakePrinter()
         elif driver_name == "m832":
-            try:
-                from printer.m832 import M832Printer
-                transport = self._load_transport(self.config.transport)
-                logger.info(f"Using M832 printer (transport={self.config.transport})")
-                return M832Printer(transport=transport, h_offset_mm=self.config.h_offset_mm)
-            except ImportError:
-                logger.error("m832 driver not available, falling back to fake")
-                from printer.fake import FakePrinter
-                return FakePrinter()
+            # ImportError를 fake로 조용히 폴백하지 않는다. HARU_PRINTER_DRIVER=m832인데
+            # 드라이버·전송을 못 만들면 예외를 그대로 올려 서비스가 죽게 둔다 —
+            # CLAUDE.md 기록 규칙("실패를 성공처럼 보고하지 않는다")과 같은 이유다.
+            # 2026-09-17에 고친 import 경로 버그(`from pi.printer...`)가 정확히
+            # ImportError였는데, 이 분기가 그걸 삼켜 fake로 내려가는 바람에 실물은
+            # 백지인데 서버엔 printed로 보고되는 상태로 오래 숨어 있었다.
+            from printer.m832 import M832Printer
+            transport = self._load_transport(self.config.transport)
+            logger.info(f"Using M832 printer (transport={self.config.transport})")
+            return M832Printer(transport=transport, h_offset_mm=self.config.h_offset_mm)
         else:
             raise ValueError(f"Unknown printer driver: {driver_name}")
 
@@ -320,14 +331,20 @@ class Agent:
 
 
 def main():
-    """main entry point."""
+    """main entry point.
+
+    설정 로드뿐 아니라 Agent(config) 생성 중에도 실패할 수 있다(드라이버/전송을 못
+    만들면 ValueError·ImportError 등이 난다 — `_load_printer`가 더 이상 이를 fake로
+    삼키지 않는다). 여기서 사람이 읽을 수 있는 오류로 sys.exit(1)로 끝내되, 오류를
+    삼켜 그대로 기동하는 일은 없어야 한다(systemd가 재시작 루프를 돌릴 때 트레이스백만
+    반복 출력되는 대신 원인 한 줄이 먼저 보이게 하려는 목적일 뿐이다).
+    """
     try:
         config = AgentConfig.from_env()
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
+        agent = Agent(config)
+    except Exception as e:
+        logger.error(f"Agent failed to start: {e}", exc_info=True)
         sys.exit(1)
-
-    agent = Agent(config)
 
     # signal handler (graceful shutdown)
     def signal_handler(sig, frame):

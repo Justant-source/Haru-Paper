@@ -215,10 +215,17 @@ class Storage:
         result_id: Optional[str] = None,
         first_attempt_at: Optional[str] = None,
         last_attempt_at: Optional[str] = None,
-        attempts: int = 0,
+        attempts: Optional[int] = None,
         final: bool = False,
     ):
-        """실행된 occurrence 저장."""
+        """실행된 occurrence 저장.
+
+        attempts: 새 시도를 시작할 때만 호출부가 명시적으로 전달한다(executor.py가
+        인쇄 전 "attempting" 기록에 attempts=1을 넘기는 식). 생략(None)하면 기존
+        값을 그대로 유지한다 — 같은 시도를 final로 마무리하는 두 번째 호출이라는
+        뜻이다. 2026-09-17 발견: 이전에는 이 인자를 무시하고 호출마다 기존값+1을
+        써서, 실행 1회(시작 기록 1번 + 최종 기록 1번)에 attempts가 2씩 늘었다.
+        """
         now = datetime.now().isoformat()
         if first_attempt_at is None:
             first_attempt_at = now
@@ -232,8 +239,10 @@ class Storage:
             cursor.execute("SELECT attempts FROM executed_occurrences WHERE occurrence_key = ?", (occurrence_key,))
             existing = cursor.fetchone()
 
-            if existing:
-                new_attempts = existing[0] + 1
+            if attempts is not None:
+                new_attempts = attempts
+            elif existing:
+                new_attempts = existing[0]
             else:
                 new_attempts = 1
 
@@ -246,6 +255,45 @@ class Storage:
                 (occurrence_key, status, result_id, first_attempt_at, now, new_attempts, int(final)),
             )
             conn.commit()
+
+    def cleanup_stale_attempts(self) -> list[str]:
+        """기동 시 1회: 전송 도중 죽어 'attempting'·final=0으로 남은 레코드를 정리한다.
+
+        docs/pi/agent.md 9절: 전송 도중 프로세스가 죽으면(정전, OOM, `systemctl
+        restart` 등) 재시작 후 그 occurrence를 자동으로 다시 인쇄하지 않고
+        failed(detail: 전송 중 중단)로 끝낸다 — 같은 내용이 두 번 나오는 것보다
+        한 번 빠지는 쪽을 택한다. final=1로 표시해 두면
+        scheduler.filter_executable_occurrences가 final만 보고 걸러내므로 재실행되지
+        않는다.
+
+        주의(범위): 이 메서드는 executed_occurrences만 갱신하고 results_queue에는
+        아무것도 넣지 않는다 — executed_occurrences에는 formatId·renderId·
+        scheduledAt이 없어 서버가 기대하는 결과 payload(../architecture.md)를 여기서
+        온전히 재구성할 수 없다. 즉 이 정리 결과는 기존 업로드 경로(uploader.py →
+        POST /api/device/results)를 타지 않고 로컬 중복 인쇄 방지에만 쓰인다
+        (호출부 __main__.py에서 이 사실을 그대로 로그로 남긴다).
+
+        Returns:
+            정리한 occurrence_key 목록.
+        """
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT occurrence_key FROM executed_occurrences WHERE status = 'attempting' AND final = 0"
+            )
+            keys = [row[0] for row in cursor.fetchall()]
+            if keys:
+                cursor.executemany(
+                    """
+                    UPDATE executed_occurrences
+                    SET status = 'failed', last_attempt_at = ?, final = 1
+                    WHERE occurrence_key = ?
+                    """,
+                    [(now, key) for key in keys],
+                )
+                conn.commit()
+        return keys
 
     def get_command(self, command_id: str) -> Optional[dict]:
         """명령 조회."""

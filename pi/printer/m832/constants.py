@@ -49,11 +49,16 @@ H_OFFSET_DEFAULT_DOT = 24
 BT_ADDRESS_DEFAULT = "C5:0D:F7:B7:B2:A1"  # 기기 대장 1호기 MAC. HARU_BT_ADDRESS로 오버라이드 가능
 BT_RFCOMM_CHANNEL = 1  # SPP("JL_SPP", 0x1101). sdptool search SP 실측값, 고정
 BT_CHUNK_SIZE = 4096  # 흐름 제어 없이 연속 send(). USB와 동일 값으로 검증됨(MIN_CHUNK=64 폴백 미발동)
-BT_CONNECT_TIMEOUT_SEC = 10.0  # connect() 타임아웃
-BT_WRITE_TIMEOUT_MS = 20000  # 청크당 send() 타임아웃(20초)
+BT_CONNECT_TIMEOUT_SEC = 10.0  # connect() 타임아웃. [확인됨·실물] docs/pi/transport.md 3절
+# "타임아웃" 행(connect 10초 — 이 값으로 실패 없음), detox-printer m832/src/10_bt_rfcomm_replay.py
+BT_WRITE_TIMEOUT_MS = 20000  # 청크당 send() 타임아웃(20초). [확인됨·실물] docs/pi/transport.md 3절
+# "타임아웃" 행(청크당 write 20초 — V2 체커보드 106,300바이트 전송, 이 값으로 실패 없음)
 BT_READ_TIMEOUT_MS = 3000  # 응답 recv() 타임아웃(3초, 타임아웃은 오류 아님 — None 반환)
 BT_TOTAL_WRITE_DEADLINE_SEC = 60  # USB와 동일 근거(constants.py USB_TOTAL_WRITE_DEADLINE_SEC 주석 참고)
-BT_WAKE_TIMEOUT_SEC = 5.0  # 콜드 ACL 재연결 워크어라운드(`bluetoothctl connect`) 타임아웃.
+BT_WAKE_TIMEOUT_SEC = 5.0  # [기본값] 콜드 ACL 재연결 워크어라운드(`bluetoothctl connect`) 타임아웃.
+# 워크어라운드 자체(ACL을 깨우면 이후 연결이 성공한다)는 2026-09-17 실물로 [확인됨](아래 근거),
+# 그러나 5.0초라는 숫자 자체는 실측 근거가 없다 — raw RFCOMM connect 타임아웃(10초)보다
+# 여유 있게 짧다는 것 외에 다른 튜닝 없이 정한 값이라 [기본값]으로 표기한다.
 # 2026-09-17 실물 관찰: 페어링 직후 등 ACL 유휴 상태에서 raw RFCOMM connect가 10초
 # 타임아웃으로 실패, `bluetoothctl connect <MAC>`으로 ACL을 깨운 뒤에는 연속 성공(2회 확인).
 # docs/pi/transport.md "주의" 절, pi/transport/bt.py `_wake_acl()`

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -163,7 +164,15 @@ class Executor:
         return candidates_for_format[0]
 
     def _check_paper_policy(self, render: dict) -> tuple[bool, str]:
-        """용지 정책 확인. docs/pi/agent.md 8절 2번, policy.md 2절."""
+        """용지 정책 확인. docs/pi/agent.md 8절 2번, policy.md 2절.
+
+        fail-closed가 원칙이다(CLAUDE.md 절대 금지 1: 용지를 눈으로 확인하기 전에는
+        래스터를 보내지 않는다). "용지가 있는지 확실히 모른다"는 모두 인쇄를 막는
+        쪽으로 떨어져야 하며, 어느 분기에서도 "확인 안 됨"이 기본 허용으로 새면
+        안 된다(2026-09-17 발견: 이전 코드는 status_query에서 프린터 연결만 되면
+        통과시켰고, manual_flag는 kv 키가 아예 없으면 통째로 건너뛰어 둘 다 사실상
+        허용이 기본값이었다).
+        """
         if self.paper_policy == "unverified":
             # dry_run으로 끝냄
             return False, "dry_run"
@@ -172,25 +181,51 @@ class Executor:
             status = self.printer.status()
             if status.state != "ok":
                 return False, "skipped_printer_offline"
-            # ok면 인쇄 진행
-            return True, ""
+            # PrinterStatus(printer/__init__.py)에는 용지 필드가 없다 — M832는 아직
+            # 용지 유무를 감지하지 못한다(H4 미통과, docs/pi/printer-m832.md 5절.
+            # printer/m832/driver.py status()가 스스로 "용지 상태는 항상 unknown,
+            # 연결 가능 여부만 보고"라고 적어 뒀다). "명시적으로 있음"을 확인할 방법이
+            # 없으므로 연결이 살아 있어도 fail-closed로 인쇄하지 않는다. H4가 통과해
+            # PrinterStatus에 용지 필드가 생기면 그때 이 분기를 그 필드로 판단하도록
+            # 바꾼다.
+            return False, "skipped_no_paper"
         elif self.paper_policy == "manual_flag":
-            # paperState 확인
+            # paperState 확인. 키가 없거나 파싱 실패해도 "확인 안 됨" = 인쇄 금지.
             paper_state_json = self.storage.get_kv("paperState")
-            if paper_state_json:
-                import json
-
+            if not paper_state_json:
+                return False, "skipped_no_paper"
+            try:
                 paper_state = json.loads(paper_state_json)
-                if not paper_state.get("loaded", False):
-                    return False, "skipped_no_paper"
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"paperState JSON 파싱 실패, fail-closed로 skipped_no_paper: {e}")
+                return False, "skipped_no_paper"
+            if not paper_state.get("loaded", False):
+                return False, "skipped_no_paper"
             return True, ""
         else:
-            logger.error(f"Unknown paper policy: {self.paper_policy}")
-            return False, "unknown_policy"
+            # "unknown_policy"는 docs/pi/policy.md 5절 결과 status 목록에 없는 값이라
+            # 쓰지 않는다. 원인(설정 오류)은 로그로 남기고, 가장 안전한 쪽인
+            # skipped_no_paper로 fail-closed 처리한다.
+            logger.error(f"Unknown paper policy (설정 오류): {self.paper_policy!r} — fail-closed로 skipped_no_paper")
+            return False, "skipped_no_paper"
 
     def _load_render_bytes(self, render: dict) -> bytes:
-        """렌더 PNG 바이트 로드."""
-        render_path = Path(render["path"])
+        """렌더 PNG 바이트 로드.
+
+        render는 스냅샷의 서버 원본 JSON(RenderDto, camelCase)이라 로컬 파일 경로가
+        없다 — "path" 키는 존재하지 않는다(server/.../device/DeviceDto.java RenderDto:
+        renderId, formatId, targetDate, sha256, widthPx, renderedAt, url, urlPbm,
+        sha256Pbm). 로컬 경로는 storage.get_render(renderId)에만 있다(다운로드 시
+        __main__.py._download_and_verify_renders가 storage.save_render로 저장).
+        2026-09-17 발견: render["path"]를 직접 읽어 KeyError가 나는 버그였다 —
+        unverified 정책(dry_run) 뒤에 가려 있어 status_query/manual_flag로 전환하기
+        전에는 드러나지 않았다.
+        """
+        render_id = render.get("renderId", "")
+        stored = self.storage.get_render(render_id)
+        if not stored:
+            raise FileNotFoundError(f"Render not found in local cache: {render_id!r}")
+        render_path = Path(stored["path"])
         if not render_path.exists():
             raise FileNotFoundError(f"Render file not found: {render_path}")
         return render_path.read_bytes()
