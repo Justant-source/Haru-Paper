@@ -63,95 +63,11 @@ public class FormatService {
     }
 
     /**
-     * Create a new format.
-     */
-    public Format createFormat(FormatDocument document) {
-        validator.validate(document);
-
-        FormatDocument normalized = normalizeDocument(document);
-        String id = UUID.randomUUID().toString();
-        Instant now = Instant.now();
-
-        Format format = Format.builder()
-            .id(id)
-            .name(normalized.meta().name())
-            .schemaVersion(normalized.schemaVersion())
-            .body(serializeDocument(normalized))
-            .hasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(normalized))
-            .createdAt(now)
-            .updatedAt(now)
-            .build();
-
-        Format saved = formatRepository.save(format);
-        renderScanTrigger.requestScan();
-        return saved;
-    }
-
-    /**
      * Get format by id.
      */
     public Format getFormat(String id) {
         return formatRepository.findById(id)
             .orElseThrow(() -> new NotFoundException("format not found: " + id));
-    }
-
-    /**
-     * List all formats ordered by updatedAt descending.
-     */
-    public List<Format> listFormats() {
-        return formatRepository.findAllByOrderByUpdatedAtDesc();
-    }
-
-    /**
-     * Update existing format. Preserves forkedFrom.
-     */
-    public Format updateFormat(String id, FormatDocument document) {
-        Format existing = getFormat(id);
-        validator.validate(document);
-
-        FormatDocument normalized = normalizeDocument(document);
-        // Preserve forkedFrom from existing
-        FormatDocument withPreservedForkedFrom = new FormatDocument(
-            normalized.schemaVersion(),
-            new FormatMeta(
-                normalized.meta().name(),
-                normalized.meta().author(),
-                normalized.meta().description(),
-                existing.getBody() != null ? getForkedFromFromBody(existing.getBody()) : null
-            ),
-            normalized.style(),
-            normalized.rows()
-        );
-
-        existing.setName(withPreservedForkedFrom.meta().name());
-        existing.setSchemaVersion(withPreservedForkedFrom.schemaVersion());
-        existing.setBody(serializeDocument(withPreservedForkedFrom));
-        existing.setHasDynamicBlocks(FormatDocumentSupport.hasDynamicBlocks(withPreservedForkedFrom));
-        existing.setUpdatedAt(Instant.now());
-
-        Format saved = formatRepository.save(existing);
-        renderScanTrigger.requestScan();
-        return saved;
-    }
-
-    /**
-     * Delete format. Check if any schedules reference it.
-     */
-    public void deleteFormat(String id) {
-        Format format = getFormat(id);
-
-        List<String> referencingSchedules = scheduleRepository.findAllByFormatId(id)
-            .stream()
-            .map(s -> s.getId())
-            .toList();
-
-        if (!referencingSchedules.isEmpty()) {
-            throw new ConflictException("format is referenced by schedules", referencingSchedules);
-        }
-
-        formatRepository.delete(format);
-        renderScanTrigger.requestScan();
-        // Note: render files cleanup is best-effort; could be omitted if time constraints exist
     }
 
     /**

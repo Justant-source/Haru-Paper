@@ -33,6 +33,9 @@ haru:
   upload-max-mb: ${HARU_UPLOAD_MAX_MB:10}
   backup-retention-days: ${HARU_BACKUP_RETENTION_DAYS:7}
   files-dir: /data/haru-files
+  # 소유권 엄격 모드. V4 백필 + claim-legacy로 renders.owner_user_id의 NULL이 0이 된 뒤에만 켠다
+  # (docs/server/deploy.md 7.2절). 켜면 NULL 소유자 렌더 다운로드와 NULL 소유자 포맷 예약 생성이 404가 된다.
+  ownership-strict: ${HARU_OWNERSHIP_STRICT:false}
   weather:
     lat: ${HARU_WEATHER_LAT:37.5663}
     lon: ${HARU_WEATHER_LON:126.9779}

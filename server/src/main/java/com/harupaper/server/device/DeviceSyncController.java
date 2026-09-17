@@ -46,6 +46,17 @@ public class DeviceSyncController {
     private String filesDir;
 
     /**
+     * owner_user_id가 NULL인 렌더·소유권이 갈라진 예약을 어떻게 다룰지. false(기본)=레거시로 보고
+     * 허용, true=거부(404). V4 백필 + claim-legacy로 NULL이 0이 된 뒤에만 true로 켠다
+     * (.temp/06 1.5절, docs/server/deploy.md "V4 적용 + claim-legacy" 절).
+     * 기본값이 false인 이유: 이 값이 true인 채로 레거시 NULL이 남아 있으면 Pi가 렌더를 못 받고
+     * 예약이 조용히 "failed"가 된다(.temp/06 1.2절). "렌더"로 이름을 한정하지 않은 이유는
+     * ScheduleService의 NULL 포맷 소유권 검사(A-2)도 같은 플래그 아래 있기 때문이다.
+     */
+    @Value("${haru.ownership-strict:false}")
+    private boolean ownershipStrict;
+
+    /**
      * POST /api/device/poll (30초마다)
      * (docs/server/api.md 6절 "poll 처리 순서")
      */
@@ -166,7 +177,8 @@ public class DeviceSyncController {
      * 파생된 렌더. **포맷이 지워진 "고아 렌더"는 NULL 사유가 아니다** — V1의 `fk_renders_format`이
      * `ON DELETE CASCADE`라 포맷이 지워지면 렌더 행도 함께 지워진다.
      * 허용하는 이유는 Pi가 상시 구동 중이기 때문이다. V4 적용 + claim-legacy를 마치면 NULL은 0이 되고
-     * 더 생기지 않으므로, 그 시점 이후의 NULL은 버그 신호다 — 허용을 거부로 바꿀 것(후속 과제).
+     * 더 생기지 않으므로, 그 시점 이후의 NULL은 버그 신호다 — {@code ownershipStrict} 플래그를 켜면
+     * 거부로 바뀐다. 켜는 절차는 `docs/server/deploy.md`.
      */
     private void assertOwnership(Device device, Render render, String renderId) {
         if (device == null) {
@@ -174,8 +186,13 @@ public class DeviceSyncController {
         }
         String renderOwnerId = render.getOwnerUserId();
         if (renderOwnerId == null) {
+            if (ownershipStrict) {
+                log.error("RENDER_OWNER_NULL render={} device={} — owner_user_id가 NULL이다. " +
+                        "V4 백필/claim-legacy가 끝난 뒤라면 버그다", renderId, device.getId());
+                throw new NotFoundException("Render not found: " + renderId);
+            }
             log.warn("Render {} has no owner_user_id (V4 백필 전 레거시) — " +
-                    "allowing download by device {}", renderId, device.getId());
+                    "strict=false라 허용, device={}", renderId, device.getId());
             return;
         }
         if (!renderOwnerId.equals(device.getOwnerUserId())) {

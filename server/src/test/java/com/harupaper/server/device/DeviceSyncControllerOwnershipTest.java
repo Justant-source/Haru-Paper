@@ -96,8 +96,8 @@ class DeviceSyncControllerOwnershipTest {
     }
 
     @Test
-    @DisplayName("owner_user_id가 NULL인 레거시 렌더는 소유자와 무관하게 허용한다 (운영 중단 방지)")
-    void getRenderImage_nullOwner_isTreatedAsLegacyAndAllowed() throws Exception {
+    @DisplayName("owner_user_id가 NULL인 레거시 렌더는 strict=false(기본)면 소유자와 무관하게 허용한다 (운영 중단 방지)")
+    void nullOwner_strictFalse_isAllowed() throws Exception {
         Device requestingDevice = deviceOwnedBy("device-A", "user-A");
         Render legacyRender = renderOwnedBy("r4", null);
         when(renderRepository.findById("r4")).thenReturn(Optional.of(legacyRender));
@@ -106,6 +106,55 @@ class DeviceSyncControllerOwnershipTest {
 
         ResponseEntity<org.springframework.core.io.Resource> response =
                 controller.getRenderImage(request, "r4");
+
+        assertEquals(200, response.getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("owner_user_id가 NULL인 렌더는 strict=true면 404 (PNG)")
+    void nullOwner_strictTrue_returns404() throws Exception {
+        ReflectionTestUtils.setField(controller, "ownershipStrict", true);
+        Device requestingDevice = deviceOwnedBy("device-A", "user-A");
+        Render legacyRender = renderOwnedBy("r5", null);
+        when(renderRepository.findById("r5")).thenReturn(Optional.of(legacyRender));
+        // strict 아래에서도 404의 원인이 소유권(NULL)임을 증명하려면 파일이 실제로 있어야 한다 —
+        // 그러지 않으면 "파일 없음"으로도 같은 404가 나서 테스트가 무효가 된다(클래스 상단 주석, :53-55와 동일한 함정).
+        writeRenderFile("renders/r5.png", "fake-png-bytes");
+        HttpServletRequest request = requestWithDevice(requestingDevice);
+
+        NotFoundException ex = assertThrows(NotFoundException.class,
+                () -> controller.getRenderImage(request, "r5"));
+        assertEquals("Render not found: r5", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("owner_user_id가 NULL인 렌더는 strict=true면 404 (PBM)")
+    void nullOwner_strictTrue_returns404_pbm() throws Exception {
+        ReflectionTestUtils.setField(controller, "ownershipStrict", true);
+        Device requestingDevice = deviceOwnedBy("device-A", "user-A");
+        Render legacyRender = renderOwnedBy("r6", null);
+        legacyRender.setPbmPath("renders/r6.pbm");
+        when(renderRepository.findById("r6")).thenReturn(Optional.of(legacyRender));
+        writeRenderFile("renders/r6.pbm", "fake-pbm-bytes");
+        HttpServletRequest request = requestWithDevice(requestingDevice);
+
+        NotFoundException ex = assertThrows(NotFoundException.class,
+                () -> controller.getRenderPbm(request, "r6"));
+        assertEquals("Render not found: r6", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("strict=true여도 소유자가 같으면 정상적으로 내려준다 (정상 경로를 막지 않음을 고정)")
+    void sameOwner_strictTrue_succeeds() throws Exception {
+        ReflectionTestUtils.setField(controller, "ownershipStrict", true);
+        Device requestingDevice = deviceOwnedBy("device-A", "user-A");
+        Render ownRender = renderOwnedBy("r7", "user-A");
+        when(renderRepository.findById("r7")).thenReturn(Optional.of(ownRender));
+        writeRenderFile("renders/r7.png", "fake-png-bytes");
+        HttpServletRequest request = requestWithDevice(requestingDevice);
+
+        ResponseEntity<org.springframework.core.io.Resource> response =
+                controller.getRenderImage(request, "r7");
 
         assertEquals(200, response.getStatusCode().value());
     }

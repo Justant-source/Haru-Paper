@@ -8,7 +8,6 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface FormatRepository extends JpaRepository<Format, String> {
-    List<Format> findAllByOrderByUpdatedAtDesc();
 
     /** M6: 사용자별 포맷 목록 조회 */
     List<Format> findByOwnerUserIdOrderByUpdatedAtDesc(String ownerUserId);

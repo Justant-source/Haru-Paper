@@ -4,8 +4,10 @@ import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.device.DeviceRepository;
+import com.harupaper.server.format.Format;
 import com.harupaper.server.format.FormatRepository;
 import com.harupaper.server.render.RenderScanTrigger;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
@@ -30,166 +32,23 @@ public class ScheduleService {
     private final RenderScanTrigger renderScanTrigger;
     private final DeviceRepository deviceRepository;
 
+    /**
+     * DeviceSyncController.ownershipStrict와 같은 플래그(.temp/06 1.4절 "추가로 발견한 것").
+     * false(기본)=owner_user_id가 NULL인 포맷을 아무 사용자에게나 허용(레거시 호환),
+     * true=PrintNowController.java:73과 동일하게 NULL도 거부. 무조건 켜면 레거시 NULL 포맷이
+     * 남아 있는 동안 그 포맷으로는 새 예약을 만들 수 없게 되므로, V4 백필 + claim-legacy가
+     * 끝난 뒤에만 켠다(docs/server/deploy.md).
+     */
+    private final boolean ownershipStrict;
+
     public ScheduleService(ScheduleRepository scheduleRepository, FormatRepository formatRepository,
-                           RenderScanTrigger renderScanTrigger, DeviceRepository deviceRepository) {
+                           RenderScanTrigger renderScanTrigger, DeviceRepository deviceRepository,
+                           @Value("${haru.ownership-strict:false}") boolean ownershipStrict) {
         this.scheduleRepository = scheduleRepository;
         this.formatRepository = formatRepository;
         this.renderScanTrigger = renderScanTrigger;
         this.deviceRepository = deviceRepository;
-    }
-
-    /**
-     * 전체 예약 목록 조회 (켜짐/꺼짐 모두 포함, nextOccurrenceAt 계산)
-     */
-    public List<ScheduleResponseDto> findAll() {
-        List<Schedule> schedules = scheduleRepository.findAll();
-        List<ScheduleResponseDto> result = new ArrayList<>();
-        for (Schedule schedule : schedules) {
-            result.add(toResponseDto(schedule));
-        }
-        return result;
-    }
-
-    /**
-     * 예약 생성 (검증: formatId 존재, time HH:mm, recurring이면 daysOfWeek 1개 이상, once이면 date 필수이고 과거면 422)
-     */
-    public ScheduleResponseDto create(CreateScheduleRequestDto request) {
-        // formatId 존재 확인
-        if (!formatRepository.existsById(request.formatId())) {
-            throw new NotFoundException("Format not found: " + request.formatId());
-        }
-
-        // 검증: type별 필수 필드
-        if ("recurring".equals(request.type())) {
-            if (request.daysOfWeek() == null || request.daysOfWeek().isEmpty()) {
-                throw new ValidationException("daysOfWeek is required for recurring schedule", List.of(
-                        new ValidationException.FieldError("daysOfWeek", "must have at least one day")
-                ));
-            }
-            validateRecurringDaysOfWeek(request.daysOfWeek());
-            if (request.date() != null) {
-                throw new ValidationException("date must be null for recurring schedule", List.of(
-                        new ValidationException.FieldError("date", "must be null for recurring")
-                ));
-            }
-        } else if ("once".equals(request.type())) {
-            if (request.date() == null) {
-                throw new ValidationException("date is required for once schedule", List.of(
-                        new ValidationException.FieldError("date", "must not be null for once")
-                ));
-            }
-            // 과거 시각이면 422
-            LocalDate dateKst = request.date();
-            LocalTime timeKst = parseTime(request.time());
-            ZonedDateTime scheduledAt = dateKst.atTime(timeKst).atZone(TimeUtils.KST);
-            if (scheduledAt.isBefore(TimeUtils.nowInKST())) {
-                throw new ValidationException("scheduled date and time is in the past", List.of(
-                        new ValidationException.FieldError("date", "must not be in the past")
-                ));
-            }
-            if (request.daysOfWeek() != null) {
-                throw new ValidationException("daysOfWeek must be null for once schedule", List.of(
-                        new ValidationException.FieldError("daysOfWeek", "must be null for once")
-                ));
-            }
-        } else {
-            throw new ValidationException("Invalid schedule type: " + request.type(), List.of(
-                    new ValidationException.FieldError("type", "must be 'recurring' or 'once'")
-            ));
-        }
-
-        String scheduleId = UUID.randomUUID().toString();
-        Instant now = Instant.now();
-
-        Schedule schedule = Schedule.builder()
-                .id(scheduleId)
-                .formatId(request.formatId())
-                .type(request.type())
-                .daysOfWeek("recurring".equals(request.type()) ? String.join(",", request.daysOfWeek()) : null)
-                .time(parseTime(request.time()))
-                .date(request.date())
-                .enabled(request.enabled() != null ? request.enabled() : true)
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
-
-        Schedule saved = scheduleRepository.save(schedule);
-        renderScanTrigger.requestScan();
-        return toResponseDto(saved);
-    }
-
-    /**
-     * 예약 수정 (전체 교체, enabled 변경도 포함)
-     */
-    public ScheduleResponseDto update(String id, CreateScheduleRequestDto request) {
-        Schedule schedule = scheduleRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Schedule not found: " + id));
-
-        // formatId 존재 확인
-        if (!formatRepository.existsById(request.formatId())) {
-            throw new NotFoundException("Format not found: " + request.formatId());
-        }
-
-        // 동일한 검증
-        if ("recurring".equals(request.type())) {
-            if (request.daysOfWeek() == null || request.daysOfWeek().isEmpty()) {
-                throw new ValidationException("daysOfWeek is required for recurring schedule", List.of(
-                        new ValidationException.FieldError("daysOfWeek", "must have at least one day")
-                ));
-            }
-            validateRecurringDaysOfWeek(request.daysOfWeek());
-            if (request.date() != null) {
-                throw new ValidationException("date must be null for recurring schedule", List.of(
-                        new ValidationException.FieldError("date", "must be null for recurring")
-                ));
-            }
-        } else if ("once".equals(request.type())) {
-            if (request.date() == null) {
-                throw new ValidationException("date is required for once schedule", List.of(
-                        new ValidationException.FieldError("date", "must not be null for once")
-                ));
-            }
-            // 과거 시각이면 422
-            LocalDate dateKst = request.date();
-            LocalTime timeKst = parseTime(request.time());
-            ZonedDateTime scheduledAt = dateKst.atTime(timeKst).atZone(TimeUtils.KST);
-            if (scheduledAt.isBefore(TimeUtils.nowInKST())) {
-                throw new ValidationException("scheduled date and time is in the past", List.of(
-                        new ValidationException.FieldError("date", "must not be in the past")
-                ));
-            }
-            if (request.daysOfWeek() != null) {
-                throw new ValidationException("daysOfWeek must be null for once schedule", List.of(
-                        new ValidationException.FieldError("daysOfWeek", "must be null for once")
-                ));
-            }
-        } else {
-            throw new ValidationException("Invalid schedule type: " + request.type(), List.of(
-                    new ValidationException.FieldError("type", "must be 'recurring' or 'once'")
-            ));
-        }
-
-        schedule.setFormatId(request.formatId());
-        schedule.setType(request.type());
-        schedule.setDaysOfWeek("recurring".equals(request.type()) ? String.join(",", request.daysOfWeek()) : null);
-        schedule.setTime(parseTime(request.time()));
-        schedule.setDate(request.date());
-        schedule.setEnabled(request.enabled() != null ? request.enabled() : true);
-        schedule.setUpdatedAt(Instant.now());
-
-        Schedule updated = scheduleRepository.save(schedule);
-        renderScanTrigger.requestScan();
-        return toResponseDto(updated);
-    }
-
-    /**
-     * 예약 삭제
-     */
-    public void delete(String id) {
-        Schedule schedule = scheduleRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Schedule not found: " + id));
-        scheduleRepository.delete(schedule);
-        renderScanTrigger.requestScan();
+        this.ownershipStrict = ownershipStrict;
     }
 
     /**
@@ -346,10 +205,7 @@ public class ScheduleService {
      */
     public ScheduleResponseDto createWithOwner(CreateScheduleRequestDto request, String userId) {
         // formatId 존재 및 소유권 확인
-        var formatOpt = formatRepository.findById(request.formatId());
-        if (formatOpt.isEmpty() || (formatOpt.get().getOwnerUserId() != null && !formatOpt.get().getOwnerUserId().equals(userId))) {
-            throw new NotFoundException("Format not found: " + request.formatId());
-        }
+        assertFormatOwnership(request.formatId(), userId);
 
         // 동일한 검증 수행
         if ("recurring".equals(request.type())) {
@@ -426,10 +282,7 @@ public class ScheduleService {
         }
 
         // formatId 존재 및 소유권 확인
-        var formatOpt = formatRepository.findById(request.formatId());
-        if (formatOpt.isEmpty() || (formatOpt.get().getOwnerUserId() != null && !formatOpt.get().getOwnerUserId().equals(userId))) {
-            throw new NotFoundException("Format not found: " + request.formatId());
-        }
+        assertFormatOwnership(request.formatId(), userId);
 
         // 동일한 검증 수행
         if ("recurring".equals(request.type())) {
@@ -480,6 +333,27 @@ public class ScheduleService {
         Schedule saved = scheduleRepository.save(schedule);
         renderScanTrigger.requestScan();
         return toResponseDto(saved);
+    }
+
+    /**
+     * formatId가 존재하고, 소유자가 userId와 일치하거나(ownershipStrict 무관) 허용 대상인지 확인한다.
+     * ownershipStrict=false(기본)면 owner_user_id가 NULL인 포맷(레거시, claim-legacy 전)도 허용한다
+     * — PrintNowController.java:73과 달리 이 서비스만 완화돼 있던 구멍이었다(.temp/06 1.4절).
+     * ownershipStrict=true면 NULL도 거부해 PrintNowController와 동일하게 맞춘다.
+     */
+    private void assertFormatOwnership(String formatId, String userId) {
+        var formatOpt = formatRepository.findById(formatId);
+        if (formatOpt.isEmpty()) {
+            throw new NotFoundException("Format not found: " + formatId);
+        }
+        Format format = formatOpt.get();
+        String formatOwnerId = format.getOwnerUserId();
+        boolean denied = ownershipStrict
+                ? !userId.equals(formatOwnerId)
+                : (formatOwnerId != null && !formatOwnerId.equals(userId));
+        if (denied) {
+            throw new NotFoundException("Format not found: " + formatId);
+        }
     }
 
     /**
