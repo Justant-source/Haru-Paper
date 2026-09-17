@@ -136,3 +136,33 @@ class HttpPollSyncChannel(SyncChannel):
         except requests.RequestException as e:
             logger.error(f"Upload results failed: {e}")
             raise
+
+    def open_event_stream(self, read_timeout_sec: float):
+        """GET /api/device/events 를 stream=True로 연다.
+
+        SyncChannel ABC에는 넣지 않는다(추상 메서드로 강제하면 duck-typed 가짜
+        SyncChannel들이 깨진다) — agent.events.PushListener는
+        `hasattr(self.sync, "open_event_stream")`로 기능 탐지해서 쓴다.
+
+        실패 시 requests.RequestException(HTTPError 포함)을 그대로 올린다 —
+        호출부인 PushListener가 상태 코드를 보고 재연결·백오프를 결정한다. 여기서
+        raise_for_status() 전에 상태 코드를 먼저 판단하지 않는 이유: HTTPError도
+        response를 들고 있어서(e.response.status_code) 호출부가 그대로 분기할 수
+        있다 — 이 메서드에서 분기 로직을 미리 만들어 봐야 책임만 이 쪽으로
+        옮겨질 뿐이다.
+
+        Args:
+            read_timeout_sec: 서버 하트비트(기본 15초)보다 충분히 길게 잡아야
+                한다 — 이 값보다 오래 아무 줄도 안 오면 죽은 연결로 보고
+                재연결한다. connect 타임아웃은 5초로 고정한다(연결 자체가 안
+                되는 경우는 빨리 포기하고 재시도하는 게 낫다).
+        """
+        url = f"{self.server_url}/api/device/events"
+        resp = self.session.get(
+            url,
+            stream=True,
+            timeout=(5, read_timeout_sec),
+            headers={"Accept": "text/event-stream"},
+        )
+        resp.raise_for_status()
+        return resp

@@ -126,6 +126,72 @@ class TestLoadTransport:
             agent._load_transport("carrier-pigeon")
 
 
+class TestEventsConfig:
+    """`AgentConfig.events_enabled`/`event_read_timeout_sec` 배포 안전성 확인.
+
+    둘 다 필수 키 목록(`required_keys`)에 없다 — 기존 Pi `.env`에 이 키가 없어도
+    기동돼야 한다(`config.py` 주석 "배포 사고 방지"). 이 값들을 명시하지 않고도
+    `from_env()`가 예외 없이 기본값으로 로드되는지가 핵심이다."""
+
+    REQUIRED_ENV = {
+        "HARU_SERVER_URL": "http://127.0.0.1:18080",
+        "HARU_DEVICE_TOKEN": "test-token",
+        "HARU_POLL_INTERVAL_SEC": "30",
+        "HARU_PRINTER_DRIVER": "fake",
+        "HARU_TRANSPORT": "usb",
+        "HARU_PAPER_POLICY": "unverified",
+        "HARU_GRACE_MINUTES": "30",
+        "HARU_RETRY_INTERVAL_SEC": "60",
+        "HARU_H_OFFSET_MM": "2.0",
+        "HARU_DATA_DIR": "/tmp/haru-paper-test-unused",
+        "HARU_SENT_RETENTION_DAYS": "30",
+    }
+
+    def _set_required_env(self, monkeypatch):
+        for key, value in self.REQUIRED_ENV.items():
+            monkeypatch.setenv(key, value)
+
+    def test_events_enabled_defaults_true_without_env_var(self, monkeypatch, tmp_path):
+        """HARU_EVENTS_ENABLED를 아예 설정하지 않아도(기존 배포된 .env 상태를
+        흉내) 예외 없이 로드되고 events_enabled는 True."""
+        self._set_required_env(monkeypatch)
+        monkeypatch.delenv("HARU_EVENTS_ENABLED", raising=False)
+        monkeypatch.delenv("HARU_EVENT_READ_TIMEOUT_SEC", raising=False)
+
+        empty_env_path = tmp_path / ".env"  # 존재하지 않는 파일 — 시스템 env만 쓰게 한다
+        config = AgentConfig.from_env(env_path=empty_env_path)
+
+        assert config.events_enabled is True
+
+    def test_events_enabled_false_when_explicitly_set(self, monkeypatch, tmp_path):
+        self._set_required_env(monkeypatch)
+        monkeypatch.setenv("HARU_EVENTS_ENABLED", "false")
+
+        empty_env_path = tmp_path / ".env"
+        config = AgentConfig.from_env(env_path=empty_env_path)
+
+        assert config.events_enabled is False
+
+    def test_event_read_timeout_sec_defaults_to_45(self, monkeypatch, tmp_path):
+        self._set_required_env(monkeypatch)
+        monkeypatch.delenv("HARU_EVENT_READ_TIMEOUT_SEC", raising=False)
+
+        empty_env_path = tmp_path / ".env"
+        config = AgentConfig.from_env(env_path=empty_env_path)
+
+        assert config.event_read_timeout_sec == 45
+
+    def test_make_config_helper_still_works_with_default_events_fields(self):
+        """이 파일의 기존 `make_config()` 헬퍼(AgentConfig(...) 모든 필드 나열,
+        events_enabled/event_read_timeout_sec 없이 호출)가 기본값 있는 필드
+        덕분에 그대로 깨지지 않아야 한다 — 만약 여기서 TypeError가 나면
+        config.py가 기본값 없이 필드를 추가했다는 뜻이므로, 이 테스트 파일이
+        아니라 config.py 쪽 문제로 보고한다."""
+        config = make_config()
+        assert config.events_enabled is True
+        assert config.event_read_timeout_sec == 45
+
+
 class TestMainErrorHandling:
     """main()이 설정 로드뿐 아니라 Agent(config) 생성 실패도 sys.exit(1)로 끝내는지.
 

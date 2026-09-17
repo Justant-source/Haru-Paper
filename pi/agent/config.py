@@ -39,6 +39,11 @@ class AgentConfig:
     data_dir: str
     sent_retention_days: int
     command_ttl_sec: int
+    # 필수 키에 넣지 않는 이유: 기존 Pi의 .env에 이 키가 없어도 기동돼야 한다
+    # (배포 사고 방지). HARU_EVENTS_ENABLED=false는 문제가 생겼을 때 SSE만 끄고
+    # 순수 폴링으로 되돌리는 탈출구다.
+    events_enabled: bool = True
+    event_read_timeout_sec: int = 45
 
     @classmethod
     def from_env(cls, env_path: Path = None) -> AgentConfig:
@@ -90,4 +95,10 @@ class AgentConfig:
             # 배포 사고가 난다. 서버 만료(10분, DeviceSyncService.java)와 맞춘 값
             # [기본값](.temp/05 설계 4.6).
             command_ttl_sec=int(os.environ.get("HARU_COMMAND_TTL_SEC", "600")),
+            # 필수 키 목록에는 넣지 않는다 — 기존 Pi의 .env에 이 키가 없어도
+            # 기동돼야 한다(배포 사고 방지). HARU_EVENTS_ENABLED=false는 문제가
+            # 생겼을 때 SSE만 끄고 순수 폴링(최대 30초 지연)으로 되돌리는
+            # 탈출구다.
+            events_enabled=os.environ.get("HARU_EVENTS_ENABLED", "true").lower() == "true",
+            event_read_timeout_sec=int(os.environ.get("HARU_EVENT_READ_TIMEOUT_SEC", "45")),
         )

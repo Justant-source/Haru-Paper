@@ -19,6 +19,7 @@ from transport import Transport
 
 from .clock import ClockGate, check_ntp_synchronized, now_kst, parse_local_iso
 from .config import AgentConfig
+from .events import PushListener
 from .executor import Executor
 from .retention import prune_sent_bytes
 from .scheduler import calculate_occurrences, filter_executable_occurrences
@@ -41,6 +42,13 @@ class Agent:
     # SD카드 쓰기가 된다(과제 2 지시문) — 60초로 늘려 하루 최대 1,440회로 줄인다.
     # 되돌아보기 정확도에 주는 영향은 _maybe_update_last_tick 참고.
     LAST_TICK_WRITE_INTERVAL_SEC = 60
+
+    # push(SSE wake) 깨우기가 몰아쳐도(서버 쪽에 합체가 있지만 그래도) 폴링이
+    # 초당 여러 번 돌지 않게 하는 디바운스 최소 간격(초). 매 폴링은
+    # executor.try_lock_printer()로 printer.status()를 부르는데 이는 실제 BT
+    # 소켓 연결이고, Storage는 호출마다 SQLite 연결을 새로 열어 인쇄 중 쓰기
+    # 경합이 늘어날 수 있다.
+    PUSH_MIN_POLL_GAP_SEC = 2.0
 
     def __init__(self, config: AgentConfig, clock_synced_check: Optional[Callable[[], bool]] = None):
         """
@@ -117,6 +125,16 @@ class Agent:
         # 30초) + 다음 틱(최대 10초) = 최대 40초를 기다리지 않고 poll 직후 실행되게 한다.
         self._wake = threading.Event()
 
+        # 폴링 루프 전용. 기존 self._wake(스케줄러 전용)를 재사용하지 않는다 —
+        # 그쪽은 매 대기 후 무조건 clear()하므로 두 소비자가 섞이면 신호를
+        # 서로 잡아먹는다(예: SSE wake가 set()한 직후 스케줄러 루프가 먼저
+        # clear()해 버리면 폴링 루프는 깨어나지 못한다).
+        self._poll_wake = threading.Event()
+        # PushListener(SSE 수신기) — run()에서 조건부로 생성한다(events_enabled
+        # 설정 + self.sync가 open_event_stream을 지원할 때만). None이면
+        # push 없이 순수 폴링으로 동작한다(기존과 동일).
+        self._push_listener = None
+
         # 시계 동기화 게이트(과제 1, clock.py의 ClockGate 참고). 미동기 동안은
         # _do_scheduler_tick이 예약·명령 처리를 전부 보류한다.
         self._clock_gate = ClockGate(check_fn=clock_synced_check or check_ntp_synchronized)
@@ -183,6 +201,35 @@ class Agent:
         polling_thread.start()
         scheduler_thread.start()
 
+        # push(SSE) 깨우기 채널 — 세 번째 데몬 스레드로 조건부 기동한다.
+        # hasattr 기능 탐지를 쓰는 이유: 테스트의 duck-typed 가짜 sync 객체
+        # (NoOpSync 등)나 미래의 다른 SyncChannel 구현이 open_event_stream을
+        # 갖지 않아도 죽지 않게 하기 위함(sync.SyncChannel ABC에는 이 메서드를
+        # 추상으로 강제하지 않았다).
+        push_thread = None
+        if self.config.events_enabled and hasattr(self.sync, "open_event_stream"):
+            def open_stream():
+                return self.sync.open_event_stream(self.config.event_read_timeout_sec)
+
+            self._push_listener = PushListener(
+                open_stream_fn=open_stream,
+                # 이 한 줄이 중복 인쇄 방지의 핵심이다 — 절대 self._do_poll이나
+                # executor 경로를 직접 넘기지 않는다. 리스너 스레드가 할 수
+                # 있는 일은 딱 하나, 폴링 스레드를 깨우는 것뿐이다(CLAUDE.md
+                # 불변식: 인쇄로 나가는 모든 경로는 스케줄러/폴링 스레드로만
+                # 모인다).
+                on_wake=self._poll_wake.set,
+                is_running_fn=lambda: self.running,
+                read_timeout_sec=self.config.event_read_timeout_sec,
+            )
+            push_thread = threading.Thread(target=self._push_listener.run, daemon=True)
+            push_thread.start()
+        else:
+            logger.info(
+                "Push 이벤트 리스너 비활성(events_enabled=False 또는 sync가 미지원) — "
+                "기존과 동일하게 폴링만으로 동작"
+            )
+
         # Ctrl+C로 종료할 때까지 대기
         try:
             while self.running:
@@ -194,28 +241,56 @@ class Agent:
         # 스레드 종료 대기 (최대 5초)
         polling_thread.join(timeout=5)
         scheduler_thread.join(timeout=5)
+        if push_thread is not None:
+            push_thread.join(timeout=5)
         logger.info("Agent stopped")
 
     def stop(self) -> None:
-        """정상 종료: 실행 루프를 멈추고 스케줄러 틱을 즉시 깨운다.
+        """정상 종료: 실행 루프를 멈추고 스케줄러/폴링 틱과 push 리스너를 즉시 깨운다.
 
         ⑦[사소, 2026-09-17 Opus 검토로 발견] `self.running = False`만으로는
         `_scheduler_loop`가 `self._wake.wait(tick_interval)`(최대 10초)에서 자고
         있을 수 있다 — `run()`의 `join(timeout=5)`가 그보다 먼저 끝나면, 데몬
         스레드가 (운이 나쁘면) 인쇄 도중에 프로세스 종료로 강제 중단될 수 있다.
-        `_wake.set()`으로 즉시 깨워 루프 조건을 다시 검사하게 한다."""
+        `_wake.set()`으로 즉시 깨워 루프 조건을 다시 검사하게 한다. `_poll_wake`도
+        같은 이유로 깨운다. push 리스너는 `PushListener.stop()`으로 현재 열린
+        스트림을 닫아 `iter_lines()`가 최대한 빨리 풀리게 한다(닫기가 즉시 안
+        먹혀도 read_timeout_sec가 최후의 보루다)."""
         self.running = False
         self._wake.set()
+        self._poll_wake.set()
+        if self._push_listener is not None:
+            self._push_listener.stop()
 
     def _polling_loop(self):
-        """30초마다 폴링 (또는 서버가 지시한 주기)."""
+        """30초마다 폴링(또는 서버가 지시한 주기). push(SSE wake)가 오면
+        `self._poll_wake`가 즉시 set()되어 대기를 끊고 한 번 더 돈다.
+
+        `_do_poll`이 내부에서 예외를 이미 다 삼키므로(`except Exception` 안에서
+        로그만 남기고 반환) 대기는 루프 바닥 한 곳으로 모은다 — 이전에는 정상
+        경로와 예외 경로가 각각 `time.sleep`을 불러 두 곳을 따로 관리해야
+        했다.
+        """
         while self.running:
             try:
                 self._do_poll()
-                time.sleep(self.poll_interval_sec)
             except Exception as e:
                 logger.error(f"Polling loop error: {e}", exc_info=True)
-                time.sleep(self.poll_interval_sec)
+
+            last_poll_started_at = time.monotonic()
+            self._poll_wake.wait(self.poll_interval_sec)
+            self._poll_wake.clear()
+
+            # 디바운스 가드: push wake가 몰아쳐서(또는 poll 직후 곧바로 다시
+            # set()되어) 최소 간격보다 일찍 깨어났으면 남은 시간만큼 더 잔다.
+            # 이 sleep은 최대 PUSH_MIN_POLL_GAP_SEC(2초)이고 stop()이 이
+            # 시간만큼 지연될 수 있지만, run()의 스레드 join 타임아웃(5초)
+            # 안에 충분히 들어온다 — self._poll_wake.wait()을 여기 또 쓰지
+            # 않는 이유는 방금 clear()한 이벤트를 다시 기다리면 stop()의
+            # set()과 순서가 꼬일 수 있어서다(짧은 sleep이 더 단순하고 안전하다).
+            elapsed = time.monotonic() - last_poll_started_at
+            if elapsed < self.PUSH_MIN_POLL_GAP_SEC:
+                time.sleep(self.PUSH_MIN_POLL_GAP_SEC - elapsed)
 
     def _do_poll(self):
         """한 번의 폴링 주기."""
