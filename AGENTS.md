@@ -15,9 +15,9 @@
 
 ## 세션 시작
 
-1. `hostname`으로 노트북(WSL)인지 `justant-server2`인지 확인한다.
-2. 담당 경로만 수정한다. 밖은 사용자가 요청하기 전에는 손대지 않는다.
-3. 작업 시작 전 `git pull --ff-only`. fast-forward 실패 시 멈추고 보고한다. merge/rebase/reset으로 합치지 않는다.
+1. `hostname`으로 `justant-server2`인지 확인한다. 다른 머신이면 멈추고 사용자에게 보고한다 — 노트북 WSL은 더 이상 이 저장소를 담당하지 않는다.
+2. 작업 시작 전 `git pull --ff-only`. fast-forward 실패 시 멈추고 보고한다. merge/rebase/reset으로 합치지 않는다.
+3. 병렬 에이전트를 쓸 때는 파일이 겹치지 않는 단위로만 나눈다.
 
 상세·절대 금지·마일스톤은 `CLAUDE.md`와 `docs/`다.
 
@@ -25,9 +25,12 @@
 
 | 작업 범위 | 진입 |
 |---|---|
+| 문서 색인·현재 상태 | `docs/README.md` |
+| 접속·환경(Pi SSH, sudo, detox-printer 위치) | `docs/environment.md` |
 | 전체 구조·API 규약 | `docs/architecture.md` |
-| 최초 결정·마일스톤 | `docs/init_plan.md` (원본 기록 — 고치지 않음) |
+| 최초 결정·마일스톤(M0~M5) | `docs/init_plan.md` (원본 기록 — 고치지 않음) |
 | Pi / 프린터 | `docs/pi/README.md` |
 | 서버 | `docs/server/README.md` |
 | 앱 | `docs/app/README.md` |
+| 진행 중인 계획(하드웨어 PoC, ESP32, 플랫폼, 편집기) | `.temp/` |
 | 스킬 트리거 | `.claude/skills/*/SKILL.md` |
