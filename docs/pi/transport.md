@@ -59,6 +59,24 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 | 전송 후 응답 | **11바이트 `1a 3e 00 00 1a 3b 04 19 00 05 00`** 수신(USB에서는 무응답) | [확인됨·수신], 의미 [미검증] | findings "V2 — RFCOMM… 전송 성공" |
 | 계열 자료의 256B/20ms 청크 | 필요 없었다 | [확인됨·실물] | 위 청크 행 |
 
+### 발견된 버그 2건 [고침, 2026-09-17] — `HARU_PRINTER_DRIVER=fake`인 동안 안 드러났던 것들
+
+1. **import 경로 버그**: `transport/usb.py`·`transport/bt.py`가 `from pi.printer.m832.constants import ...`로
+   돼 있었다. 이건 저장소 루트가 `sys.path`에 있을 때만(예: `pytest`를 저장소 루트에서 `-m`으로 실행할 때
+   우연히) 동작하고, **실제 운영 환경**(`systemd`의 `WorkingDirectory=/opt/haru-paper/pi`, `ExecStart=...
+   python -m agent` — `pi/`가 cwd)에서는 `ModuleNotFoundError: No module named 'pi'`로 깨진다. 코드베이스의
+   실제 관례(`printer/m832/driver.py` 등)는 `pi.` 접두어 없이 `from printer... / from transport...`다 —
+   두 파일을 그 관례로 맞췄다. Pi에서 직접 `cwd=/opt/haru-paper/pi`로 재현·검증함.
+2. **transport 미변환 버그**: `pi/agent/__main__.py`의 `_load_printer("m832")`가
+   `M832Printer(transport=self.config.transport, ...)`처럼 **`HARU_TRANSPORT` 문자열**(`"usb"`/`"bt"`)을
+   그대로 넘기고 있었다 — 실제 `UsbTransport()`/`BtTransport()` 객체로 바꾸는 코드가 없었다.
+   `HARU_PRINTER_DRIVER=fake`였던 동안은 이 경로를 한 번도 안 타서 드러나지 않았고, `m832`로 바꾸는
+   순간 드라이버가 문자열에 `with transport:`를 걸며 즉시 크래시났을 것이다. `_load_transport()`
+   메서드를 신설해 `HARU_TRANSPORT`에 맞는 실제 Transport 인스턴스를 만들어 주입하도록 고쳤다
+   (`bt`인데 `HARU_BT_ADDRESS`가 비어 있으면 fake로 조용히 안 넘어가고 바로 에러).
+3. 재발 방지 테스트 9개 신설(`pi/tests/test_agent_bootstrap.py`), 전체 스위트 133개 통과. `cwd=pi/`로
+   실물 venv에서 `_load_printer("m832")`(transport=bt)까지 엔드투엔드로 재현·확인함.
+
 ### Pi 구현 [확인됨·실물, 2026-09-17] — 페어링·코드·연결 테스트 완료, 실제 인쇄는 미착수
 
 - **Pi ↔ M832 페어링 완료**: `bluetoothctl pair`+`trust`, `Paired: yes`/`Bonded: yes`/`UUID: Serial Port, HCR Print`(서버와 동일). Pi에서 `sdptool search SP`로 RFCOMM 채널 1도 재확인함.

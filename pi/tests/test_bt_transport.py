@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,6 +15,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from transport import TransportError
 from transport.bt import BtTransport
+
+
+@pytest.fixture(autouse=True)
+def mock_bluetoothctl_wake():
+    """모든 테스트에서 `_wake_acl()`의 실제 `subprocess.run` 호출을 막는다.
+
+    open()마다 ACL 웨이크 단계가 추가됐으므로, 이걸 모킹하지 않으면 단위 테스트가
+    실제 `bluetoothctl` 프로세스를 띄우려 시도한다(느려지고, CI/서버 환경에 따라
+    실패할 수 있음). 이 fixture는 이 모듈의 모든 테스트에 자동 적용된다.
+    """
+    with patch("transport.bt.subprocess.run") as mock_run:
+        yield mock_run
 
 
 class TestBtTransportDefaults:
@@ -116,6 +129,95 @@ class TestBtTransportOpen:
         transport.open()
 
         mock_sock.connect.assert_called_once_with(("11:22:33:44:55:66", 3))
+
+
+class TestBtTransportWakeAcl:
+    """콜드 ACL 재연결 워크어라운드(`_wake_acl`) 테스트. 실제 subprocess는 절대 실행 안 함
+    (모듈 전체에 적용되는 `mock_bluetoothctl_wake` fixture로 모킹)."""
+
+    @patch("socket.socket")
+    def test_open_calls_wake_before_connect(self, mock_socket_ctor, mock_bluetoothctl_wake):
+        """open()은 raw connect 전에 반드시 bluetoothctl connect를 먼저 시도한다."""
+        mock_sock = MagicMock()
+        mock_socket_ctor.return_value = mock_sock
+        call_order = []
+        mock_bluetoothctl_wake.side_effect = lambda *a, **k: call_order.append("wake")
+        mock_sock.connect.side_effect = lambda *a, **k: call_order.append("connect")
+
+        transport = BtTransport()
+        transport.open()
+
+        mock_bluetoothctl_wake.assert_called_once()
+        args, kwargs = mock_bluetoothctl_wake.call_args
+        assert args[0] == ["bluetoothctl", "connect", "C5:0D:F7:B7:B2:A1"]
+        assert kwargs["timeout"] == 5.0
+        assert call_order == ["wake", "connect"]  # wake가 반드시 먼저
+
+    @patch("socket.socket")
+    def test_wake_uses_custom_address(self, mock_socket_ctor, mock_bluetoothctl_wake):
+        """커스텀 주소로 열면 wake도 같은 주소를 쓴다."""
+        mock_sock = MagicMock()
+        mock_socket_ctor.return_value = mock_sock
+
+        transport = BtTransport(address="11:22:33:44:55:66")
+        transport.open()
+
+        args, _ = mock_bluetoothctl_wake.call_args
+        assert args[0] == ["bluetoothctl", "connect", "11:22:33:44:55:66"]
+
+    @patch("socket.socket")
+    def test_wake_timeout_does_not_block_connect(self, mock_socket_ctor, mock_bluetoothctl_wake):
+        """bluetoothctl이 타임아웃돼도(SPP 프로파일 실패 등) raw connect는 그대로 시도해 성공할 수 있다."""
+        mock_sock = MagicMock()
+        mock_socket_ctor.return_value = mock_sock
+        mock_bluetoothctl_wake.side_effect = subprocess.TimeoutExpired(cmd="bluetoothctl", timeout=5.0)
+
+        transport = BtTransport()
+        transport.open()  # 예외 없이 성공해야 함
+
+        mock_sock.connect.assert_called_once_with(("C5:0D:F7:B7:B2:A1", 1))
+        assert transport.sock is mock_sock
+
+    @patch("socket.socket")
+    def test_wake_missing_binary_does_not_block_connect(self, mock_socket_ctor, mock_bluetoothctl_wake):
+        """bluetoothctl 자체가 없어도(FileNotFoundError) raw connect는 그대로 시도한다."""
+        mock_sock = MagicMock()
+        mock_socket_ctor.return_value = mock_sock
+        mock_bluetoothctl_wake.side_effect = FileNotFoundError("bluetoothctl not found")
+
+        transport = BtTransport()
+        transport.open()  # 예외 없이 성공해야 함
+
+        mock_sock.connect.assert_called_once()
+
+    @patch("socket.socket")
+    def test_wake_oserror_does_not_block_connect(self, mock_socket_ctor, mock_bluetoothctl_wake):
+        """wake 중 기타 OSError가 나도 무시하고 raw connect를 시도한다."""
+        mock_sock = MagicMock()
+        mock_socket_ctor.return_value = mock_sock
+        mock_bluetoothctl_wake.side_effect = OSError("permission denied")
+
+        transport = BtTransport()
+        transport.open()
+
+        mock_sock.connect.assert_called_once()
+
+    def test_default_wake_timeout(self):
+        """기본 wake 타임아웃이 문서·constants.py 값과 일치 (5초)."""
+        transport = BtTransport()
+        assert transport.wake_timeout_sec == 5.0
+
+    @patch("socket.socket")
+    def test_custom_wake_timeout(self, mock_socket_ctor, mock_bluetoothctl_wake):
+        """wake_timeout_sec 커스텀 값이 subprocess.run에 그대로 전달된다."""
+        mock_sock = MagicMock()
+        mock_socket_ctor.return_value = mock_sock
+
+        transport = BtTransport(wake_timeout_sec=2.0)
+        transport.open()
+
+        _, kwargs = mock_bluetoothctl_wake.call_args
+        assert kwargs["timeout"] == 2.0
 
 
 class TestBtTransportWrite:

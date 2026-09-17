@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from printer import Printer, PrinterStatus
+from transport import Transport
 
 from .config import AgentConfig
 from .executor import Executor
@@ -68,14 +69,38 @@ class Agent:
         elif driver_name == "m832":
             try:
                 from printer.m832 import M832Printer
-                logger.info("Using M832 printer")
-                return M832Printer(h_offset_mm=self.config.h_offset_mm, transport=self.config.transport)
+                transport = self._load_transport(self.config.transport)
+                logger.info(f"Using M832 printer (transport={self.config.transport})")
+                return M832Printer(transport=transport, h_offset_mm=self.config.h_offset_mm)
             except ImportError:
                 logger.error("m832 driver not available, falling back to fake")
                 from printer.fake import FakePrinter
                 return FakePrinter()
         else:
             raise ValueError(f"Unknown printer driver: {driver_name}")
+
+    def _load_transport(self, transport_name: str) -> Transport:
+        """전송 계층 로드 (docs/pi/transport.md).
+
+        이전까지 이 메서드가 없어서 `_load_printer`가 `HARU_TRANSPORT` 문자열을 그대로
+        `M832Printer(transport=...)`에 넘기고 있었다 — `HARU_PRINTER_DRIVER=fake`였던
+        동안은 이 경로를 타지 않아 드러나지 않았을 뿐, `m832`로 전환하면 드라이버가
+        문자열에 `with transport:`를 걸며 즉시 예외가 났을 잠재 버그였다(2026-09-17 발견).
+
+        Raises:
+            ValueError: 알 수 없는 transport 이름, 또는 `bt`인데 `HARU_BT_ADDRESS`가 비어 있음
+                (설정 오류를 fake로 조용히 감추지 않고 바로 드러낸다)
+        """
+        if transport_name == "usb":
+            from transport.usb import UsbTransport
+            return UsbTransport()
+        elif transport_name == "bt":
+            if not self.config.bt_address:
+                raise ValueError("HARU_TRANSPORT=bt 인데 HARU_BT_ADDRESS가 비어 있음")
+            from transport.bt import BtTransport
+            return BtTransport(address=self.config.bt_address)
+        else:
+            raise ValueError(f"Unknown transport: {transport_name}")
 
     def run(self):
         """에이전트 시작."""

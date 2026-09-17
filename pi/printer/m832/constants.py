@@ -53,3 +53,7 @@ BT_CONNECT_TIMEOUT_SEC = 10.0  # connect() 타임아웃
 BT_WRITE_TIMEOUT_MS = 20000  # 청크당 send() 타임아웃(20초)
 BT_READ_TIMEOUT_MS = 3000  # 응답 recv() 타임아웃(3초, 타임아웃은 오류 아님 — None 반환)
 BT_TOTAL_WRITE_DEADLINE_SEC = 60  # USB와 동일 근거(constants.py USB_TOTAL_WRITE_DEADLINE_SEC 주석 참고)
+BT_WAKE_TIMEOUT_SEC = 5.0  # 콜드 ACL 재연결 워크어라운드(`bluetoothctl connect`) 타임아웃.
+# 2026-09-17 실물 관찰: 페어링 직후 등 ACL 유휴 상태에서 raw RFCOMM connect가 10초
+# 타임아웃으로 실패, `bluetoothctl connect <MAC>`으로 ACL을 깨운 뒤에는 연속 성공(2회 확인).
+# docs/pi/transport.md "주의" 절, pi/transport/bt.py `_wake_acl()`

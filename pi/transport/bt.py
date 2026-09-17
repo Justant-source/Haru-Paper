@@ -8,19 +8,24 @@ HCRP(L2CAP PSM 4107)는 페어링 후에도 EPERM으로 거부돼(원인 미해�
 
 from __future__ import annotations
 
+import logging
 import socket
+import subprocess
 import time
 
-from pi.printer.m832.constants import (
+from printer.m832.constants import (
     BT_ADDRESS_DEFAULT as M832_BT_ADDRESS_DEFAULT,
     BT_CHUNK_SIZE as M832_BT_CHUNK_SIZE,
     BT_CONNECT_TIMEOUT_SEC as M832_BT_CONNECT_TIMEOUT_SEC,
     BT_READ_TIMEOUT_MS as M832_BT_READ_TIMEOUT_MS,
     BT_RFCOMM_CHANNEL as M832_BT_RFCOMM_CHANNEL,
     BT_TOTAL_WRITE_DEADLINE_SEC as M832_BT_TOTAL_WRITE_DEADLINE_SEC,
+    BT_WAKE_TIMEOUT_SEC as M832_BT_WAKE_TIMEOUT_SEC,
     BT_WRITE_TIMEOUT_MS as M832_BT_WRITE_TIMEOUT_MS,
 )
 from . import Transport, TransportError
+
+logger = logging.getLogger(__name__)
 
 
 class BtTransport(Transport):
@@ -39,6 +44,7 @@ class BtTransport(Transport):
     DEFAULT_WRITE_TIMEOUT_MS = M832_BT_WRITE_TIMEOUT_MS
     DEFAULT_READ_TIMEOUT_MS = M832_BT_READ_TIMEOUT_MS
     DEFAULT_TOTAL_WRITE_DEADLINE_SEC = M832_BT_TOTAL_WRITE_DEADLINE_SEC
+    DEFAULT_WAKE_TIMEOUT_SEC = M832_BT_WAKE_TIMEOUT_SEC
 
     def __init__(
         self,
@@ -47,6 +53,7 @@ class BtTransport(Transport):
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         connect_timeout_sec: float = DEFAULT_CONNECT_TIMEOUT_SEC,
         total_write_deadline_sec: float = DEFAULT_TOTAL_WRITE_DEADLINE_SEC,
+        wake_timeout_sec: float = DEFAULT_WAKE_TIMEOUT_SEC,
     ):
         """생성자.
 
@@ -57,16 +64,49 @@ class BtTransport(Transport):
             connect_timeout_sec: connect() 타임아웃 초 (기본 10)
             total_write_deadline_sec: write() 전체 청크 합산 상한 초 (기본 60) — USB transport와
                 같은 이유(프린터가 중간에 소비를 멈추는 경우 폴링 스레드를 오래 막지 않기 위함)
+            wake_timeout_sec: ACL 웨이크업(`bluetoothctl connect`) 타임아웃 초 (기본 5) — 아래
+                `_wake_acl` 참고
         """
         self.address = address
         self.channel = channel
         self.chunk_size = chunk_size
         self.connect_timeout_sec = connect_timeout_sec
         self.total_write_deadline_sec = total_write_deadline_sec
+        self.wake_timeout_sec = wake_timeout_sec
         self.sock: socket.socket | None = None
+
+    def _wake_acl(self) -> None:
+        """콜드 ACL 재연결 워크어라운드.
+
+        2026-09-17 실물 관찰(docs/pi/transport.md "주의" 절): 페어링 직후처럼 BT ACL 링크가
+        유휴 상태면 raw RFCOMM `socket.connect()`가 10초 타임아웃으로 실패한다(2연속 재현).
+        `bluetoothctl connect <MAC>`으로 ACL을 한 번 깨우면(SPP 프로파일 자체가 "NotAvailable"로
+        실패해도 무방 — ACL만 올라오면 됨) 그 이후 raw RFCOMM connect가 연속 성공한다(2연속 확인).
+
+        이 메서드는 **조회성 BT 제어 명령**만 실행한다 — 프린터에 어떤 바이트도 보내지 않는다
+        (CLAUDE.md 절대금지 1과 무관). `bluetoothctl`이 없거나 실패해도 예외를 올리지 않고
+        무시한다 — 그다음 실제 `socket.connect()` 시도가 최종 판정이므로, 이 단계는 순수
+        최선 노력(best-effort) 힌트일 뿐이다.
+        """
+        try:
+            subprocess.run(
+                ["bluetoothctl", "connect", self.address],
+                timeout=self.wake_timeout_sec,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            logger.debug("bluetoothctl 없음 — ACL wake 단계 건너뜀")
+        except subprocess.TimeoutExpired:
+            logger.debug(f"ACL wake({self.wake_timeout_sec}s) 타임아웃 — 무시하고 계속")
+        except OSError as e:
+            logger.debug(f"ACL wake 시도 실패(무시하고 계속): {e}")
 
     def open(self) -> None:
         """RFCOMM 소켓 연결.
+
+        연결 전에 `_wake_acl()`로 ACL을 먼저 깨운다(콜드 재연결 워크어라운드, 위 참고).
+        웨이크가 실패해도 아래 raw RFCOMM connect는 그대로 시도한다.
 
         Raises:
             TransportError: 이 파이썬 빌드가 AF_BLUETOOTH를 지원하지 않거나,
@@ -77,6 +117,8 @@ class BtTransport(Transport):
                 "this Python build does not support AF_BLUETOOTH/BTPROTO_RFCOMM "
                 "(BlueZ 필요, Linux 전용)"
             )
+
+        self._wake_acl()
 
         sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
         sock.settimeout(self.connect_timeout_sec)

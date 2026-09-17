@@ -7,7 +7,7 @@ import time
 import usb.core
 import usb.util
 
-from pi.printer.m832.constants import (
+from printer.m832.constants import (
     EP_IN as M832_EP_IN,
     EP_OUT as M832_EP_OUT,
     PID as M832_PID,
