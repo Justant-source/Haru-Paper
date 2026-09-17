@@ -2,8 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { formatsApi } from '../api/formats'
-import type { FormatDocument } from '../types/format'
-import { DEFAULT_STYLE, newBlock, newRow } from '../types/format'
+import { emptyDocument } from '../types/format'
 import { ApiError } from '../types/problem'
 import { formatDateTimeKo } from '../lib/date'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -37,12 +36,8 @@ export function FormatListPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const newDoc: FormatDocument = {
-        schemaVersion: 2,
-        meta: { name: '새로운 포맷', author: '', description: '' },
-        style: DEFAULT_STYLE,
-        rows: [newRow(newBlock('dateHeader'))],
-      }
+      // 자리 표시용 — 새 포맷 만들기 흐름은 A2가 교체한다(.temp/07)
+      const newDoc = emptyDocument('새로운 포맷')
       return formatsApi.create(newDoc)
     },
     onSuccess: (result) => {
