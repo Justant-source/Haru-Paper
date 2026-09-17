@@ -12,34 +12,39 @@
 - 날짜(`targetDate`, `date`): `YYYY-MM-DD`(KST). 시각(`time`): `HH:mm`(KST)
 - ID: UUID 문자열
 
-## 2. 컨트롤러 묶음 [기본값]
+## 2. 컨트롤러 묶음 (M6, 실제 13개) [확인됨·코드]
 
 | 컨트롤러 | 경로 | 인증 |
 |---|---|---|
 | `HealthController` | `GET /api/health` | 없음 |
-| `FormatController` | `/api/formats`, `/api/formats/{id}`, `/api/formats/import`, `/api/formats/{id}/export`, `/api/formats/{id}/preview.png`, `POST /api/formats/preview` | 없음 |
-| `AssetController` | `POST /api/assets`, `GET /api/assets/{assetId}` | 없음 |
-| `ScheduleController` | `/api/schedules`, `/api/schedules/{id}` | 없음 |
-| `PrintNowController` | `POST /api/print-now` | 없음 |
-| `HistoryController` | `GET /api/history` | 없음 |
-| `DeviceController`(앱용) | `GET /api/device`, `PUT /api/device/paper-state` | 없음 |
-| `SettingsController` | `GET/PUT /api/settings` | 없음 |
+| `AuthController` | `POST /api/auth/signup`(없음), `POST /api/auth/login`(없음), `POST /api/auth/logout`(세션), `GET /api/auth/me`(세션) | 대부분 세션 |
+| `AccountController` | `PATCH /api/account` | 세션 |
+| `AdminController` | `GET /api/admin/users`, `POST /api/admin/users/{id}/temp-password`, `POST /api/admin/users/{id}/suspend`, `POST /api/admin/claim-legacy` | **ADMIN** |
+| `FormatController` | `/api/formats`, `/api/formats/{id}`, `/api/formats/import`, `/api/formats/{id}/export`, `/api/formats/{id}/preview.png`, `POST /api/formats/preview` | 세션 |
+| `AssetController` | `POST /api/assets`, `GET /api/assets/{assetId}` | 세션 |
+| `ScheduleController` | `/api/schedules`, `/api/schedules/{id}` | 세션 |
+| `PrintNowController` | `POST /api/print-now` | 세션 |
+| `HistoryController` | `GET /api/history` | 세션 |
+| `DeviceController`(단수, 앱+무인증 혼재) | `GET /api/device`(세션), `PUT /api/device/paper-state`(세션), `POST /api/device/pair`(**없음** — 코드가 인증) | 혼재 |
+| `DeviceManagementController`(복수 `/api/devices`) | `GET/PATCH /api/devices/me`, `POST /api/devices/me/token`, `POST /api/devices/pairing-codes` | 세션 |
+| `SettingsController` | `GET/PUT /api/settings` | 세션 |
 | `DeviceSyncController`(Pi용) | `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/{renderId}.png`, `POST /api/device/results` — **추가 예정** `GET /api/device/renders/{renderId}.pbm`(1-bpp PBM P4, 2단계 기기용, `architecture.md` 3.4, 2026-09-17 승인·미구현) | **Bearer** |
+
+인증·계정·기기 관리(`AuthController`~`DeviceManagementController`)의 세션·CSRF 메커니즘, 필드 상세는 [`auth.md`](auth.md)가 원본이다. `DeviceController`(단수)와 `DeviceManagementController`(복수, `/api/devices`)는 이름이 비슷하지만 다른 클래스다 — 헷갈리지 않도록 주의.
 
 ## 3. 인증
 
-### 앱용: 없음
+### 앱용: 세션 로그인 (M6)
 
-Tailscale 내부망이 인증이다(init_plan Q11). `haru-web`은 기본적으로 `127.0.0.1`에만 바인딩되고, HTTPS는 `tailscale serve`로 연다. 사용자 승인 하에 Tailscale IP:포트 HTTP를 추가로 열 수 있다([`deploy.md`](deploy.md) 3.1절). `0.0.0.0`은 금지.
+M6부터 이메일/비밀번호 로그인 + HttpOnly 세션 쿠키(Spring Session JDBC) + CSRF 더블서밋 쿠키다. "Tailscale이 인증"이던 PoC 시절 모델은 대체됐다 — Tailscale은 여전히 네트워크 경계로 유지하되(외부 노출 없음), 그 안에서도 계정별 로그인이 필요하다. 무인증 경로는 `/api/health`, `/api/auth/signup`, `/api/auth/login`, `POST /api/device/pair`뿐이다. `haru-web`은 기본적으로 `127.0.0.1`에만 바인딩되고, HTTPS는 `tailscale serve`로 연다. 사용자 승인 하에 Tailscale IP:포트 HTTP를 추가로 열 수 있다([`deploy.md`](deploy.md) 3.1절). `0.0.0.0`은 금지. 세션·CSRF 메커니즘 상세는 [`auth.md`](auth.md) 1~3절.
 
-### Pi용: `Authorization: Bearer <HARU_DEVICE_TOKEN>`
+### Pi용: `Authorization: Bearer <기기별 토큰>`
 
-- `OncePerRequestFilter` 하나로 처리 [기본값]
-- **대상 경로를 정확히 나열한다. `/api/device/**` 접두사로 걸면 안 된다.** `GET /api/device`, `PUT /api/device/paper-state`는 **앱용(인증 없음)** 이다.
+- `OncePerRequestFilter`(`DeviceTokenAuthFilter`) 하나로 처리 [확인됨·코드]
+- **대상 경로를 정확히 나열한다. `/api/device/**` 접두사로 걸면 안 된다.** `GET /api/device`, `PUT /api/device/paper-state`는 **세션 인증(앱용)**, `POST /api/device/pair`는 **무인증**(코드 자체가 1회용 비밀)이다.
   - 인증 대상: `POST /api/device/poll`, `GET /api/device/snapshot`, `GET /api/device/renders/*`, `POST /api/device/results`
-- 비교는 상수 시간(`MessageDigest.isEqual`)
+- **M6부터 서버 `.env`의 단일 `HARU_DEVICE_TOKEN`은 없다.** 토큰은 기기별로 DB에 SHA-256 해시로 저장(`devices.token_hash`)하고, 요청 헤더의 토큰을 해시해 조회한다([`auth.md`](auth.md) 4절)
 - 헤더 없음·불일치 → 401(`application/problem+json`)
-- `HARU_DEVICE_TOKEN`이 비어 있으면 **애플리케이션 시작 실패** [기본값](토큰 없이 뜨는 사고 방지)
 - 토큰은 로그에 찍지 않는다
 
 ## 4. 에러 응답 형식 [기본값]
@@ -54,7 +59,7 @@ Tailscale 내부망이 인증이다(init_plan Q11). `haru-web`은 기본적으�
   "detail": "format document is invalid",
   "instance": "/api/formats",
   "errors": [
-    { "path": "blocks[2].type", "message": "unknown block type: html" },
+    { "path": "rows[0].slots[0].block.type", "message": "unknown block type: html" },
     { "path": "style.fontFamily", "message": "must be one of [Pretendard, Noto Sans KR]" }
   ]
 }
@@ -63,7 +68,8 @@ Tailscale 내부망이 인증이다(init_plan Q11). `haru-web`은 기본적으�
 | 상태 | 언제 |
 |---|---|
 | 400 | JSON 파싱 실패, 잘못된 쿼리 파라미터 |
-| 401 | Pi 토큰 없음·불일치 |
+| 401 | 세션 로그인 필요(앱), 또는 Pi 토큰 없음·불일치 |
+| 403 | 로그인은 됐으나 권한 없음(예: `/api/admin/**`에 비관리자) |
 | 404 | 없는 id |
 | 409 | 예약이 참조 중인 포맷 삭제(`errors`에 예약 id 목록). 프린터 프로필이 아직 없어도 409를 쓰지 않는다(4.1절) |
 | 413 | 업로드·가져오기 크기 초과 |
@@ -130,7 +136,7 @@ Pi가 한 번도 poll하지 않았으면 `device.printer_profile`이 없다. 이
 
 ```json
 {
-  "deviceId": "1",
+  "deviceId": "3f0c1a2b-...(uuid)",
   "online": true,
   "lastPollAt": "2026-09-14T06:59:40.000+09:00",
   "agentVersion": "0.1.0",
@@ -142,7 +148,7 @@ Pi가 한 번도 poll하지 않았으면 `device.printer_profile`이 없다. 이
 ```
 
 - `online` = `lastPollAt`이 90초(폴링 30초 × 3) 이내 [기본값]
-- `deviceId` = `device.id`(PoC는 항상 `"1"`) [기본값]
+- `deviceId` = `devices.id`(UUID, M6부터 사용자당 1개 — 페어링 전이면 `null`) [확인됨·코드: `DeviceController.getDevice()`]
 - `printerStatus` = Pi가 poll로 보고한 `{state, detail}` 그대로(`device.printer_status`). `state`: `ok | offline | error | unknown`
 - `paperPolicy` = Pi가 poll 요청 **최상위 필드**로 보고한 값(`device.paper_policy`). 아직 보고 전이면 `null`
 - `paperState` = `{loaded, updatedAt}` — `loaded`는 DB 컬럼 `device.paper_state_manual`, `updatedAt`은 `device.paper_state_updated_at`
@@ -231,20 +237,32 @@ Pi가 한 번도 poll하지 않았으면 `device.printer_profile`이 없다. 이
 
 Pi는 응답을 못 받았으면 같은 묶음을 그대로 다시 보내면 된다.
 
-## 7. curl 테스트 시나리오 (M2 통과 조건용)
+## 7. curl 테스트 시나리오 (M2·M6 통과 조건용)
 
 ```bash
 BASE=https://justant-server2.tail2b65d1.ts.net   # tailscale serve 적용 전에는 http://127.0.0.1:<HARU_WEB_BIND 포트>
-TOKEN=$(grep ^HARU_DEVICE_TOKEN= server/.env | cut -d= -f2)
+JAR=cookies.txt
+
+# 0. 가입 → 로그인(세션 쿠키 저장) → CSRF 토큰 쿠키 읽기 → 이후 쓰기 요청에 헤더로 되돌려 보낸다
+curl -sS -c "$JAR" -X POST "$BASE/api/auth/signup" -H 'Content-Type: application/json' \
+  -d '{"email":"test@example.com","password":"1234567890","handle":"tester","displayName":"테스터"}'
+curl -sS -c "$JAR" -b "$JAR" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' \
+  -d '{"email":"test@example.com","password":"1234567890"}'
+CSRF=$(grep XSRF-TOKEN "$JAR" | awk '{print $NF}')
+# 이후 POST/PUT/PATCH/DELETE에는 -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" 를 붙인다(GET은 필요 없음)
+
+# 1. 기기 토큰 발급(Pi TOKEN — 응답의 token 필드는 이번 한 번만 표시된다)
+TOKEN=$(curl -sS -b "$JAR" -H "X-XSRF-TOKEN: $CSRF" -X POST "$BASE/api/devices/me/token" | jq -r .token)
 ```
 
 | # | 시나리오 | 기대 |
 |---|---|---|
-| 1 | `GET $BASE/api/health` | 200 |
-| 2 | `POST /api/assets`(`-F file=@test.png`) | 201, `assetId` |
+| 1 | `GET $BASE/api/health` | 200(무인증) |
+| 1-1 | 로그인 없이 `GET /api/formats` | 401 |
+| 2 | `POST /api/assets`(`-F file=@test.png`, 세션+CSRF) | 201, `assetId` |
 | 3 | 11MB 파일 업로드 / `.gif` 업로드 | 413 / 415 |
-| 4 | 블록 4종(text·image·dateHeader·weather)으로 `POST /api/formats` | 201, `id` |
-| 5 | `blocks[0].type="html"` 또는 스타일 키 `color` | 422, `errors[].path` 포함 |
+| 4 | 행/슬롯 구조(v2)에 블록 4종(text·image·dateHeader·weather)으로 `POST /api/formats` | 201, `id` |
+| 5 | `rows[0].slots[0].block.type="html"` 또는 스타일 키 `color` | 422, `errors[].path` 포함 |
 | 6 | `GET /api/formats/{id}`, `PUT`로 이름 변경 | 200, 변경 반영 |
 | 7 | `GET /api/formats/{id}/preview.png -o p.png` | PNG, **폭 = `printableWidthPx`(기본 1300)**, 한글·날짜 변수 정상(육안) |
 | 8 | export → 파일 그대로 import | 201, **새 id**, `meta.forkedFrom` 채워짐, `assetId` 새 값 |
@@ -252,7 +270,7 @@ TOKEN=$(grep ^HARU_DEVICE_TOKEN= server/.env | cut -d= -f2)
 | 10 | 반복 예약·일회성 예약 생성 / `daysOfWeek` 빈 반복 예약 / 과거 일회성 | 201 / 422 / 422 |
 | 11 | 예약이 참조 중인 포맷 `DELETE` | 409 |
 | 12 | 토큰 없이 `POST /api/device/poll` | 401 |
-| 13 | 토큰 없이 `GET /api/device` | 200(앱용) |
+| 13 | 세션 없이 `GET /api/device` | 401(M6부터 세션 필요, PoC 시절의 "200 앱용 무인증"에서 바뀜) |
 | 13-1 | 편집본으로 `POST /api/formats/preview` / 잘못된 블록 타입 | `200 image/png`(DB 행·파일 증가 없음) / 422 |
 | 13-2 | `GET /api/assets/{assetId}` (2번에서 받은 id) | 200, 원본 `Content-Type` |
 | 14 | 토큰으로 poll(`snapshotHash: null`) | 200, `snapshotChanged: true` |

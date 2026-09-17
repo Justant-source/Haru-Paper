@@ -95,7 +95,7 @@ HTTP**이고, hostname 경로와 별도로 존재한다(hostname+HTTPS 경로는
 - `server/.env`는 **서버에만** 두고 커밋하지 않는다(공개 저장소). `chmod 600 server/.env`.
 - `server/.env.example`을 복사해 채운다:
   - `HARU_DB_PASSWORD`, `HARU_DB_ROOT_PASSWORD`: 새로 생성(`openssl rand -base64 24`)
-  - `HARU_DEVICE_TOKEN`: 새로 생성(`openssl rand -hex 32`). **Pi의 `pi/.env`에도 같은 값**을 넣는다(사용자가 전달)
+  - `HARU_ADMIN_EMAIL`: 이 이메일로 가입한 계정이 관리자가 된다([`auth.md`](auth.md) 3절). **M6부터 서버 `.env`에 기기 토큰이 없다** — 로그인한 사용자가 앱 "기기" 화면에서 `POST /api/devices/me/token`으로 직접 발급한다([`auth.md`](auth.md) 4절)
   - `HARU_POLL_INTERVAL_SEC`: 기본 30. poll 응답 `pollIntervalSec`로 Pi에 전달된다([`api.md`](api.md) 6절)
 - 토큰·비밀번호를 로그·문서·커밋 메시지에 남기지 않는다.
 

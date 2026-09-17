@@ -14,7 +14,7 @@
 { "model": "m832", "dpi": 300, "paperWidthMm": 110, "printableWidthPx": 1300 }
 ```
 
-- `printableWidthPx`는 잠정 1300이다. 노트북 세션이 M1에서 detox-printer `07_print_image.py`(WIDTH_DOTS=1304, h-offset 2mm) 기준으로 확정해 Pi가 보고한다. **서버 코드에 1300을 박지 않는다.** 예외: Pi가 한 번도 보고하지 않았을 때의 기본 프로필([`api.md`](api.md) 4.1절).
+- `printableWidthPx`는 잠정 1300이다. M1에서 detox-printer `07_print_image.py`(WIDTH_DOTS=1304, h-offset 2mm) 기준으로 확정되어 Pi가 보고한다. **서버 코드에 1300을 박지 않는다.** 예외: Pi가 한 번도 보고하지 않았을 때의 기본 프로필([`api.md`](api.md) 4.1절).
 - `profile_key` = `{model}-{dpi}-{paperWidthMm}-{printableWidthPx}` (예: `m832-300-110-1300`, 규약 [`../architecture.md`](../architecture.md) 3.4). 프로필이 바뀌면 렌더를 새로 만든다.
 
 ## 2. 파이프라인

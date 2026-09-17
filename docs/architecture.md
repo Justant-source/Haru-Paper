@@ -11,15 +11,17 @@
 ## 1. 전체 구조
 
 ```
-폰 웹앱(PWA, s21) ─HTTPS(tailscale serve)─ 서버(justant-server2, Docker) ─30초 폴링─ Pi(Orange Pi Zero 2W) ─BT 또는 USB─ M832
+폰 웹앱(PWA, s21) ─HTTPS(tailscale serve)─ 서버(justant-server2, Docker) ─30초 폴링─ Pi(Orange Pi Zero 2W) ─BT(SPP/RFCOMM)─ M832
                               (전 구간 Tailscale 내부망)
 ```
 
-| 구성 | 디렉터리 | 하는 일 | 모르는 것 | 담당 세션 |
-|---|---|---|---|---|
-| 앱 | `/app` | 포맷 편집·미리보기, 예약, 지금 인쇄, 이력·기기 상태 | 프린터 | 서버 |
-| 서버 | `/server` | 포맷·예약 저장, 프린터 프로필 폭으로 PNG 렌더, 날씨, Pi 동기화 API | m832 프로토콜 | 서버 |
-| Pi | `/pi` | 폴링 동기화, 예약 로컬 계산, PNG 캐시, 디더링·정렬보정·래스터, 결과 대기열 | 레이아웃·콘텐츠 | 노트북 |
+| 구성 | 디렉터리 | 하는 일 | 모르는 것 |
+|---|---|---|---|
+| 앱 | `/app` | 로그인·계정, 포맷 편집·미리보기, 예약, 지금 인쇄, 이력·기기 상태(토큰 발급·페어링) | 프린터 |
+| 서버 | `/server` | 계정·세션, 포맷·예약 저장, 프린터 프로필 폭으로 PNG 렌더, 날씨, Pi 동기화 API | m832 프로토콜 |
+| Pi | `/pi` | 폴링 동기화, 예약 로컬 계산, PNG 캐시, 디더링·정렬보정·래스터, 결과 대기열 | 레이아웃·콘텐츠 |
+
+담당은 `justant-server2` 세션 하나다(`CLAUDE.md` "세션·담당").
 
 ### 1.1 경계 규칙
 
@@ -35,7 +37,7 @@
 | 서버 | `justant-server2` — Tailscale `100.81.189.92`, `justant-server2.tail2b65d1.ts.net` |
 | 앱·Pi → 서버 | `https://justant-server2.tail2b65d1.ts.net` (`tailscale serve`로 HTTPS 종단). 포트·적용은 M2에서 사용자 승인 후 결정 |
 | origin | 같은 origin. `/` = 웹앱 정적 파일, `/api` = Spring Boot |
-| 인증 | 앱: 없음(tailnet이 인증). Pi: `Authorization: Bearer <HARU_DEVICE_TOKEN>` |
+| 인증 | 앱: **세션 로그인**(이메일/비밀번호, HttpOnly 쿠키 + CSRF, M6 — [`server/auth.md`](server/auth.md)). Pi: 기기별 `Authorization: Bearer <토큰>`(DB 해시, M6부터 서버 단일 토큰 아님) |
 | 시간대 | `Asia/Seoul` 고정 |
 | DB | MariaDB, 프로젝트 전용 컨테이너. 호스트 포트 노출 안 함 |
 
@@ -58,29 +60,39 @@
 - 인쇄물 한 장. 블록을 위에서 아래로 쌓아 만든다. 저장해 두고 여러 예약에서 재사용한다
 - **가져오기(import)** 하면 내 라이브러리에 새 포맷이 생기고 `meta.forkedFrom`에 출처를 남긴다(fork). 이후 자유롭게 수정
 - 단위는 **mm/pt** — 프린터 dpi와 무관하게 정의하고 렌더 시 프로필 dpi로 환산
-- 전체 `style`과 블록별 `blocks[].style`을 분리 — 나중에 "내 스타일 입히기"를 스타일 덮어쓰기로 구현
+- 전체 `style`과 블록별 `style`(각 슬롯의 `block.style`)을 분리 — 나중에 "내 스타일 입히기"를 스타일 덮어쓰기로 구현
 - 첫 블록 타입: `text`, `image`, `dateHeader`, `weather`
 - 텍스트 변수: `{{date}}`, `{{weekday}}` — 값은 렌더 대상 날짜(`targetDate`) 기준
 - 이미지는 서버 내부에서 업로드 파일(`assetId`)로 저장하고, **내보내기 파일에만** `assets`에 data URI로 내장
 
-요약 예시(스키마 v1 초안):
+요약 예시(**스키마 v2** — 행/슬롯. 2026-09-16 드래그 편집기 도입으로 v1의 평평한 `blocks` 배열에서 전환됐다. 서버는 v2만 저장·검증하고, v1 문서는 읽을 때 자동으로 v2로 up-convert한다):
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "meta": { "name": "아침 브리핑", "author": "justant", "description": "", "forkedFrom": null },
   "style": { "fontFamily": "Pretendard", "baseFontSizePt": 11, "lineHeight": 1.4,
              "marginMm": { "top": 3, "right": 3, "bottom": 8, "left": 3 }, "blockGapMm": 3, "divider": "none" },
-  "blocks": [
-    { "type": "dateHeader", "props": { "pattern": "YYYY년 M월 D일 dddd" }, "style": { "align": "center", "fontSizePt": 16, "bold": true } },
-    { "type": "text", "props": { "text": "{{date}} {{weekday}}\n오늘의 할 일" }, "style": { "align": "left" } },
-    { "type": "image", "props": { "assetId": "a1b2", "widthPercent": 100 } },
-    { "type": "weather", "props": { "location": "default", "fields": ["tempMin", "tempMax", "precipProb", "sky"] } }
+  "rows": [
+    { "id": "row-1", "slots": [
+      { "id": "slot-1", "width": "1/1", "block": { "type": "dateHeader", "props": { "pattern": "YYYY년 M월 D일 dddd" }, "style": { "align": "center", "fontSizePt": 16, "bold": true } } }
+    ] },
+    { "id": "row-2", "slots": [
+      { "id": "slot-2a", "width": "2/3", "block": { "type": "text", "props": { "text": "{{date}} {{weekday}}\n오늘의 할 일" }, "style": { "align": "left" } } },
+      { "id": "slot-2b", "width": "1/3", "block": { "type": "weather", "props": { "fields": ["tempMin", "tempMax"] } } }
+    ] },
+    { "id": "row-3", "slots": [
+      { "id": "slot-3", "width": "1/1", "block": { "type": "image", "props": { "assetId": "a1b2", "widthPercent": 100 } } }
+    ] }
   ]
 }
 ```
 
-> **스키마 상세(블록별 props, 스타일 화이트리스트, 검증 규칙, 가져오기/내보내기 형식)의 원본은
+- **행(row)**: 순서 있는 배열, 1~30개. 각 행은 슬롯 1~2개.
+- **슬롯(slot)**: 1슬롯 행은 폭 `"1/1"`만, 2슬롯 행은 `("1/2","1/2")`·`("2/3","1/3")`·`("1/3","2/3")` 조합만 허용. 슬롯마다 블록 정확히 1개(`null` 불가).
+- 블록 타입·props·스타일 화이트리스트는 v1과 동일하다(`text`/`image`/`dateHeader`/`weather`).
+
+> **스키마 상세(블록별 props, 스타일 화이트리스트, 검증 규칙, up-convert, 가져오기/내보내기 형식)의 원본은
 > [`server/format-schema.md`](server/format-schema.md)다.** 이 절은 요약이다.
 
 ### 3.2 예약(Schedule)
@@ -193,28 +205,40 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | 시각 | ISO-8601 오프셋 포함 `2026-09-14T07:00:00+09:00`. 날짜 `YYYY-MM-DD`, 시:분 `HH:mm`은 KST |
 | ID | 서버 리소스 ID는 서버 발급 문자열. `resultId`만 Pi 발급 UUID |
 | 오류 | `application/problem+json` (Spring `ProblemDetail`, RFC 9457/7807): `{type, title, status, detail, instance}` + 확장 `errors: [{path, message}]` (검증 오류일 때). HTTP 400/401/404/409/413/415/422/500 [기본값]. 상태별 의미·예시는 [`server/api.md`](server/api.md) 4절 |
-| 인증 | 앱용 경로는 없음. **Pi용 4개 경로**(`poll`, `snapshot`, `renders`, `results`)만 Bearer 필수 — `/api/device`, `/api/device/paper-state`는 앱용이므로 경로 접두사가 아니라 **경로별로** 판단한다 |
+| 인증 | 앱용 경로는 **세션 로그인 필요**(예외: `/api/health`, `/api/auth/signup`, `/api/auth/login`, `POST /api/device/pair`는 무인증). `/api/admin/**`는 ADMIN 역할 추가 필요. **Pi용 4개 경로**(`poll`, `snapshot`, `renders`, `results`)만 Bearer 필수 — `/api/device`, `/api/device/paper-state`는 세션 인증(앱용)이므로 경로 접두사가 아니라 **경로별로** 판단한다. 상세는 [`server/auth.md`](server/auth.md) |
 
-### 4.2 앱용 (인증 없음 — tailnet이 인증)
+### 4.2 앱용 (M6부터 세션 인증 — 예외 표시)
 
-| 메서드 | 경로 | 용도 |
-|---|---|---|
-| GET/POST | `/api/formats` | 목록 / 생성 |
-| GET/PUT/DELETE | `/api/formats/{id}` | 조회 / 수정 / 삭제 |
-| POST | `/api/formats/import` | 내보낸 JSON 가져오기(fork) |
-| GET | `/api/formats/{id}/export` | `assets` 내장 JSON 내보내기 |
-| GET | `/api/formats/{id}/preview.png` | 저장된 포맷을 현재 프린터 프로필로 미리보기 렌더(목록 썸네일 등) |
-| POST | `/api/formats/preview` | **저장하지 않은 편집본** 미리보기 렌더 [기본값] |
-| POST | `/api/assets` | 이미지 업로드(최대 10MB) → `assetId` |
-| GET | `/api/assets/{assetId}` | 업로드 원본 이미지(편집기 썸네일용) [기본값] |
-| GET/POST | `/api/schedules` | 목록 / 생성 |
-| PUT/DELETE | `/api/schedules/{id}` | 수정(켜기/끄기 포함) / 삭제 |
-| POST | `/api/print-now` | `{formatId, paperConfirmed}` → 명령 생성 |
-| GET | `/api/history` | 실행 결과 목록 |
-| GET | `/api/device` | Pi 마지막 폴링 시각, 프린터 프로필·상태, 용지 정책, 수동 용지 상태 |
-| PUT | `/api/device/paper-state` | `{loaded}` — H4 실패 시 폴백용 수동 상태 |
-| GET/PUT | `/api/settings` | 날씨 기본 위치 등 |
-| GET | `/api/health` | 헬스체크 |
+| 메서드 | 경로 | 용도 | 인증 |
+|---|---|---|---|
+| POST | `/api/auth/signup` | 가입 `{email, password, handle, displayName}` | 없음 |
+| POST | `/api/auth/login` | 로그인 `{email, password}` → 세션 쿠키 | 없음 |
+| POST | `/api/auth/logout` | 로그아웃 | 세션 |
+| GET | `/api/auth/me` | 현재 사용자 | 세션 |
+| PATCH | `/api/account` | 프로필·비밀번호 변경 | 세션 |
+| GET/POST | `/api/formats` | 목록(내 것만) / 생성 | 세션 |
+| GET/PUT/DELETE | `/api/formats/{id}` | 조회 / 수정 / 삭제(소유자 아니면 404) | 세션 |
+| POST | `/api/formats/import` | 내보낸 JSON 가져오기(fork) | 세션 |
+| GET | `/api/formats/{id}/export` | `assets` 내장 JSON 내보내기 | 세션 |
+| GET | `/api/formats/{id}/preview.png` | 저장된 포맷을 현재 프린터 프로필로 미리보기 렌더 | 세션 |
+| POST | `/api/formats/preview` | **저장하지 않은 편집본** 미리보기 렌더 [기본값] | 세션 |
+| POST | `/api/assets` | 이미지 업로드(최대 10MB) → `assetId` | 세션 |
+| GET | `/api/assets/{assetId}` | 업로드 원본 이미지(소유자만, 편집기 썸네일용) [기본값] | 세션 |
+| GET/POST | `/api/schedules` | 목록(내 것만) / 생성 | 세션 |
+| PUT/DELETE | `/api/schedules/{id}` | 수정(켜기/끄기 포함) / 삭제 | 세션 |
+| POST | `/api/print-now` | `{formatId, paperConfirmed}` → 명령 생성 | 세션 |
+| GET | `/api/history` | 실행 결과 목록(내 것만) | 세션 |
+| GET | `/api/device` | Pi 마지막 폴링 시각, 프린터 프로필·상태, 용지 정책, 수동 용지 상태 | 세션 |
+| PUT | `/api/device/paper-state` | `{loaded}` — H4 실패 시 폴백용 수동 상태 | 세션 |
+| GET/PATCH | `/api/devices/me` | 기기 요약 조회 / 이름 변경 | 세션 |
+| POST | `/api/devices/me/token` | 기기 토큰 발급·재발급(평문은 1회만 응답) | 세션 |
+| POST | `/api/devices/pairing-codes` | 10분 유효 1회용 페어링 코드 생성 | 세션 |
+| POST | `/api/device/pair` | `{code}` → 기기 토큰 발급(Pi가 부름) | **없음**(코드 자체가 1회용 비밀) |
+| GET/PUT | `/api/settings` | 날씨 기본 위치 등(사용자별) | 세션 |
+| GET | `/api/admin/users` 등 | 사용자 관리([`server/auth.md`](server/auth.md) 6절) | ADMIN |
+| GET | `/api/health` | 헬스체크 | 없음 |
+
+기기 토큰·페어링·계정·관리자 API의 요청·응답 필드, 세션·CSRF 메커니즘은 [`server/auth.md`](server/auth.md)가 원본이다. 아래 4.2절 나머지는 M2 시점부터 있던 도메인 API(포맷·예약·지금인쇄·이력·기기 상태·설정)만 다룬다.
 
 #### 요청·응답 필드
 
@@ -223,7 +247,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 | 요청 | 본문 | 응답 |
 |---|---|---|
 | `GET /api/formats` | — | `200 [{id, name, author, forkedFrom, hasDynamicBlocks, updatedAt}]` |
-| `POST /api/formats` | 포맷 문서 `{schemaVersion, meta, style, blocks}` (`assets` 없음) | `201 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
+| `POST /api/formats` | 포맷 문서 `{schemaVersion: 2, meta, style, rows}` (`assets` 없음) | `201 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
 | `GET /api/formats/{id}` | — | `200 {id, document, hasDynamicBlocks, createdAt, updatedAt}` |
 | `PUT /api/formats/{id}` | 포맷 문서 | `200` 위와 같음 |
 | `DELETE /api/formats/{id}` | — | `204`. 예약이 참조 중이면 `409` [기본값] |
@@ -278,7 +302,7 @@ Pi의 `HARU_PAPER_POLICY`. 상세·현재값은 [`pi/policy.md`](pi/policy.md).
 - `paperState`는 어디서나 `{loaded, updatedAt}` (PUT 응답만 `updatedBy` 추가)
 - `weather` 기본값: `{label: "서울시청", lat: 37.5663, lon: 126.9779}`
 
-### 4.3 Pi용 (`Authorization: Bearer <HARU_DEVICE_TOKEN>`)
+### 4.3 Pi용 (`Authorization: Bearer <기기별 토큰>`, DB 해시 — [`server/auth.md`](server/auth.md) 4절)
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
@@ -435,15 +459,19 @@ Pi가 명령의 `renderId` PNG를 받아 `sha256` 검증·정책 확인 후 인�
 
 ---
 
-## 8. 향후 확장 (PoC 범위 밖)
+## 8. 향후 확장
 
-| 확장 | 방향 |
-|---|---|
-| 다른 프린터 | `/pi/printer/<model>` 드라이버 추가 + 프로필 보고. 서버·앱·포맷(mm/pt 단위)은 그대로 |
-| 실시간 동기화 | 상용화 시 poll을 WebSocket으로. Pi 에이전트는 "동기화 채널"을 인터페이스로 둔다 |
-| 네이티브 앱 | `/app/android`, `/app/ios` 예약. 기술 미정(React Native/Expo, Kotlin+Swift, Flutter) — [`app/native.md`](app/native.md) |
-| HTML 템플릿 포맷 | JS·네트워크를 완전히 차단한 샌드박스 렌더러가 생긴 뒤에만 재검토 |
-| 여러 사용자·기기 | 데이터 모델의 `device_id`를 기준으로 계정·기기 등록 추가, 앱 로그인, 공개 도메인(Cloudflare Tunnel 등) |
-| 포맷 공유 갤러리 | 지금은 JSON 파일 주고받기. 나중에 갤러리 |
-| 날씨 출처 | Open-Meteo → 기상청 단기예보로 교체 가능(출처 인터페이스 분리) |
-| 푸시 알림 | 인쇄 실패·용지 없음 알림 |
+**완료(M6)**: 계정·로그인, 기기별 토큰·페어링, 리소스 소유권 스코핑, 관리자 API — [`server/auth.md`](server/auth.md).
+
+| 확장 | 방향 | 상태 |
+|---|---|---|
+| 레이아웃·위젯 엔진(M7) | 사용자 스크립트가 블록 JSON을 반환하는 샌드박스(`haru-widget-runner`, Node) | 포맷 스키마 v2(행/슬롯) 완료. 러너는 [미구현] — `.temp/03` 5절 |
+| 작가·글·구독·피드(M8) | `@haru/posts` 위젯, RSS/Atom/JSON Feed 등록 | 미착수 — `.temp/03` 6절 |
+| 위젯 에디터·마켓(M9) | `/studio/widgets/:id`, 게시·설치·업데이트 | 미착수 — `.temp/03` 7절 |
+| 외부 공개(M10) | 공인 도메인 + TLS, Tailscale 밖 노출(사용자 승인 필요) | 미착수 — `.temp/03` 8절 |
+| 다른 프린터 | `/pi/printer/<model>` 드라이버 추가 + 프로필 보고. 서버·앱·포맷(mm/pt 단위)은 그대로 | 미착수 |
+| 실시간 동기화 | 상용화 시 poll을 WebSocket으로. Pi 에이전트는 "동기화 채널"을 인터페이스로 둔다 | 미착수 |
+| 네이티브 앱 | `/app/android`, `/app/ios` 예약. 기술 미정(React Native/Expo, Kotlin+Swift, Flutter) — [`app/native.md`](app/native.md) | 미착수 |
+| HTML 템플릿 포맷 | JS·네트워크를 완전히 차단한 샌드박스 렌더러가 생긴 뒤에만 재검토 | 보류 |
+| 날씨 출처 | Open-Meteo → 기상청 단기예보로 교체 가능(출처 인터페이스 분리) | 미착수 |
+| 푸시 알림 | 인쇄 실패·용지 없음 알림 | 미착수 |
