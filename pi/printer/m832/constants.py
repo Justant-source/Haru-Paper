@@ -43,3 +43,13 @@ _INVERT_TABLE = bytes([i ^ 0xFF for i in range(256)])  # XOR 0xFF lookup table
 H_OFFSET_MM_DEFAULT = 2.0  # 기본 보정: 좌우 여백 대칭. docs/pi/printer-m832.md 2.3절, findings "E-3 — 수평 정렬 보정"
 # 24 dot = round(2.0 / 25.4 × 300)
 H_OFFSET_DEFAULT_DOT = 24
+
+# Bluetooth(SPP/RFCOMM) 전송 파라미터 — V2 통과로 확정. docs/pi/transport.md 3절,
+# detox-printer m832/docs/findings.md "V2" 5건, m832/src/10_bt_rfcomm_replay.py [확인됨·실물]
+BT_ADDRESS_DEFAULT = "C5:0D:F7:B7:B2:A1"  # 기기 대장 1호기 MAC. HARU_BT_ADDRESS로 오버라이드 가능
+BT_RFCOMM_CHANNEL = 1  # SPP("JL_SPP", 0x1101). sdptool search SP 실측값, 고정
+BT_CHUNK_SIZE = 4096  # 흐름 제어 없이 연속 send(). USB와 동일 값으로 검증됨(MIN_CHUNK=64 폴백 미발동)
+BT_CONNECT_TIMEOUT_SEC = 10.0  # connect() 타임아웃
+BT_WRITE_TIMEOUT_MS = 20000  # 청크당 send() 타임아웃(20초)
+BT_READ_TIMEOUT_MS = 3000  # 응답 recv() 타임아웃(3초, 타임아웃은 오류 아님 — None 반환)
+BT_TOTAL_WRITE_DEADLINE_SEC = 60  # USB와 동일 근거(constants.py USB_TOTAL_WRITE_DEADLINE_SEC 주석 참고)

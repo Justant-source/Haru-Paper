@@ -59,16 +59,18 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 | 전송 후 응답 | **11바이트 `1a 3e 00 00 1a 3b 04 19 00 05 00`** 수신(USB에서는 무응답) | [확인됨·수신], 의미 [미검증] | findings "V2 — RFCOMM… 전송 성공" |
 | 계열 자료의 256B/20ms 청크 | 필요 없었다 | [확인됨·실물] | 위 청크 행 |
 
-### Pi 구현 (M5, 작성 예정)
+### Pi 구현 [확인됨·실물, 2026-09-17] — 페어링·코드·연결 테스트 완료, 실제 인쇄는 미착수
 
-- `pi/transport/bt.py`: 위 표대로. `open()` = 소켓 생성·connect(페어링 안 됨·전원 꺼짐·범위 밖이면 원인이 드러나는 `TransportError`), `write()` = 4096 청크·청크당 타임아웃·총 데드라인 60초·부분 전송 예외, `read()` = 타임아웃이면 `None`, `close()`. 상수 옆에 detox-printer findings 근거 주석.
-- 서비스 사용자 `haru`는 `bluetooth` 그룹(`install.sh`). 페어링·`trust`는 Pi에서 1회([setup.md](setup.md)). **overlayfs 전에 `/var/lib/bluetooth/`가 하부 레이어에 있어야 한다.**
-- `pi/.env`: `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS=C5:0D:F7:B7:B2:A1`, `HARU_PRINTER_DRIVER=m832`.
-- 11바이트 응답은 hex로 로그에 남긴다. H4가 의미를 밝히면 `status()`에 쓴다.
+- **Pi ↔ M832 페어링 완료**: `bluetoothctl pair`+`trust`, `Paired: yes`/`Bonded: yes`/`UUID: Serial Port, HCR Print`(서버와 동일). Pi에서 `sdptool search SP`로 RFCOMM 채널 1도 재확인함.
+- **`pi/transport/bt.py` 작성 완료**: `open()` = 소켓 생성·connect(실패 시 원인이 드러나는 `TransportError`), `write()` = 4096 청크·청크당 타임아웃(기본 20000ms)·총 데드라인 60초·부분 전송은 계속 이어보냄(소켓 일반 규약)·`send()`가 0을 반환하면 예외, `read()` = 타임아웃/빈 응답이면 `None`, `close()`(idempotent). 상수는 `pi/printer/m832/constants.py`의 `BT_*`에 근거 주석과 함께 추가. 단위 테스트 `pi/tests/test_bt_transport.py`(36개, 전부 socket 모킹, 전체 스위트 117개 통과) — `write()`를 호출하지 않는 순수 연결 테스트 케이스도 포함해 실수로 데이터가 나가지 않는지까지 테스트로 고정해뒀다.
+- **실물 연결 테스트(안전 — write() 호출 없음)**: Pi에서 `open()` 직후 바로 `close()`만 실행(래스터·어떤 바이트도 전송 안 함). 페어링 직후 첫 시도는 타임아웃, 이후 성공 — 아래 "주의"의 재연결 항목 참고.
+- `pi/.env`(운영, `/opt/haru-paper/pi/.env`): `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS=C5:0D:F7:B7:B2:A1`로 전환·재시작 완료(poll 200, snapshot 200 확인). **`HARU_PRINTER_DRIVER`는 의도적으로 `fake`로 유지** — 용지를 육안으로 확인하기 전에는 실제 드라이버로 바꾸지 않는다(`CLAUDE.md` 절대금지 1). `m832`로 바꾸고 앱 "지금 인쇄"(용지 확인 체크)로 실물 1회 인쇄·육안 확인하는 것이 M5의 마지막 남은 단계다.
+- 서비스 사용자 `haru`는 이미 `bluetooth` 그룹(`install.sh`). **overlayfs 전에 `/var/lib/bluetooth/`가 하부 레이어에 있어야 한다**(아직 미적용, 8절 예정).
+- 11바이트 응답은 아직 실제 인쇄를 안 해봐서 Pi에서는 관찰 안 됨(서버 실험값만 있음). H4가 의미를 밝히면 `status()`에 쓴다.
 
 ### 주의
 
-- **재연결**: 프린터 전원이 꺼졌다 켜지거나 BT 스택이 재시작되면 `open()`이 실패할 수 있다. agent는 `skipped_printer_offline`으로 기록하고 유예 안에서 재시도한다([policy.md](policy.md)).
+- **재연결 [확인됨·실물, 2026-09-17, Pi 한정] — 콜드 ACL 타임아웃**: 페어링 직후처럼 BT ACL 링크가 유휴 상태면 `socket.connect()`가 10초 타임아웃으로 실패한다(2연속 재현). `sudo bluetoothctl connect <MAC>`으로 ACL을 한 번 깨우면(프로필 자체는 `NotAvailable`로 실패해도 무방 — ACL만 올라오면 됨) 그 이후 raw RFCOMM connect가 연속 성공한다(2연속 확인). **`bt.py`의 `open()`은 이 워크어라운드를 넣지 않은, 문서 스펙 그대로의 단순 구현이다** — 실제 운영에서 매번 콜드 상태로 시작해 실패할지, 아니면 하루 1회 폴링·이전 연결 등으로 ACL이 데워져 있어 문제없을지는 [미검증]이다. **사용자 결정 필요**: 이대로 두고 30일 운영에서 재시도(agent의 `skipped_printer_offline` + 유예 재시도)로 흡수되는지 지켜볼지, 아니면 `open()`에 사전 wake 단계(예: `bluetoothctl connect` 서브프로세스 호출)를 추가할지.
 - **장시간 유휴 후 연결 수락 여부는 [미검증]** — V1은 전원 유지만 봤다. 30일 운영이 답한다.
 - **동시 연결**: 폰 Phomemo 앱이 연결 중이면 Pi가 못 붙을 수 있다. 운영 중에는 앱을 쓰지 않는다.
 - Pi 내장 BT(UWE5622) 안정성은 V3로 재부팅 20/20 확인. 주 단위 장기 안정성은 30일 운영에서 본다.
@@ -78,4 +80,6 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 1. ~~3절 표 상태·확정값 갱신~~ — 완료(2026-09-17).
 2. ~~`pi/.env.example`의 `HARU_TRANSPORT`, `HARU_BT_ADDRESS` 설명~~ — 갱신함.
 3. ~~[hardware-verification.md](hardware-verification.md) 현황표~~ — 갱신함.
-4. **`pi/transport/bt.py` 작성 + Pi에서 M832 페어링·`trust` + `.env` 전환 + M5 실물 인쇄 1회('지금 인쇄', 용지 확인 체크)** — 다음 작업.
+4. ~~`pi/transport/bt.py` 작성 + Pi에서 M832 페어링·`trust` + `.env` 전환~~ — 완료(2026-09-17, 위 내용).
+5. **콜드 ACL 재연결 문제 해결 여부 결정** — 위 "주의" 참고, 사용자 결정 대기.
+6. **M5 실물 인쇄 1회**('지금 인쇄', 용지 확인 체크, `HARU_PRINTER_DRIVER=m832`로 전환) — 용지를 육안으로 확인할 수 있는 사람이 직접 해야 하는 마지막 단계, 아직 미착수.
