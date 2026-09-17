@@ -1,7 +1,7 @@
 # 프린터 공통 인터페이스 (`/pi/printer`)
 
-> 하루종이가 여러 프린터를 지원할 수 있게 하는 경계. 지금 구현은 M832(`printer/m832`)와 가짜 프린터(`printer/fake`) 둘뿐이다.
-> 최초 결정: [../init_plan.md](../init_plan.md) 6.4, 8.1 (Q10·Q21). 코드는 M1에서 작성(현재 없음).
+> 하루종이가 여러 프린터를 지원할 수 있게 하는 경계. 구현은 M832(`pi/printer/m832`)와 가짜 프린터(`pi/printer/fake`) 둘뿐이다.
+> 최초 결정: [../init_plan.md](../init_plan.md) 6.4, 8.1 (Q10·Q21). 인터페이스는 `pi/printer/__init__.py`에 있다.
 
 ## 1. 책임 경계
 
@@ -11,24 +11,24 @@
 
 | 계층 | 아는 것 | 모르는 것 |
 |---|---|---|
-| 서버 | 프린터 프로필(폭 px, dpi, 용지 폭 mm), 레이아웃·콘텐츠 | 프로토콜, 디더링, 정렬 보정 |
+| 서버 | 프린터 프로필(폭 px, dpi, 용지 폭 mm), 레이아웃·콘텐츠. **(2단계 ESP32용, 미구현)** 프로필 폭 기준 1-bpp(PBM P4)도 생성 예정 — [../architecture.md](../architecture.md) 3.4 | 프로토콜, 정렬 보정, 프린터 명령 상수 |
 | agent (`/pi/agent`) | 언제 무엇을 인쇄할지, 용지 정책, 결과 기록 | 프로토콜 바이트 |
 | 드라이버 (`/pi/printer/<model>`) | **PNG → 프린터 바이트 변환 전부**: 리사이즈/흑백 변환(디더링)/좌우 정렬 보정/전송 폭 패딩/비트 패킹/헤더·꼬리 조립, 상태 조회 해석 | 콘텐츠, 예약, 네트워크 |
 | transport (`/pi/transport`) | 바이트를 USB/BT로 보내고 받기, 청크·타임아웃 | 바이트의 의미 |
 
-- 서버가 보내는 PNG는 **그레이스케일**이고 흑백이 아니다. 디더링 방식·임계값은 프린터(헤드·용지) 특성이므로 드라이버가 정한다.
+- 서버가 보내는 PNG는 **그레이스케일**이고 흑백이 아니다. 디더링 방식·임계값은 프린터(헤드·용지) 특성이므로 드라이버가 정한다. (PBM은 MCU 기기가 자체 디더링을 못 할 때 쓰는 예외 경로이고, 여전히 프린터 상수는 없다.)
 - 좌우 정렬 보정(M832는 `HARU_H_OFFSET_MM=2.0`)도 프린터 개체 특성이라 드라이버 몫이다.
 - 드라이버는 transport를 주입받는다. 드라이버가 USB인지 BT인지 알 필요가 없게 한다(단, 흐름 제어가 필요해지면 `read`를 쓸 수 있다 — [transport.md](transport.md)).
 
-## 2. 인터페이스 초안
-
-M1에서 확정한다. 아래는 이름·책임 수준의 초안이다 [기본값].
+## 2. 인터페이스 (확정, `pi/printer/__init__.py`)
 
 | 메서드 | 반환 | 설명 |
 |---|---|---|
 | `profile()` | `PrinterProfile` | 서버에 보고할 프로필. 폴링 요청의 `printerProfile`로 그대로 나간다 |
 | `status()` | `PrinterStatus` | 연결 가능 여부, 용지 상태(`present` / `absent` / `unknown`), 커버, 오류. **H4 통과 전 M832는 용지 상태가 항상 `unknown`** |
 | `print_image(png_bytes)` | `PrintOutcome` | PNG를 변환해 전송. 보낸 바이트(또는 그 경로)와 크기를 돌려줘 agent가 `sent/`에 보관할 수 있게 한다. 전송 오류는 **삼키지 않고** 예외로 올린다 |
+
+`PrinterProfile`은 `model`·`dpi`·`paper_width_mm`·`printable_width_px`(→ `to_dict()`로 `model/dpi/paperWidthMm/printableWidthPx`), `PrinterStatus`는 `state`·`detail`, `PrintOutcome`은 `sent_bytes`·`byte_count`를 갖는 `dataclass`다.
 
 - `print_image`는 용지 정책을 판단하지 않는다. 용지 정책은 agent가 `status()`와 서버 상태를 보고 판단한 뒤 호출한다([policy.md](policy.md)).
 - **서버 보고용 요약**: agent는 `PrinterStatus`를 poll 요청의 `printerStatus` `{state, detail}`로 줄여 보낸다. `state` 값의 원본은 [../architecture.md](../architecture.md) 4.3(`ok | offline | error | unknown`). 매핑 [기본값]:

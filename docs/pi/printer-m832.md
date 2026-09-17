@@ -103,14 +103,13 @@ detox-printer `m832/src/05_replay.py`(BULK IN 읽기, 청크 축소 로직)와 `
 | 항목 | 현재 | 확인 위치 |
 |---|---|---|
 | 용지 있음/없음 감지 | 방법 없음 | H4 ([hardware-verification.md](hardware-verification.md)) |
-| 자동 꺼짐 (충전기만 연결 시) | USB 호스트 연결 시 1시간+ 안 꺼짐만 관찰(V0) | V1 |
-| Bluetooth 전송 (SPP/BLE, 같은 바이트 스트림 여부) | 계열 기종 자료만 있음 [추정] | V2 ([transport.md](transport.md)) |
+| 자동 꺼짐 (충전기만 연결 시) | USB 호스트 연결 시 1시간+ 안 꺼짐만 관찰(V0), 충전기만 연결 8시간 생존은 [확인됨·실물] V1 | — 해소됨(V1) |
+| **Bluetooth 전송 (SPP/RFCOMM 채널 1)** | **[확인됨·실물] V2 통과 — USB와 같은 바이트로 같은 출력물, 상세는 [transport.md](transport.md) 3절** | — 해소됨(V2) |
 | 빽빽한 텍스트 줄 누락 / 흐름 제어 | 미테스트 | H5 |
 | 파일 이미지(텍스트·사진) 경로 인쇄 품질 | 테스트 패턴만 실물 확인 | M1 실물 인쇄 |
 | 실제 인쇄 가능 폭 | 약 1304 − 24dot로 추정 | 4절 |
 | 높이 제약(최소 높이, 8의 배수 정렬, 최대 길이) | 652줄은 정상. 그 외 미확인 | M1·M4 중 필요 시 |
 | 농도 명령(`1F 11 02 xx`) | 필터 출력에 없음(기본 농도로 인쇄됨) | 필요해지면 detox-printer에서 |
-| USB 해제 직후 usbipd 연결 끊김 | 노트북 WSL 한정 문제, mirrored 조치 후 [미검증] | PLAN-02 선행 체크 (Pi에는 해당 없음) |
 
 ## 7. M1 절차와 통과 조건
 
@@ -122,17 +121,13 @@ detox-printer `m832/src/05_replay.py`(BULK IN 읽기, 청크 축소 로직)와 `
    - 입력 2: 임의 PNG 1장(텍스트가 들어간 그레이스케일 이미지 권장).
 3. 기준 bin과 입력 PNG를 `pi/tests/fixtures/`에 복사하고, 생성 명령·sha256·Pillow 버전을 같은 폴더의 README에 적는다 [기본값].
 4. `/pi` 드라이버로 같은 입력을 변환해 기준 bin과 **바이트 단위로 비교**하는 테스트를 만든다.
-5. 실물 1회 인쇄 (노트북):
-   - Windows 관리자 PowerShell에서 `usbipd attach --wsl --busid 4-4` → WSL `lsusb`에 `0483:5740` 확인
-   - `systemctl is-active cups` 확인, 활성이면 중지(소켓 활성화로 다시 켜질 수 있으니 전송 직전 재확인)
-   - **사용자가 용지 장착을 눈으로 확인한 뒤** 전송. 보낸 바이트는 `HARU_DATA_DIR/sent/`에 보관
-   - 전송 후 장치를 해제하면 usbipd attach가 끊길 수 있다(노트북 한정). 다음 전송 전 `lsusb` 재확인
+5. **M5에서 BT로 실물 1회 인쇄** ([transport.md](transport.md) 3절 확정값 — SPP/RFCOMM 채널 1) — 아직 미착수: Pi에서 M832 페어링·`trust` → `pi/transport/bt.py` 작성 → `.env`를 `HARU_TRANSPORT=bt`로 전환 → **사용자가 용지 장착을 눈으로 확인한 뒤** 앱 "지금 인쇄"로 전송. 보낸 바이트는 `HARU_DATA_DIR/sent/`에 보관
 6. 4절 방법으로 `printableWidthPx`를 확정하고 문서를 고친다.
 
 ### 통과 조건 (init_plan 10절)
 
 1. 같은 입력(체커보드 테스트 패턴 + 임의 PNG 1장)에 대해 detox-printer `07_print_image.py` dry-run 출력과 `/pi` 출력이 **바이트 단위 동일**
-2. usbipd attach + 용지 확인 후 **실물 1회 인쇄 육안 확인**, 보낸 bin 보관
+2. 용지 확인 후 **Pi에서 BT로 실물 1회 인쇄 육안 확인**(위 5), 보낸 bin 보관 — 미착수
 3. `printableWidthPx` 확정·문서화
 
 통과 전에는 M4(에이전트)에서 실제 프린터를 쓰지 않는다. 에이전트 개발은 `printer/fake`로 먼저 한다.

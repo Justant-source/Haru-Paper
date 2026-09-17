@@ -1,6 +1,7 @@
 # docs/pi — Pi 에이전트 문서 인덱스
 
-`/pi`(Orange Pi Zero 2W 에이전트)에 대한 컨텍스트 문서다. **담당: 노트북 세션.**
+`/pi`(Orange Pi Zero 2W 에이전트)에 대한 컨텍스트 문서다. **담당: 서버(`justant-server2`) 세션** —
+Pi는 `ssh haru-pi`로 다룬다([../environment.md](../environment.md)). 노트북 WSL은 쓰지 않는다.
 전체 구조와 API 규약의 원본은 [../architecture.md](../architecture.md), 최초 결정 기록은 [../init_plan.md](../init_plan.md)다.
 
 > **2026-09-17 현재 상태**: Pi(`haru-pi`, tailnet)에서 `haru-paper-agent`가 systemd로 떠서 실물로
@@ -15,6 +16,7 @@
 
 | 순서 | 문서 | 내용 | 이 문서가 필요한 마일스톤 |
 |---|---|---|---|
+| — | [../environment.md](../environment.md) | 머신·접속(Pi SSH, sudo 함정), detox-printer 위치 | 전부, 특히 하드웨어 작업 전 |
 | 1 | [hardware-verification.md](hardware-verification.md) | 하드웨어 미확정 사항(V0~V4, H4, H5)과 결정 규칙. **무엇이 아직 모르는 것인지 먼저 파악** | 전부 |
 | 2 | [printer.md](printer.md) | 프린터 공통 인터페이스, 프린터 프로필, 서버 PNG ↔ 드라이버 책임 경계, fake 프린터 | M1, M4 |
 | 3 | [printer-m832.md](printer-m832.md) | detox-printer에서 이식할 M832 확정 사실, 이식 대상 함수, **M1 통과 조건** | M1 |

@@ -2,7 +2,7 @@
 
 > Orange Pi Zero 2W에서 systemd 서비스 `haru-paper-agent`로 도는 Python 프로세스.
 > 서버에서 예약과 렌더된 PNG를 받아 두었다가, **인터넷이 끊겨도** 예약 시각에 인쇄하고 결과를 나중에 올린다.
-> 최초 결정: [../init_plan.md](../init_plan.md) 6장·7장·8.1, Q4·Q23·Q31. 코드는 M4에서 작성(현재 없음).
+> 최초 결정: [../init_plan.md](../init_plan.md) 6장·7장·8.1, Q4·Q23·Q31. 코드는 `pi/agent/*`에 있다(config·storage·scheduler·executor·sync·uploader).
 > **API 경로·필드의 원본은 [../architecture.md](../architecture.md)다.** 이 문서는 에이전트가 그 API를 어떻게 쓰는지만 적는다. 둘이 어긋나면 architecture.md를 따르고 이 문서를 고친다.
 
 ## 1. 책임
@@ -68,7 +68,7 @@ pi/
 
 systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유로 둔다 [기본값] ([setup.md](setup.md)).
 
-## 5. 로컬 SQLite 테이블 초안 [기본값, M4에서 확정]
+## 5. 로컬 SQLite 테이블 (확정, `pi/agent/storage.py`)
 
 | 테이블 | 주요 컬럼 | 용도 |
 |---|---|---|
@@ -160,13 +160,15 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 
 ## 11. M4 통과 조건 (init_plan 10절)
 
-노트북 + **가짜 프린터**(`printer/fake`)로:
+코드(`pi/agent/*`, `pi/printer/fake`)는 있고 단위 테스트(`pi/tests/test_scheduler.py` 등)로 occurrence 계산 로직은 확인됐다. 그러나 아래 4개는 **가짜 프린터로 처음부터 끝까지 실행해 결과를 본 적이 없어 [미검증]** — 성공한 것처럼 쓰지 않는다:
 
 - (a) 예약 시각에 `dry_run` 기록이 남는다
 - (b) 서버 연결을 끊어도 캐시된 PNG로 예약이 실행된다
 - (c) 연결을 복구하면 결과가 서버에 업로드된다
 - (d) 에이전트를 재시작해도 같은 occurrence가 중복 실행되지 않는다
 
-이어서 **실제 프린터**(M1 통과한 `printer/m832` + `transport/usb`)로 앱의 "지금 인쇄"(용지 확인 체크) **실물 1회**.
+Pi 실물에서 확인된 것은 이것과 다른 사실이다: `haru-paper-agent`가 실제로 폴링에 성공하고(`POST /api/device/poll` 200) 재부팅 후에도 자동 복구된다([setup.md](setup.md) 9절) — 이는 M5 조건이지 위 a~d를 대신하지 않는다.
 
-M4 전제: M1 통과(드라이버), M2의 device API 동작(서버). 서버가 준비되기 전에는 동기화 채널을 목(mock) 구현으로 대신해 스케줄러·실행기를 먼저 만들 수 있다.
+이어서 **실제 프린터**(`printer/m832` + `transport/bt`, M5에서 작성)로 앱의 "지금 인쇄"(용지 확인 체크) **실물 1회**.
+
+M4 전제: M1 통과(드라이버), M2의 device API 동작(서버, 완료). 서버가 준비되기 전에는 동기화 채널을 목(mock) 구현으로 대신해 스케줄러·실행기를 먼저 만들 수 있다.

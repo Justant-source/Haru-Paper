@@ -35,8 +35,7 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 
 ### 주의
 
-- **usbipd (노트북 WSL 한정)**: 인터페이스 release·dispose 직후나 유휴 시간이 지나면 WSL attach가 끊기는 현상이 반복됐다(`dmesg`의 `vhci_hcd: connection closed`). `.wslconfig`에 `networkingMode=mirrored`를 적용했지만 해소 여부는 [미검증]. 노트북에서 연속 전송할 때는 매번 `lsusb`로 확인하고, 없으면 Windows에서 `usbipd attach --wsl --busid 4-4`. Pi에는 usbipd가 없으므로 해당 없음.
-- **CUPS 충돌 (노트북)**: CUPS usb 백엔드가 장치를 잡고 있으면 pyusb claim이 충돌한다. `systemctl stop cups`는 소켓 활성화로 다시 켜질 수 있으므로 전송 직전에 `systemctl is-active cups`를 확인한다. Pi에는 CUPS를 설치하지 않는다.
+- **노트북 배제 — 과거 기록**: usbipd(WSL attach 끊김)·CUPS 충돌은 노트북 WSL에서 USB 개발할 때 겪은 문제였다. 노트북은 더 이상 이 저장소를 담당하지 않는다([environment.md](../environment.md)). Pi에는 usbipd·CUPS 둘 다 해당 없음.
 - **권한 (Pi)**: root가 아닌 서비스 사용자가 장치에 접근할 수 있도록 `0483:5740` udev 규칙을 `install.sh`가 설치한다 [기본값] ([setup.md](setup.md)).
 - **전원 (Pi, V4)**: Pi USB1(호스트 전용)에 직결하면 Pi가 프린터에 5V를 공급하고 프린터 충전 전류(최대 2A)를 끌어간다. 보드 전원 규격은 5V 2A라 전압 강하·재부팅 위험이 있다 [추정]. V4는 5V 3A 어댑터로 시험한다.
 
