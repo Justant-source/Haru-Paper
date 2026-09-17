@@ -99,5 +99,6 @@ detox-printer에서 실물 검증된 값을 그대로 쓴다. 근거는 [printer
 2. ~~`pi/.env.example`의 `HARU_TRANSPORT`, `HARU_BT_ADDRESS` 설명~~ — 갱신함.
 3. ~~[hardware-verification.md](hardware-verification.md) 현황표~~ — 갱신함.
 4. ~~`pi/transport/bt.py` 작성 + Pi에서 M832 페어링·`trust` + `.env` 전환~~ — 완료(2026-09-17, 위 내용).
-5. **콜드 ACL 재연결 문제 해결 여부 결정** — 위 "주의" 참고, 사용자 결정 대기.
+5. ~~콜드 ACL 재연결 문제 해결 여부 결정~~ — 완료(2026-09-17). 워크어라운드를 `open()`에 반영, 강제 disconnect 재현 시험 3/3 성공.
+6. ~~M5 실물 인쇄 1회~~ — **완료(2026-09-17)**. `M832Printer`+`BtTransport`로 텍스트+그레이데이션+체커보드 PNG 전송, 사용자 육안 확인. `HARU_PRINTER_DRIVER=m832`가 Pi의 새 기본값(더 이상 `fake`로 되돌리지 않음). M5 4/4 완료 — [setup.md](setup.md) 9절.
 6. **M5 실물 인쇄 1회**('지금 인쇄', 용지 확인 체크, `HARU_PRINTER_DRIVER=m832`로 전환) — 용지를 육안으로 확인할 수 있는 사람이 직접 해야 하는 마지막 단계, 아직 미착수.

@@ -244,8 +244,8 @@ WantedBy=multi-user.target
 - [x] 재부팅 후 `haru-paper-agent`가 **자동 시작** — **[확인됨·실물, 2026-09-16]** 5·6절
 - [x] 서버 폴링 정상 — **[확인됨·실물, 2026-09-16]** `POST /api/device/poll` 200, `GET /api/device/snapshot` 200 (재부팅 전후 모두). 다만 "서버 앱의 기기 화면에 마지막 폴링 시각 표시"는 앱 화면으로 직접 보지는 않았다(로그로 확인) — `GET /api/device`가 문서(무인증)와 달리 401을 반환하는 문제가 있어(5.3절) 앱 화면 확인은 이 문제 해소 후로 남는다
 - [x] **연결 방식 결정 = `bt`** ([hardware-verification.md](hardware-verification.md)) — **[확인됨·실물, 2026-09-17]** V1(충전기만 8시간 생존)·V2(SPP/RFCOMM 채널 1로 체커보드 2장 정상 인쇄, 사용자 육안)·V3(Pi 내장 BT 재부팅 20/20) 모두 통과. V4(USB 직결)는 사용자 결정(2026-09-16)으로 대상 제외
-- [ ] 결정된 transport로 **실물 인쇄 1회** — 미착수. 순서: Pi에서 M832 페어링·`trust` → `pi/transport/bt.py` 작성([transport.md](transport.md) 3절 확정값) → `.env`를 `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS`, `HARU_PRINTER_DRIVER=m832`로 전환·재시작 → 앱 "지금 인쇄"(용지 확인 체크) 1회. 현재는 `HARU_PRINTER_DRIVER=fake`
+- [x] 결정된 transport로 **실물 인쇄 1회** — **[확인됨·실물, 2026-09-17]** Pi에서 M832 페어링·`trust` 완료 → `pi/transport/bt.py` 작성([transport.md](transport.md) 3절) → `.env`를 `HARU_TRANSPORT=bt`, `HARU_BT_ADDRESS`, `HARU_PRINTER_DRIVER=m832`로 전환·재시작 → **실제 `pi/printer/m832` 드라이버**(`M832Printer`+`BtTransport`, detox-printer 스크립트 아님)로 그레이데이션+텍스트("HARU-PAPER REAL PRINT TEST"+시각)+체커보드가 섞인 PNG(1300×500)를 SPP/RFCOMM 채널 1로 전송(81,850바이트, 사전 육안 용지 확인 후) → **사용자가 출력물을 직접 보고 왜곡·반전 없이 정상 인쇄됐다고 확인함**. 보낸 바이트는 `/var/lib/haru-paper/sent/`에 보관. 이걸로 그동안 [미검증]이던 "텍스트·그레이스케일 콘텐츠 인쇄 품질"도 함께 해소됨([printer-m832.md](printer-m832.md) 6절)
 
-**현재 상태 요약**: 4개 중 3개 완료. 남은 1개는 서버 세션이 SSH로 이어서 진행한다(프린터는 서버 옆에서 BT로 검증됐고 Pi에는 아직 페어링 전). 프린터는 1호기 1대뿐이라 30일 운영과 2단계(ESP32) 실물 시험은 같은 프린터를 순서대로 쓴다(`.temp/02-esp32-디바이스-계획서-v1.4.md`).
+**현재 상태 요약**: **4개 중 4개 완료 — M5 통과.** `HARU_PRINTER_DRIVER=m832`가 Pi의 새 기본 상태로 남는다(더 이상 `fake`로 되돌리지 않음). 프린터는 1호기 1대뿐이라 30일 운영과 2단계(ESP32) 실물 시험은 같은 프린터를 순서대로 쓴다(`.temp/02-esp32-디바이스-계획서-v1.4.md`).
 
 M5 이후 PoC 완료 시험(WAN 차단 상태 07:00 인쇄 + 복구 후 이력, 3일 연속)으로 간다.

@@ -58,11 +58,11 @@
 | | 내용 | 상태 |
 |---|---|---|
 | M0 | 저장소 뼈대, 문서 | 완료 |
-| M1 | M832 드라이버 이식 + USB transport | 코드 있음(`pi/printer/m832`, `pi/transport/usb.py`). "실물 1회"는 M5로 이월 |
+| M1 | M832 드라이버 이식 + USB/BT transport | 코드 있음(`pi/printer/m832`, `pi/transport/{usb,bt}.py`). 실물 인쇄는 M5에서 BT로 완료(텍스트·그레이스케일 포함). detox-printer 기준 바이트 단위 비교(통과 조건 1)만 남음 |
 | M2 | 서버(Spring Boot + MariaDB + Flyway) | 완료 |
 | M3 | 웹앱(PWA) | 완료 |
 | M4 | Pi 에이전트(폴링·스케줄러·대기열) | 코드 있음(`pi/agent/`), Pi에서 상시 구동 중 |
-| M5 | Pi 실물 설치, 연결 방식 결정 | **4개 중 3개 완료.** 재부팅 자동시작 [확인됨·실물], 서버 폴링 [확인됨·실물], transport 결정 = `bt` [확인됨·실물]. 남은 것: `pi/transport/bt.py` 작성 → Pi에서 M832 페어링 → 실물 인쇄 1회 |
+| M5 | Pi 실물 설치, 연결 방식 결정 | **완료(4/4).** 재부팅 자동시작·서버 폴링·transport=`bt` 확정에 이어, `pi/transport/bt.py` 구현(콜드 ACL 워크어라운드 포함) + Pi ↔ M832 페어링 + 실물 인쇄 1회(텍스트+그레이데이션+체커보드, 사용자 육안 확인) 전부 [확인됨·실물, 2026-09-17]. `HARU_PRINTER_DRIVER=m832` 상시 |
 | M6 | 계정·기기 소유(세션 로그인, 기기별 토큰, 페어링 코드, 관리자) | **구현 완료.** 문서는 `server/auth.md`·`app/web.md`·`app/screens.md`에 반영 |
 | M7 | 레이아웃·위젯 엔진 | **부분.** 포맷 스키마 v2(행/슬롯)와 드래그 편집기(dnd-kit)는 구현됨. `haru-widget-runner`(Node 샌드박스)는 **미구현** |
 | M8 | 작가·글·구독·피드 | 미착수 |

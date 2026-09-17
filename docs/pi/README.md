@@ -4,11 +4,12 @@
 Pi는 `ssh haru-pi`로 다룬다([../environment.md](../environment.md)). 노트북 WSL은 쓰지 않는다.
 전체 구조와 API 규약의 원본은 [../architecture.md](../architecture.md), 최초 결정 기록은 [../init_plan.md](../init_plan.md)다.
 
-> **2026-09-17 현재 상태**: Pi(`haru-pi`, tailnet)에서 `haru-paper-agent`가 systemd로 떠서 실물로
-> 서버를 폴링하고 있고, 재부팅 후 자동 복구도 확인됐다. **연결 방식은 `bt`로 확정** — V1·V2·V3 모두 통과
-> (V2: SPP/RFCOMM 채널 1로 체커보드 2장 정상 인쇄, 사용자 육안). M5 4개 조건 중 3개 완료 — [setup.md](setup.md) 9절.
-> 남은 것: Pi에서 M832 페어링 → `pi/transport/bt.py` 작성([transport.md](transport.md) 3절) → 실물 인쇄 1회.
-> 현재 `HARU_PRINTER_DRIVER=fake`. USB 직결(V4)은 진행하지 않는다 — [hardware-verification.md](hardware-verification.md).
+> **2026-09-17 현재 상태**: **M5 4개 조건 전부 완료.** Pi(`haru-pi`, tailnet)에서 `haru-paper-agent`가
+> 실제 `m832` 드라이버(`HARU_PRINTER_DRIVER=m832`, `HARU_TRANSPORT=bt`)로 상시 구동 중이다. 연결 방식은
+> `bt`로 확정(V1·V2·V3 통과) — Pi ↔ M832 페어링 완료, `pi/transport/bt.py` 구현(콜드 ACL 재연결
+> 워크어라운드 포함, [transport.md](transport.md) 3절), 텍스트+그레이데이션+체커보드 PNG를 실제
+> `M832Printer` 드라이버로 BT 전송해 사용자가 출력물을 육안으로 확인했다([setup.md](setup.md) 9절).
+> USB 직결(V4)은 진행하지 않는다 — [hardware-verification.md](hardware-verification.md).
 
 표기: **[확인됨]** 실물로 눈으로 확인 / **[미검증]** 확인 전 / **[추정]** 자료·계열 기종 기반 추론 / **[기본값]** 따로 묻지 않고 정한 값(바꿔도 됨)
 
