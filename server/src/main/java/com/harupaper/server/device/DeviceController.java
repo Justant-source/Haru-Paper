@@ -37,6 +37,7 @@ public class DeviceController {
     private final DeviceRepository deviceRepository;
     private final PairingCodeRepository pairingCodeRepository;
     private final ObjectMapper objectMapper;
+    private final DeviceWakeNotifier deviceWakeNotifier;
 
     @Value("${haru.poll-interval-sec:30}")
     private Integer pollIntervalSec;
@@ -132,6 +133,7 @@ public class DeviceController {
         device.setPaperStateUpdatedBy("app");
 
         device = deviceRepository.save(device);
+        deviceWakeNotifier.wake(principal.userId(), "paperState");
 
         DeviceDto.PutPaperStateResponse response = new DeviceDto.PutPaperStateResponse(
                 device.getPaperStateManual(),

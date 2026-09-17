@@ -44,7 +44,8 @@ public class DeviceTokenAuthFilter extends OncePerRequestFilter {
     private static final Set<String> PROTECTED_PATHS = Set.of(
             "/api/device/poll",
             "/api/device/snapshot",
-            "/api/device/results"
+            "/api/device/results",
+            "/api/device/events"
     );
 
     private static final String RENDERS_PREFIX = "/api/device/renders/";

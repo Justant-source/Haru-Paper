@@ -110,7 +110,7 @@ public class SettingsController {
 
         // 날씨 캐시 무효화
         weatherProvider.clearCache();
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
         log.info("Weather cache invalidated after location change for user {}", userId);
 
         // 응답

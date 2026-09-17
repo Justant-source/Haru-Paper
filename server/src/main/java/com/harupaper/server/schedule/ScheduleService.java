@@ -265,7 +265,7 @@ public class ScheduleService {
                 .build();
 
         Schedule saved = scheduleRepository.save(schedule);
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
         return toResponseDto(saved);
     }
 
@@ -331,7 +331,7 @@ public class ScheduleService {
         schedule.setUpdatedAt(Instant.now());
 
         Schedule saved = scheduleRepository.save(schedule);
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
         return toResponseDto(saved);
     }
 
@@ -369,6 +369,6 @@ public class ScheduleService {
         }
 
         scheduleRepository.delete(schedule);
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
     }
 }

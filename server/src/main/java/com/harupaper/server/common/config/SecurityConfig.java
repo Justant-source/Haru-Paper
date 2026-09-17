@@ -62,7 +62,8 @@ public class SecurityConfig {
             "/api/device/snapshot",
             "/api/device/renders/**",
             "/api/device/results",
-            "/api/device/pair"
+            "/api/device/pair",
+            "/api/device/events"
     };
 
     @Bean

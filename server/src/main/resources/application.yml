@@ -36,6 +36,11 @@ haru:
   # 소유권 엄격 모드. V4 백필 + claim-legacy로 renders.owner_user_id의 NULL이 0이 된 뒤에만 켠다
   # (docs/server/deploy.md 7.2절). 켜면 NULL 소유자 렌더 다운로드와 NULL 소유자 포맷 예약 생성이 404가 된다.
   ownership-strict: ${HARU_OWNERSHIP_STRICT:false}
+  # SSE 깨우기 채널. heartbeat는 프록시 idle 타임아웃보다 충분히 짧아야 한다(docs/architecture.md 4.3절
+  # 타임아웃 순서 불변식). timeout-sec은 emitter 자체 수명 — 무한으로 두면 죽은 연결이 서버에 남는다.
+  sse:
+    heartbeat-sec: ${HARU_SSE_HEARTBEAT_SEC:15}
+    timeout-sec: ${HARU_SSE_TIMEOUT_SEC:1800}
   weather:
     lat: ${HARU_WEATHER_LAT:37.5663}
     lon: ${HARU_WEATHER_LON:126.9779}

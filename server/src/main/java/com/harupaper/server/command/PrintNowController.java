@@ -4,6 +4,7 @@ import com.harupaper.server.auth.UserPrincipal;
 import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.time.TimeUtils;
 import com.harupaper.server.device.DeviceRepository;
+import com.harupaper.server.device.DeviceWakeNotifier;
 import com.harupaper.server.format.FormatRepository;
 import com.harupaper.server.render.RenderResult;
 import com.harupaper.server.render.RenderService;
@@ -40,17 +41,20 @@ public class PrintNowController {
     private final CommandRepository commandRepository;
     private final DeviceRepository deviceRepository;
     private final RenderService renderService;
+    private final DeviceWakeNotifier deviceWakeNotifier;
 
     public PrintNowController(
             FormatRepository formatRepository,
             CommandRepository commandRepository,
             DeviceRepository deviceRepository,
-            RenderService renderService
+            RenderService renderService,
+            DeviceWakeNotifier deviceWakeNotifier
     ) {
         this.formatRepository = formatRepository;
         this.commandRepository = commandRepository;
         this.deviceRepository = deviceRepository;
         this.renderService = renderService;
+        this.deviceWakeNotifier = deviceWakeNotifier;
     }
 
     /**
@@ -101,6 +105,7 @@ public class PrintNowController {
                 .build();
 
         Command saved = commandRepository.save(command);
+        deviceWakeNotifier.wake(userId, "command");
 
         // 4. 202 응답
         PrintNowResponseDto response = new PrintNowResponseDto(

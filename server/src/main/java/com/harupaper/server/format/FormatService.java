@@ -142,7 +142,7 @@ public class FormatService {
             .build();
 
         Format saved = formatRepository.save(format);
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
         return saved;
     }
 
@@ -413,7 +413,7 @@ public class FormatService {
             .build();
 
         Format saved = formatRepository.save(format);
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
         return saved;
     }
 
@@ -456,7 +456,7 @@ public class FormatService {
         existing.setUpdatedAt(Instant.now());
 
         Format saved = formatRepository.save(existing);
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
         return saved;
     }
 
@@ -476,7 +476,7 @@ public class FormatService {
         }
 
         formatRepository.delete(format);
-        renderScanTrigger.requestScan();
+        renderScanTrigger.requestScan(userId);
     }
 
     /**

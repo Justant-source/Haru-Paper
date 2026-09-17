@@ -86,7 +86,7 @@ class WeatherSettingsChangeTest {
 
         // 3. renderScanTrigger.requestScan()이 호출됨 (재렌더 트리거)
         verify(renderScanTrigger, times(1))
-                .requestScan();
+                .requestScan("test-user-1");
     }
 
     /**
@@ -112,7 +112,7 @@ class WeatherSettingsChangeTest {
 
         // 검증: 3번 모두 재렌더 트리거됨
         verify(renderScanTrigger, times(3))
-                .requestScan();
+                .requestScan("test-user-1");
     }
 
     /**
@@ -142,6 +142,6 @@ class WeatherSettingsChangeTest {
         request.weather = new SettingsController.WeatherSettingsDto(37.5663, 126.9779, "서울");
         settingsController.updateSettings(request, principal);
 
-        verify(renderScanTrigger).requestScan();
+        verify(renderScanTrigger).requestScan("test-user-1");
     }
 }
