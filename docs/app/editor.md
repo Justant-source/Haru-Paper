@@ -104,4 +104,4 @@ WidgetInstance { id, type: string, size: string, props: Record<string, unknown> 
 
 - 서버 단위 테스트 195개 통과(미리보기·실측 전용 7개는 기본 스킵), 앱 `npm run build`(`tsc -b && vite build`)·`npm run lint`(`oxlint`) 통과.
 - 임시 로컬 스택(임시 MariaDB + jar + vite)에서 Playwright로 앱 화면(390px 폭)을 열어 가입 → 위젯 카탈로그 로드 → "아침 브리핑" 템플릿으로 포맷 생성 → 위치·티커 설정 → 실제 데이터(아침편지·분당구 날씨·AAPL 14봉)로 미리보기 렌더까지 흐름 전체가 통과했다[확인됨, 2026-09-18].
-- **운영 스택에는 아직 배포되지 않았다**([`../server/deploy.md`](../server/deploy.md) — 재빌드 필요). 실제 프린터로 인쇄된 결과는 [미검증]이다.
+- **2026-09-18 운영 스택에 배포 완료**[확인됨·실물]([`../server/deploy.md`](../server/deploy.md) 5절 절차대로 재빌드·재기동, `e2e-smoke.sh` 65 PASS). 이 화면에서 만든 포맷이 **실제 프린터로 인쇄된 결과**는 아직 [미검증]이다.

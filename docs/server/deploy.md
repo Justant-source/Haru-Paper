@@ -118,7 +118,7 @@ curl -fsS http://127.0.0.1:<포트>/api/health
 - 로그: `docker compose logs -f haru-api`
 - 중지: `docker compose down` — **`down -v`는 금지**(볼륨 = DB·업로드 삭제)
 - Flyway 마이그레이션은 `haru-api` 시작 시 자동 적용된다. 실패하면 컨테이너가 뜨지 않으므로 로그 확인
-- **위젯 그리드(포맷 v3, 2026-09-18) 배포 메모**: 이 변경은 **DB 마이그레이션이 없다**(신규 Flyway 파일 없음 — `formats.body`는 JSON 컬럼이라 스키마 변경 없이 내용만 바뀐다). `server/build.gradle`에 **jsoup**(아침편지 HTML 파싱용) 의존성이 추가됐고, `server/src/main/resources/widgets/korea-locations.json`(날씨 위치 목록)이 새 리소스로 포함된다 — 둘 다 jar 안에 들어가므로 **`docker compose build`(재빌드)가 반드시 필요**하다(`up -d`만으로는 옛 이미지가 그대로 뜬다, 5절 배포 절차 그대로 따르면 된다). 운영 스택에는 아직 배포되지 않았다[미검증] — 로컬 임시 스택 검증 결과는 [`README.md`](README.md) 현재 상태.
+- **위젯 그리드(포맷 v3, 2026-09-18) 배포 메모**: 이 변경은 **DB 마이그레이션이 없다**(신규 Flyway 파일 없음 — `formats.body`는 JSON 컬럼이라 스키마 변경 없이 내용만 바뀐다). `server/build.gradle`에 **jsoup**(아침편지 HTML 파싱용) 의존성이 추가됐고, `server/src/main/resources/widgets/korea-locations.json`(날씨 위치 목록)이 새 리소스로 포함된다 — 둘 다 jar 안에 들어가므로 **`docker compose build`(재빌드)가 반드시 필요**하다(`up -d`만으로는 옛 이미지가 그대로 뜬다, 5절 배포 절차 그대로 따르면 된다). **2026-09-18 이 서버에서 배포 완료**[확인됨·실물] — 사전에 `docker compose run --rm haru-db-backup /scripts/backup.sh`로 수동 백업(`db-20260918-0857.sql.gz`), `docker compose build && docker compose up -d` 후 `haru-api`·`haru-web` 둘 다 healthy, Flyway 로그로 마이그레이션 없이 스키마 V4 유지 확인, 운영 DB 상대로 `e2e-smoke.sh` 65 PASS/0 FAIL(12절 관리자 절 포함 — `claim-legacy` 테스트 후 원상 복구까지 스크립트가 자동으로 함, 복구 후 `null_formats=24`로 배포 전과 동일함을 직접 재확인). 로컬 임시 스택 검증 결과는 [`README.md`](README.md) 현재 상태.
 
 ## 6. 백업·복구 [기본값]
 

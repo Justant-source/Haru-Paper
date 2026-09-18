@@ -26,7 +26,7 @@
 | M1 드라이버 · M4 에이전트 | 코드 있음, Pi에서 상시 구동 중. **2026-09-18에 배포 따라잡음** [확인됨·실물] — Pi가 `581899e`(12커밋 뒤)에서 `74a5384`까지 `git pull --ff-only`로 갱신, `systemctl restart`. 용지 게이트 fail-closed(`623a8dc`), 재시도·명령 실행기·결과 업로드(`8b7194b`), 시계 게이트·되돌아보기·순환 삭제(`51a6a8d`), SSE 깨우기 채널이 전부 반영됐다. 재기동 로그로 poll·scheduler tick·SSE 연결 정상 확인(`docs/pi/setup.md` 5.4절). `HARU_PAPER_POLICY=unverified` 유지(절대금지 1). M1의 "실물 1회"는 M5로 이월 |
 | M5 Pi 실물 | **완료(4/4).** Pi ↔ M832 페어링, `pi/transport/bt.py`(콜드 ACL 워크어라운드 포함), 실물 인쇄 1회 육안 확인(드라이버·전송 계층 직접 호출 — 앱 "지금 인쇄"를 통한 에이전트 실행기→서버 업로드 체인은 [미검증]). `HARU_PRINTER_DRIVER=m832` 상시 |
 | M6 계정·기기 | 구현 완료(세션 로그인, 기기별 토큰, 페어링 코드, 관리자). **통과 조건 미충족** — V4 백필은 2026-09-18 서버 재배포의 Flyway 자동 적용으로 완료(`null_renders=0` 확인, `docs/server/deploy.md` 7.1절)됐으나 **레거시 claim은 아직 미실행**(`null_formats=24`), 통과 전에는 M7 이후로 넘어가지 않는다 |
-| M7 레이아웃·위젯 | 부분 — 2026-09-18: 포맷 스키마를 **v3(위젯 그리드)**로 교체(v2 행/슬롯·드래그 편집기 폐기), 위젯 6종(`dateHeader`/`text`/`image`/`morningLetter`/`stockChart`/`weather`) 구현·로컬 검증 완료. **운영 배포·실물 인쇄는 [미검증]**. 사용자 스크립트 러너 `haru-widget-runner`는 **미구현** |
+| M7 레이아웃·위젯 | 부분 — 2026-09-18: 포맷 스키마를 **v3(위젯 그리드)**로 교체(v2 행/슬롯·드래그 편집기 폐기), 위젯 6종(`dateHeader`/`text`/`image`/`morningLetter`/`stockChart`/`weather`) 구현. **같은 날 운영 스택에 재배포**(`docker compose build && up -d`, 사전 수동 백업)[확인됨·실물] — Flyway는 마이그레이션 없이 스키마 V4 유지, `e2e-smoke.sh` 65 PASS/0 FAIL(관리자 절 포함, `claim-legacy` 테스트 후 원상 복구까지 확인: `null_formats=24` 그대로). **실물 인쇄(종이에 찍힌 결과를 눈으로 확인)는 아직 [미검증]** — 앱에서 "지금 인쇄"로 확인 필요. 사용자 스크립트 러너 `haru-widget-runner`는 **미구현** |
 | M8~M10 | 미착수 |
 | 하드웨어 | V1·V2·V3 통과 → `bt` 확정, V4 제외. H4(용지 감지) 부분 진행(findpaper 응답 재현, 용지 반영 미확정)·H5(줄 누락) 대기. 서버 1-bpp(PBM) 출력 구현됨[확인됨·코드] — 배포·기기 연동은 [미검증] |
 
