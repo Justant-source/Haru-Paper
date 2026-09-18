@@ -18,6 +18,9 @@ final class StockChartRenderer {
     private static final String BLACK = "#000";
     private static final String WHITE = "#fff";
     private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("M/d", Locale.KOREA);
+    // 미확정("현재가") 값의 조회 시각 표시는 사용자가 보는 KST 기준이다 — 거래소 현지 시각이 아니다
+    private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
+    private static final DateTimeFormatter FETCHED_AT_TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.KOREA);
     // 캔들 폭은 칸 폭의 60~70%(.temp/07 5.2절)
     private static final double CANDLE_WIDTH_RATIO = 0.65;
 
@@ -101,9 +104,18 @@ final class StockChartRenderer {
                     .append("<span>").append(absText).append(" (").append(pctText).append(")</span></div>");
         }
 
-        // 3행: 마지막 봉 날짜 (+ stale 표시)
+        // 3행: 마지막 봉 날짜 (+ 확정/미확정, stale 표시)
+        // 2026-09-18 사고: 정규장이 열려 있는 동안(마지막 봉이 아직 확정 안 됨) 조회한 값을 "종가"로
+        // 표시했더니, 그 값이 실시간으로 계속 바뀌는데도 "종가"라고 단정해 사용자가 혼란을 겪었다
+        // (다음날 아침에 보면 "전날 종가"처럼 보임). 확정 여부(series.lastCandleSettled())에 따라
+        // 문구를 "종가"/"현재가"로 나누고, 미확정이면 조회 시각(KST)도 같이 보여 "이 값이 언제 것인지"
+        // 알 수 있게 한다 — 예약 인쇄처럼 렌더 시점과 실제 인쇄 시점이 떨어져 있을 때 특히 중요하다.
         h.append("<div style=\"font-size:").append(ctx.ptCss(datePt)).append(";white-space:nowrap;\">")
-                .append(MONTH_DAY.format(last.date())).append(" 종가");
+                .append(MONTH_DAY.format(last.date())).append(series.lastCandleSettled() ? " 종가" : " 현재가");
+        if (!series.lastCandleSettled()) {
+            h.append(" <span style=\"font-size:").append(ctx.ptCss(smallPt)).append(";\">(")
+                    .append(FETCHED_AT_TIME.format(series.fetchedAt().atZone(KST))).append(" 기준)</span>");
+        }
         if (series.stale()) {
             h.append(" <span style=\"font-size:").append(ctx.ptCss(smallPt)).append(";\">(이전 시세)</span>");
         }

@@ -177,6 +177,52 @@ class YahooChartStockQuoteProviderTest {
         assertEquals(3, client.callCount); // 최초 1회 + 만료 후 query1·query2 각 1회
     }
 
+    // ---- 마지막 봉 확정 여부 (2026-09-18 사고 수정) ----
+    // fixture chart-mid-session.json: 마지막 봉(2024-01-08)의 정규장은 09:30~16:00 ET
+    // (epoch 1704724200~1704747600)다.
+
+    @Test
+    @DisplayName("정규장이 열려 있는 동안 조회하면 lastCandleSettled=false다(장중 값을 종가로 단정하지 않는다)")
+    void lastCandleNotSettledDuringRegularSession() {
+        FakeHttpClient client = new FakeHttpClient(
+                new YahooChartStockQuoteProvider.FetchResult(200, fixture("chart-mid-session.json")));
+        // 12:00 ET(장중, 09:30~16:00 사이)
+        AtomicLong clock = new AtomicLong(1704733200_000L);
+        YahooChartStockQuoteProvider provider = new YahooChartStockQuoteProvider(client, clock::get);
+
+        StockSeries series = provider.getDaily("SOXL", 14);
+
+        assertFalse(series.lastCandleSettled());
+        assertEquals(clock.get(), series.fetchedAt().toEpochMilli());
+    }
+
+    @Test
+    @DisplayName("정규장 마감(16:00 ET) 이후 조회하면 같은 날짜라도 lastCandleSettled=true다")
+    void lastCandleSettledAfterRegularSessionCloses() {
+        FakeHttpClient client = new FakeHttpClient(
+                new YahooChartStockQuoteProvider.FetchResult(200, fixture("chart-mid-session.json")));
+        // 17:00 ET(마감 16:00을 지남, 날짜는 마지막 봉과 여전히 같은 2024-01-08)
+        AtomicLong clock = new AtomicLong(1704751200_000L);
+        YahooChartStockQuoteProvider provider = new YahooChartStockQuoteProvider(client, clock::get);
+
+        StockSeries series = provider.getDaily("SOXL", 14);
+
+        assertTrue(series.lastCandleSettled());
+    }
+
+    @Test
+    @DisplayName("마지막 봉 날짜가 거래소 현지 '오늘'보다 이전이면 정규장 정보가 없어도 확정이다")
+    void lastCandleSettledWhenClearlyPastDay() {
+        // 기존 chart-aapl.json fixture는 currentTradingPeriod가 없다 — 날짜 비교만으로 확정 판단
+        FakeHttpClient client = new FakeHttpClient(
+                new YahooChartStockQuoteProvider.FetchResult(200, fixture("chart-aapl.json")));
+        YahooChartStockQuoteProvider provider = new YahooChartStockQuoteProvider(client); // 실제 시계(2024년보다 훨씬 나중)
+
+        StockSeries series = provider.getDaily("AAPL", 14);
+
+        assertTrue(series.lastCandleSettled());
+    }
+
     @Test
     @DisplayName("폴백 한도(72시간)를 넘기면 stale 캐시도 포기하고 실패시킨다")
     void givesUpAfterFallbackWindowExpires() {

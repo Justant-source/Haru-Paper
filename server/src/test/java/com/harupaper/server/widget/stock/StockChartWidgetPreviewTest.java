@@ -78,7 +78,7 @@ class StockChartWidgetPreviewTest {
             Double previousClose = candles.size() >= 2
                     ? candles.get(candles.size() - 2).close() : null;
             StockSeries series = new StockSeries("TEST", "Test Widget Co. Long Name Inc.", "USD",
-                    candles, previousClose, Instant.now(), false);
+                    candles, previousClose, Instant.now(), false, true); // 지어낸 과거 날짜라 언제나 확정 종가
             StockChartWidget scenarioWidget = new StockChartWidget(new FixedProvider(series));
 
             WidgetSize size = scenarioWidget.descriptor().size(sc.sizeId());
@@ -96,9 +96,9 @@ class StockChartWidgetPreviewTest {
         List<Candle> a = generateCandles(14, 6.30, 1);
         List<Candle> b = generateCandles(14, 332.10, 2);
         StockChartWidget widgetA = new StockChartWidget(new FixedProvider(
-                new StockSeries("CHEAP", "Cheap Co.", "USD", a, a.get(a.size() - 2).close(), Instant.now(), false)));
+                new StockSeries("CHEAP", "Cheap Co.", "USD", a, a.get(a.size() - 2).close(), Instant.now(), false, true)));
         StockChartWidget widgetB = new StockChartWidget(new FixedProvider(
-                new StockSeries("MIDCO", "Mid Co.", "USD", b, b.get(b.size() - 2).close(), Instant.now(), false)));
+                new StockSeries("MIDCO", "Mid Co.", "USD", b, b.get(b.size() - 2).close(), Instant.now(), false, true)));
         WidgetSize size2x4 = widget.descriptor().size("2x4");
         WidgetRenderContext ctxA = WidgetPreviewHarness.context(size2x4, LocalDate.of(2026, 9, 18));
         String innerA = widgetA.renderHtml(new WidgetInstance("wa", "stockChart", "2x4",

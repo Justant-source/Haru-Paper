@@ -48,7 +48,14 @@ class StockChartWidgetTest {
     }
 
     private static StockSeries series(String symbol, String shortName, List<Candle> candles, Double previousClose) {
-        return new StockSeries(symbol, shortName, "USD", candles, previousClose, Instant.now(), false);
+        // candles()가 만드는 날짜는 항상 2026-08-01부터라 실제 "지금"보다 과거다 — 확정 종가로 둔다
+        return series(symbol, shortName, candles, previousClose, true);
+    }
+
+    private static StockSeries series(String symbol, String shortName, List<Candle> candles, Double previousClose,
+                                       boolean lastCandleSettled) {
+        return new StockSeries(symbol, shortName, "USD", candles, previousClose, Instant.now(), false,
+                lastCandleSettled);
     }
 
     private static List<Candle> candles(double... closes) {
@@ -233,5 +240,41 @@ class StockChartWidgetTest {
                 Map.of("ticker", "AAPL")), ctx);
 
         assertTrue(html.contains("시세를 가져오지 못했습니다"));
+    }
+
+    // ---- 종가 vs 현재가 (2026-09-18 사고 수정) ----
+
+    @Test
+    @DisplayName("확정 종가(lastCandleSettled=true)면 \"M/d 종가\"만 나오고 \"현재가\"는 안 나온다")
+    void settledSeriesShowsCloseLabel() {
+        StockSeries s = series("AAPL", "Apple Inc.", candles(100, 101), 99.5, true);
+        StockChartWidget widget = new StockChartWidget(FakeProvider.returning(s));
+        WidgetSize size = widget.descriptor().size("2x4");
+        WidgetRenderContext ctx = WidgetPreviewHarness.context(size, LocalDate.of(2026, 9, 18));
+
+        String html = widget.renderHtml(new WidgetInstance("w1", "stockChart", "2x4",
+                Map.of("ticker", "AAPL")), ctx);
+
+        assertTrue(html.contains("종가"), "확정이면 종가라고 표시해야 한다");
+        assertFalse(html.contains("현재가"), "확정인데 현재가라고 표시하면 안 된다");
+        assertFalse(html.contains("기준)"), "확정이면 조회 시각을 굳이 안 보여줘도 된다");
+    }
+
+    @Test
+    @DisplayName("미확정(lastCandleSettled=false, 장중 조회)이면 \"M/d 현재가\"와 조회 시각(KST)이 나오고 \"종가\"는 안 나온다")
+    void unsettledSeriesShowsCurrentPriceLabelWithFetchTime() {
+        // 2026-09-18 사고 재현: 장중에 조회한 값을 "종가"로 표시하면 사용자가 오해한다 —
+        // 정규장이 아직 안 끝났으면(lastCandleSettled=false) "현재가"로 표시해야 한다
+        StockSeries s = series("SOXL", "Direxion Daily Semiconductor Bull 3X", candles(29.1, 30.5), 29.1, false);
+        StockChartWidget widget = new StockChartWidget(FakeProvider.returning(s));
+        WidgetSize size = widget.descriptor().size("2x4");
+        WidgetRenderContext ctx = WidgetPreviewHarness.context(size, LocalDate.of(2026, 9, 18));
+
+        String html = widget.renderHtml(new WidgetInstance("w1", "stockChart", "2x4",
+                Map.of("ticker", "SOXL")), ctx);
+
+        assertTrue(html.contains("현재가"), "미확정이면 현재가라고 표시해야 한다");
+        assertFalse(html.contains("종가"), "미확정인데 종가라고 표시하면 안 된다");
+        assertTrue(html.contains("기준)"), "미확정이면 조회 시각을 같이 보여줘야 한다(예약 인쇄 대비)");
     }
 }

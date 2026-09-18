@@ -1,0 +1,45 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "USD",
+          "symbol": "SOXL",
+          "exchangeName": "PCX",
+          "fullExchangeName": "NYSEArca",
+          "instrumentType": "ETF",
+          "regularMarketTime": 1704733200,
+          "hasPrePostMarketData": true,
+          "gmtoffset": -18000,
+          "timezone": "EST",
+          "exchangeTimezoneName": "America/New_York",
+          "regularMarketPrice": 30.5,
+          "shortName": "Direxion Daily Semiconductor Bull 3X (Test Fixture)",
+          "chartPreviousClose": 29.1,
+          "priceHint": 2,
+          "currentTradingPeriod": {
+            "regular": {
+              "timezone": "EST",
+              "start": 1704724200,
+              "end": 1704747600,
+              "gmtoffset": -18000
+            }
+          }
+        },
+        "timestamp": [1704638400, 1704724200],
+        "indicators": {
+          "quote": [
+            {
+              "open": [28.5, 29.1],
+              "high": [29.3, 30.8],
+              "low": [28.1, 29.0],
+              "close": [29.1, 30.5],
+              "volume": [12000000, 9000000]
+            }
+          ]
+        }
+      }
+    ],
+    "error": null
+  }
+}

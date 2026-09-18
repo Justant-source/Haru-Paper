@@ -188,7 +188,36 @@ public class YahooChartStockQuoteProvider implements StockQuoteProvider {
         if (candles.isEmpty()) {
             throw new StockQuoteException("Yahoo Finance 응답에 유효한 봉이 없음: " + requestedSymbol);
         }
-        return new StockSeries(symbol, shortName, currency, candles, null, Instant.now(), false);
+
+        // clockMillis로 "지금"을 얻는다(테스트가 흉내 낼 수 있게, cache TTL 판정과 같은 방식) —
+        // 여기서 Instant.now()를 직접 부르면 "마지막 봉이 확정 종가인지"를 결정론적으로 테스트할 수 없다.
+        Instant fetchedAt = Instant.ofEpochMilli(clockMillis.getAsLong());
+        boolean lastCandleSettled = isLastCandleSettled(candles, meta, zone, fetchedAt);
+        return new StockSeries(symbol, shortName, currency, candles, null, fetchedAt, false, lastCandleSettled);
+    }
+
+    /**
+     * 마지막 봉이 "확정된 종가"인지 판정한다(2026-09-18 사고 수정 — 장중에 조회한 값을 "종가"로
+     * 표시해 사용자가 혼란을 겪었다. 자세한 배경은 {@link StockSeries#lastCandleSettled()} javadoc).
+     *
+     * 판정 규칙: 마지막 봉의 날짜가 거래소 현지 "오늘"보다 이전이면 무조건 확정이다(이미 지난 날이므로
+     * 더 바뀔 수 없다). 오늘 날짜와 같으면 Yahoo 응답의 {@code currentTradingPeriod.regular.end}(그날
+     * 정규장 마감 시각, epoch초)와 지금을 비교한다 — 그 시각을 지났으면 확정, 아니면 아직 장중(또는
+     * 장 시작 전)이라 값이 계속 바뀔 수 있으므로 미확정으로 본다. 이 필드가 없으면(옛 응답 형태 등)
+     * 안전한 쪽(미확정)으로 판단한다 — "종가"라고 잘못 단정하는 것보다 "현재가"라고 보수적으로 표시하는
+     * 쪽이 낫다.
+     */
+    private static boolean isLastCandleSettled(List<Candle> candles, JsonNode meta, ZoneId zone, Instant now) {
+        Candle last = candles.get(candles.size() - 1);
+        LocalDate todayInZone = LocalDate.ofInstant(now, zone);
+        if (last.date().isBefore(todayInZone)) {
+            return true;
+        }
+        long regularEndEpoch = meta.path("currentTradingPeriod").path("regular").path("end").asLong(-1);
+        if (regularEndEpoch <= 0) {
+            return false;
+        }
+        return now.getEpochSecond() >= regularEndEpoch;
     }
 
     private static ZoneId resolveZone(String tzName) {
@@ -218,8 +247,9 @@ public class YahooChartStockQuoteProvider implements StockQuoteProvider {
         int take = Math.max(0, Math.min(days, size));
         List<Candle> trimmed = take == 0 ? List.of() : List.copyOf(all.subList(size - take, size));
         Double previousClose = size >= 2 ? all.get(size - 2).close() : null;
+        // 마지막 봉은 days로 자르든 말든 항상 같다(끝에서부터 자르므로) — lastCandleSettled는 그대로 옮긴다
         return new StockSeries(full.symbol(), full.shortName(), full.currency(), trimmed, previousClose,
-                full.fetchedAt(), stale);
+                full.fetchedAt(), stale, full.lastCandleSettled());
     }
 
     // ---- HTTP 전송 계층 (테스트에서 교체) ----
