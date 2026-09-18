@@ -92,6 +92,11 @@ HTTP**이고, hostname 경로와 별도로 존재한다(hostname+HTTPS 경로는
 - 이 경로가 필요 없어지면 `.env`의 `HARU_WEB_TAILSCALE_BIND`와 `docker-compose.yml`의 해당
   `ports` 항목을 함께 지운다.
 - 이 경로는 PWA 설치 조건(HTTPS)을 만족하지 않는다 — PWA는 계속 hostname 경로로 설치한다.
+- **이 경로는 secure context가 아니다**[확인됨, 2026-09-18] — `window.isSecureContext === false`라
+  `crypto.randomUUID()`가 `undefined`다. 앱 코드가 이 함수를 직접 부르면 이 경로에서만 조용히
+  죽는다(렌더 중 예외 → 화면이 하얗게 빔, 에러 메시지 없음 — 실제로 "버튼을 눌러도 반응이 없다"로
+  나타난 사고 1건, `app/web/src/lib/uuid.ts`로 수정). 새 코드에서 id를 만들 때는 `crypto.randomUUID()`를
+  직접 쓰지 말고 `lib/uuid.ts`의 `uuid()`를 쓴다(secure context 아니어도 동작하는 폴백 포함).
 
 ## 4. 비밀값
 
