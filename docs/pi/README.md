@@ -18,7 +18,7 @@ Pi는 `ssh haru-pi`로 다룬다([../environment.md](../environment.md)). 노트
 > 2. 유예 안 재시도(`checking`/`attempting` 상태 분리), "지금 인쇄" 명령 실행기(스케줄러 스레드로 직렬화, `HARU_COMMAND_TTL_SEC` 래스터 직전 재확인), 결과 업로드(`missed` 최초 구현)를 실제로 구현(agent.md 7~9절·policy.md 3절).
 > 3. 시계 동기화 게이트(`timedatectl`, fail-closed, sticky), `kv.last_tick_at` 되돌아보기(24시간, 60초 쓰기 간격), 보낸 바이트 순환 삭제(`agent/retention.py`)를 실제로 구현(agent.md 4·7절, policy.md 4·7절).
 >
-> **운영상 중요한 결론**: `HARU_PAPER_POLICY=unverified`가 유지되는 한 **예약 인쇄는 항상 `dry_run`이고, 무인 인쇄가 실제로 되는 정책은 `manual_flag`뿐**이다(`status_query`는 H4 미판정이라 항상 skip — [policy.md](policy.md) 2절). PoC 완료 기준인 "3일 연속 07:00 실제 인쇄" 시험을 하려면 H4 판정 또는 `manual_flag` 전환 결정이 먼저 필요하다.
+> **운영상 중요한 결론**: `HARU_PAPER_POLICY`는 **2026-09-18부터 `manual_flag`**다(사용자 결정, [확인됨·실물]) — 예약(무인) 인쇄가 실제로 나가려면 앱(기기 화면)의 "용지 장착됨"이 켜져 있어야 한다. 꺼져 있으면 계속 `skipped_no_paper`로 재시도만 한다(`status_query`는 H4 미판정이라 여전히 항상 skip — [policy.md](policy.md) 2절).
 >
 > 전체 테스트 스위트는 **266개 통과**(`cd pi && .venv/bin/python -m pytest tests/ -q`, 2026-09-17 계측).
 

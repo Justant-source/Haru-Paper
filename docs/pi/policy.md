@@ -8,7 +8,7 @@
 
 | 항목 | 현재값 | 환경변수 |
 |---|---|---|
-| 용지 정책 | `unverified` (H4 통과 전) — **현재값에서는 예약(무인) 인쇄가 항상 `dry_run`이다. 3개 정책 중 예약 인쇄가 실제로 되는 것은 `manual_flag`뿐**(`status_query`는 H4 미판정이라 지금은 항상 skip, 2절) | `HARU_PAPER_POLICY` |
+| 용지 정책 | `manual_flag`(2026-09-18 사용자 결정으로 `unverified`에서 전환[확인됨·실물], H4 미판정) — **예약(무인) 인쇄가 실제로 나가려면 앱(기기 화면)에서 "용지 장착됨"을 켜 둬야 한다.** 꺼져 있으면 예약은 `skipped_no_paper`로 재시도만 반복한다. 용지가 떨어지면 사용자가 직접 꺼야 한다(자동 감지 아님, H4 전) | `HARU_PAPER_POLICY` |
 | 늦은 실행 유예 | 30분 | `HARU_GRACE_MINUTES` |
 | 재시도 간격 | 60초 | `HARU_RETRY_INTERVAL_SEC` |
 | 폴링 주기 | 30초 | `HARU_POLL_INTERVAL_SEC` |
