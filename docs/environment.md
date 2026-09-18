@@ -19,33 +19,49 @@
 - 저장소는 `/opt/haru-paper`에 있고 **`haru` 서비스 계정 소유**다. `sudo -u haru git -C /opt/haru-paper pull --ff-only`처럼 **`haru`로** 실행해야 한다 — root(`sudo git ...`)로 실행하면 Git 2.35.2+의 "detected dubious ownership" 보호에 걸린다.
 - 배포·재시작 절차 전체는 [`pi/setup.md`](pi/setup.md) 5절.
 
-### 2.1 Pi의 DNS 함정 (`.ts.net` 이름이 안 풀릴 수 있다) [확인됨, 2026-09-18]
+### 2.1 Pi의 DNS 함정 — NetworkManager가 Tailscale MagicDNS를 막고 있었다 [확인됨, 2026-09-18·근본 수정 2026-09-19]
 
-Pi의 `/etc/resolv.conf`는 `../run/systemd/resolve/stub-resolv.conf`로 가는 심볼릭 링크인데, 이 Pi에는
-**systemd-resolved가 실제로 안 돈다**(`resolvectl` 명령 자체가 없음) — 대신 **NetworkManager가 그 경로에
-직접 ISP DHCP DNS(예: 통신사 DNS 서버)를 써넣는다.** `tailscaled`는 `dns: using "debian-resolvconf" mode`로
-자신의 DNS(100.100.100.100, MagicDNS)를 주입하려 하지만, 이 시스템에는 `/etc/resolvconf/resolv.conf.d/`
-디렉터리 자체가 없어서(전통적 Debian `resolvconf` 패키지가 아니라 NetworkManager가 흉내만 내는 껍데기)
-**그 주입이 조용히 아무 효과가 없다.** 결과: `tailscale status`로는 서버가 online으로 보이고 IP로 ping도
-되는데(`100.81.189.92` 같은 tailnet IP), **`justant-server2.tail2b65d1.ts.net` 같은 호스트명은 해석되지
-않는다**(`NameResolutionError`) — Pi 에이전트의 poll·SSE·render 다운로드가 전부 실패한다.
+**증상(2026-09-18, 임시 수정)**: Pi의 `/etc/resolv.conf`는 systemd-resolved stub 경로로 가는 심볼릭
+링크인데, 이 Pi에는 **systemd-resolved가 실제로 안 돈다**(`resolvectl` 명령 자체가 없음) — 대신
+**NetworkManager**(`/etc/NetworkManager/NetworkManager.conf`의 `dns=default`, `rc-manager=file`)**가
+그 경로에 직접 ISP DHCP DNS를 써넣는다.** `tailscaled`는 `dns: using "debian-resolvconf" mode`로 자신의
+DNS(100.100.100.100, MagicDNS)를 주입하려 하지만, 이 시스템엔 `/etc/resolvconf/resolv.conf.d/` 디렉터리
+자체가 없어(전통적 Debian `resolvconf` 패키지가 아니라 NetworkManager가 흉내만 내는 껍데기) 그 주입이
+조용히 아무 효과가 없다. 결과: `tailscale status`/ping은 되는데 `justant-server2.tail2b65d1.ts.net` 같은
+호스트명이 해석되지 않는다(`NameResolutionError`) — Pi 에이전트의 poll·SSE·render 다운로드가 전부 실패.
 
-이 상태는 **재부팅해도 저절로 안 고쳐진다**(NetworkManager가 매번 같은 방식으로 resolv.conf를 다시 쓴다).
-근본 수정(NetworkManager가 DNS를 아예 안 건드리게 `/etc/NetworkManager/conf.d/`에 `dns=none` 설정 후
-재시작)은 SSH로만 접근하는 원격 임베디드 장치의 네트워크 관리자를 재시작하는 일이라 잘못되면 접속이
-끊길 위험이 있어 **사용자 승인 없이는 하지 않는다.**
+**더 크게 터진 사고(2026-09-19)**: 이 DNS 문제가 tailnet 이름만이 아니라 **일반 인터넷 DNS도 같이 막고
+있었다**(NTP pool 호스트명 `2.debian.pool.ntp.org`도 못 풂). Pi가 새벽에 재부팅한 뒤, 시계 동기화를
+기다리는 `systemd-time-wait-sync.service`가 (chrony가 NTP 서버 이름을 못 풀어) 끝나지 못했고, 이게
+`time-sync.target` → `multi-user.target`을 막아 **부팅 전체가 3시간 가까이 "starting"에 멈췄다** —
+`haru-paper-agent.service`도 이 기간 내내 단 한 번도 시작되지 못했다(그날 아침 예약 인쇄 테스트가 조용히
+아무것도 안 된 이유).
 
-**지금 쓰는 안전한 임시 수정**: `/etc/hosts`에 서버 tailnet IP를 그 호스트명으로 고정한다(재부팅해도
-유지되고, 한 줄 지우면 즉시 원상복구된다). SNI는 URL의 호스트명 기준으로 보내지므로 TLS·인증서 검증에
-영향 없다(`curl --resolve`로 사전 확인함):
+**근본 수정(2026-09-19, 사용자 승인 후 적용)** — 두 가지:
 
-```bash
-echo '100.81.189.92 justant-server2.tail2b65d1.ts.net' | sudo tee -a /etc/hosts
-```
+1. **NetworkManager가 DNS(resolv.conf)를 더 이상 안 건드리게 한다.** `/etc/NetworkManager/conf.d/00-haru-paper-tailscale-dns.conf`:
+   ```ini
+   [main]
+   dns=none
+   ```
+   `sudo systemctl restart NetworkManager` 후 `/etc/resolv.conf`가 tailscaled 직접 관리로 바뀌고
+   (`nameserver 100.100.100.100`), tailnet 호스트명이 정상 해석됨을 확인. SSH 접속은 재시작 중에도
+   끊기지 않았다.
+2. **chrony의 NTP 서버를 호스트명 대신 고정 IP로 바꾼다**(DNS와 완전히 무관하게 만들어 위 사고가 다시는
+   안 나게): `/etc/chrony/chrony.conf`의 `pool 2.debian.pool.ntp.org iburst`를 Google/Cloudflare의
+   안정적인 공개 NTP IP 4개(`server <IP> iburst` 4줄)로 교체(원본은 `chrony.conf.bak-20260919`로 백업).
+   재시작 후 4개 서버 모두 응답, `chronyc tracking`에서 동기화 확인.
 
-서버의 tailnet IP가 바뀌면(거의 없음) 이 줄도 같이 고쳐야 한다. 이 방법은 **이 Pi가 이야기하는 유일한
-tailnet 호스트명**(서버 하나)에만 유효하다 — 다른 tailnet 호스트명을 새로 쓰게 되면 그때도 같은 증상이
-날 수 있다.
+**남은 트레이드오프 [기본값, 2026-09-19]**: 이 Pi의 **일반 인터넷 DNS(예: `apt-get update`, 임의
+호스트명)는 여전히 안 된다** — Tailscale의 100.100.100.100은 이 Pi에선 split-DNS(resolved 연동) 없이
+`.ts.net`만 직접 풀고, 그 밖의 질의를 대신 넘겨줄 상류 서버를 모른다(admin 콘솔에 전역 네임서버를
+설정하지 않은 한 그렇다). Haru-Paper 에이전트는 서버(tailnet 호스트명) 말고 다른 곳에 직접 DNS 질의를
+하지 않으므로 기능엔 영향 없다. `apt` 작업 등으로 일반 DNS가 필요하면 그때그때 `/etc/hosts`에 임시로
+추가하거나, systemd-resolved를 설치해 tailscaled가 진짜 split-DNS를 쓰게 하는 더 큰 변경이 필요하다
+(하지 않음 — 필요해지면 논의).
+
+`/etc/hosts`의 `justant-server2.tail2b65d1.ts.net` 고정 항목(2026-09-18 임시 수정)은 지우지 않고 그대로
+뒀다 — DNS가 다시 흔들려도 최소한 서버 접속만은 살아 있게 하는 이중 안전장치다.
 
 ## 3. 이 서버(justant-server2)의 sudo 함정
 
