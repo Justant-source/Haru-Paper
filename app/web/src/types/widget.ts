@@ -3,6 +3,7 @@
 // 그래서 서버에 위젯이 새로 추가돼도 앱 코드는 고칠 필요가 없다.
 
 import type { WidgetInstance } from './format'
+import { uuid } from '../lib/uuid'
 
 export interface GridInfo {
   columns: number // 4
@@ -95,7 +96,7 @@ export function newWidgetInstance(
     }
   }
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     type: descriptor.type,
     size: overrides?.size ?? descriptor.defaultSize,
     props: { ...props, ...overrides?.props },
