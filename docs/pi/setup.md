@@ -190,6 +190,18 @@ M5 실물 인쇄(9절)는 이 커밋들 **이전** 코드로 이뤄졌다. **202
 - **SSE 깨우기 채널도 같은 배포에 포함됐다** [확인됨·실물, `HARU_EVENTS_ENABLED`·`HARU_EVENT_READ_TIMEOUT_SEC` 없이도 기동됨]: 로그에 `GET /api/device/events HTTP/1.1" 200`, `Push 이벤트 스트림 연결됨`, `ready — 백오프 초기화`가 재기동 직후 바로 찍혔다 — `tailscale serve` 경유로 Pi가 SSE에 실제로 붙는다는 뜻이다(`architecture.md` 4.3절과 같은 확인).
 - 재기동 중 남아 있던 `attempting` 명령 1건이 기동 정리로 `missed` 처리·업로드됨을 로그로 확인했다(9절 "중복 방지" 설계대로).
 
+### 5.5 2026-09-19 `time-sync.target` 제거 배포 — 정상 절차(`git pull`)를 못 써서 우회함 [확인됨·실물]
+
+경위는 [policy.md](policy.md) 4절·[hardware-verification.md](hardware-verification.md) CG1. 배포하려는 시점에 **Pi의 Tailscale DNS 포워딩이 마침 또 끊겨 있어서**([environment.md](../environment.md) 2.1절 "함정"과 같은 계열 증상 — `tailscaled`가 `health(warnable=dns-forward-failing)`을 남겼고, `github.com` 해석은 실패했지만 `.ts.net` 이름은 MagicDNS라 별도로 계속 됐다) 표준 절차(`git pull --ff-only`)를 쓸 수 없었다.
+
+**실제로 한 것**(git을 거치지 않은 1회성 우회):
+1. `cat pi/deploy/haru-paper-agent.service | ssh haru-pi 'sudo -u haru tee /opt/haru-paper/pi/deploy/haru-paper-agent.service'`로 저장소 파일만 직접 덮어씀(SSH가 이미 열려 있어 DNS와 무관하게 됨)
+2. `sha256sum`으로 로컬·원격 파일이 바이트 단위로 같은지 확인
+3. `sudo cp ... /etc/systemd/system/ && sudo chmod 644 ... && sudo systemctl daemon-reload && sudo systemctl restart haru-paper-agent`
+4. `systemctl show haru-paper-agent -p After`로 `time-sync.target`이 빠졌는지 직접 확인
+
+**남은 뒷정리 — 다음에 이 저장소를 만지는 사람이 반드시 봐야 함**: 위 방식으로 파일 *내용*만 새 커밋(`d1415a7`)과 동일하게 맞췄을 뿐, Pi의 git 이력은 여전히 `74a5384`에 멈춰 있고 `pi/deploy/haru-paper-agent.service`가 **로컬 수정(dirty)** 으로 표시된다(`git status --short` → `M pi/deploy/haru-paper-agent.service`). DNS가 정상으로 돌아온 뒤 처음 `git pull --ff-only`를 돌리면, 내용은 같아도 git은 이 파일을 "로컬 변경이 병합으로 덮어써짐"으로 보고 **거부할 수 있다** — 그러면 `sudo -u haru git diff pi/deploy/haru-paper-agent.service`로 정말 내용이 같은지 먼저 확인한 뒤(같으면) `sudo -u haru git checkout -- pi/deploy/haru-paper-agent.service`로 로컬 수정을 버리고 다시 `git pull --ff-only`한다. **`git reset`은 쓰지 않는다**(CLAUDE.md Git 규칙).
+
 ## 6. systemd unit 개요 [확인됨·실물, 2026-09-16, `time-sync.target` 제거는 2026-09-19]
 
 ```ini

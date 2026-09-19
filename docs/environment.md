@@ -63,6 +63,20 @@ DNS(100.100.100.100, MagicDNS)를 주입하려 하지만, 이 시스템엔 `/etc
 `/etc/hosts`의 `justant-server2.tail2b65d1.ts.net` 고정 항목(2026-09-18 임시 수정)은 지우지 않고 그대로
 뒀다 — DNS가 다시 흔들려도 최소한 서버 접속만은 살아 있게 하는 이중 안전장치다.
 
+**같은 날 밤 재발, 원인은 달랐다 — 그래서 계층을 하나 더 바꿨다 [확인됨·실물, 2026-09-19]**: 위 근본
+수정을 적용한 그날 밤, **부팅이 또 "starting"에 멈추는 증상이 재발**했다. 이번엔 원인이 달랐다 —
+`chronyc tracking`이 `Leap status: Normal`로 **정상 동기화돼 있었는데도**(고정 IP NTP 서버 4개 모두
+`Reachability 377`), `systemd-time-wait-sync.service`가 이유 없이 "activating"에서 50분 넘게 멈췄다.
+Tailscale 쪽도 그 시각 `tailscaled: health(warnable=dns-forward-failing)`을 남겼지만(일반 인터넷 DNS
+포워딩만 잠깐 끊긴 것, `.ts.net` 이름 해석은 계속 됨), 그게 chrony에 영향을 준 흔적은 없었다 —
+`systemd-time-wait-sync.service` 자체가 멈춘 원인은 **끝내 못 찾았다**.
+
+이번엔 DNS·NTP 쪽을 더 단단히 하는 대신, **`haru-paper-agent.service`가 애초에 `time-sync.target`을
+기다리지 않게** 바꿨다(`pi/deploy/haru-paper-agent.service`, [pi/policy.md](pi/policy.md) 4절,
+[pi/hardware-verification.md](pi/hardware-verification.md) CG1) — 원인을 특정해 없애는 대신, "이 감시
+프로세스가 무슨 이유로든 또 멈추더라도 에이전트 자체는 영향받지 않게" 만드는 쪽을 택했다. 시계 미동기
+상태의 실제 처리는 `pi/agent/clock.py`의 `ClockGate`(앱 레벨)가 계속 담당한다.
+
 ## 3. 이 서버(justant-server2)의 sudo 함정
 
 - **이 세션(harness)의 `!` 프리픽스 로컬 명령 실행은 실제 TTY를 주지 않는다.** 비밀번호가 필요한 일반 `sudo <cmd>`는 `!`로 보내면 `sudo: a terminal is required to read the password`로 항상 실패한다. 이미 설치된 NOPASSWD 규칙에 정확히 매칭하는 명령만 성공한다.
