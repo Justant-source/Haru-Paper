@@ -125,6 +125,8 @@ curl -fsS http://127.0.0.1:<포트>/api/health
 - Flyway 마이그레이션은 `haru-api` 시작 시 자동 적용된다. 실패하면 컨테이너가 뜨지 않으므로 로그 확인
 - **위젯 그리드(포맷 v3, 2026-09-18) 배포 메모**: 이 변경은 **DB 마이그레이션이 없다**(신규 Flyway 파일 없음 — `formats.body`는 JSON 컬럼이라 스키마 변경 없이 내용만 바뀐다). `server/build.gradle`에 **jsoup**(아침편지 HTML 파싱용) 의존성이 추가됐고, `server/src/main/resources/widgets/korea-locations.json`(날씨 위치 목록)이 새 리소스로 포함된다 — 둘 다 jar 안에 들어가므로 **`docker compose build`(재빌드)가 반드시 필요**하다(`up -d`만으로는 옛 이미지가 그대로 뜬다, 5절 배포 절차 그대로 따르면 된다). **2026-09-18 이 서버에서 배포 완료**[확인됨·실물] — 사전에 `docker compose run --rm haru-db-backup /scripts/backup.sh`로 수동 백업(`db-20260918-0857.sql.gz`), `docker compose build && docker compose up -d` 후 `haru-api`·`haru-web` 둘 다 healthy, Flyway 로그로 마이그레이션 없이 스키마 V4 유지 확인, 운영 DB 상대로 `e2e-smoke.sh` 65 PASS/0 FAIL(12절 관리자 절 포함 — `claim-legacy` 테스트 후 원상 복구까지 스크립트가 자동으로 함, 복구 후 `null_formats=24`로 배포 전과 동일함을 직접 재확인). 로컬 임시 스택 검증 결과는 [`README.md`](README.md) 현재 상태.
 
+- **Phomemo UX 대조 보강(2026-09-19) 배포 메모**: 이 변경도 **DB 마이그레이션이 없다**(이미지 위젯 `catalog` 플래그·에셋 소유권 검사·이력 렌더 엔드포인트 전부 코드 변경뿐, 새 컬럼·테이블 없음). **같은 날 배포 완료**[확인됨·실물] — 사전 백업(`db-20260919-2203.sql.gz`), `docker compose build && up -d` 후 `haru-api`·`haru-web` 둘 다 healthy, Flyway는 마이그레이션 없이 V4 유지, `e2e-smoke.sh` **69 PASS/0 FAIL**(11절에 이력 렌더 이미지 검증 4개 추가로 65→69). 위젯 카탈로그에서 `image.catalog=true`·`fields`에 `asset` kind 포함을 별도 테스트 계정으로 직접 확인(사용 후 삭제). **실물 인쇄(종이 출력)는 이번에도 확인하지 않았다** — 코드·API·e2e까지만.
+
 ## 6. 백업·복구 [기본값]
 
 ### 백업
