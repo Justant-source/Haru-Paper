@@ -190,13 +190,13 @@ M5 실물 인쇄(9절)는 이 커밋들 **이전** 코드로 이뤄졌다. **202
 - **SSE 깨우기 채널도 같은 배포에 포함됐다** [확인됨·실물, `HARU_EVENTS_ENABLED`·`HARU_EVENT_READ_TIMEOUT_SEC` 없이도 기동됨]: 로그에 `GET /api/device/events HTTP/1.1" 200`, `Push 이벤트 스트림 연결됨`, `ready — 백오프 초기화`가 재기동 직후 바로 찍혔다 — `tailscale serve` 경유로 Pi가 SSE에 실제로 붙는다는 뜻이다(`architecture.md` 4.3절과 같은 확인).
 - 재기동 중 남아 있던 `attempting` 명령 1건이 기동 정리로 `missed` 처리·업로드됨을 로그로 확인했다(9절 "중복 방지" 설계대로).
 
-## 6. systemd unit 개요 [확인됨·실물, 2026-09-16]
+## 6. systemd unit 개요 [확인됨·실물, 2026-09-16, `time-sync.target` 제거는 2026-09-19]
 
 ```ini
 [Unit]
 Description=Haru-Paper print agent
 Wants=network-online.target
-After=network-online.target time-sync.target
+After=network-online.target
 
 [Service]
 User=haru
@@ -214,7 +214,8 @@ WantedBy=multi-user.target
 - **`Requires=network-online.target`을 쓰지 않는다** — 인터넷이 없어도 에이전트는 시작해서 캐시로 인쇄해야 한다.
 - `StateDirectory=haru-paper` → `/var/lib/haru-paper` ([agent.md](agent.md) 4절)
 - 시계 미동기 상태에서도 서비스는 뜨고, 인쇄만 보류한다([policy.md](policy.md) 4절)
-- **실물 재부팅 검증 [확인됨·실물, 2026-09-16]**: `sudo reboot` 후 별도 조작 없이 `haru-paper-agent`가 `active`/`enabled`로 다시 뜨고, 부팅 약 40초 만에 `POST /api/device/poll`이 200을 받는 것을 확인했다(로그 타임스탬프로 대조).
+- **`After=`에 `time-sync.target`을 걸지 않는다(2026-09-19부터)** — 원래 걸려 있었으나, `systemd-time-wait-sync.service`가 chrony는 정상 동기화됐는데도 무한정 멈춰 `time-sync.target`이 영영 도달하지 못하는 실물 사고가 나서(재부팅 후 에이전트가 아예 안 뜸), 뺐다. 자세한 경과는 [policy.md](policy.md) 4절.
+- **실물 재부팅 검증 [확인됨·실물, 2026-09-16]**: `sudo reboot` 후 별도 조작 없이 `haru-paper-agent`가 `active`/`enabled`로 다시 뜨고, 부팅 약 40초 만에 `POST /api/device/poll`이 200을 받는 것을 확인했다(로그 타임스탬프로 대조). **단, 이 검증은 `time-sync.target`이 정상적으로 빨리 도달한 재부팅이었다** — 그게 멈추는 경우(위 항목)는 이 검증 범위 밖이었고, 2026-09-19에 실제로 그 경우를 만났다.
 
 ## 7. SD카드 보호
 

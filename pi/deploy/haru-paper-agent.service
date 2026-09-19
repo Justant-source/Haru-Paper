@@ -2,7 +2,15 @@
 Description=Haru-Paper print agent
 Wants=network-online.target
 # Requires=network-online.target 을 쓰지 않음: 인터넷이 없어도 에이전트는 시작해서 캐시로 인쇄해야 함 (docs/pi/setup.md 6절)
-After=network-online.target time-sync.target
+# time-sync.target을 After에 넣지 않는다(2026-09-19 실물 사고로 뺌) — 원래는 "정상 부팅에서는
+# 거의 즉시 통과하고, 시계 동기화 여부는 pi/agent의 ClockGate가 앱 레벨에서 게이트한다"는
+# 전제였는데(docs/pi/policy.md 4절), 실제로는 chrony가 이미 정상 동기화된 상태에서도
+# systemd-time-wait-sync.service 자체가 멈춰 time-sync.target이 영영 도달하지 못하는 경우가
+# 있었고, 그러면 이 서비스의 시작 job이 "waiting"에 갇혀 재부팅 후 에이전트가 아예 뜨지 않았다
+# (docs/pi/hardware-verification.md CG1). ClockGate가 이미 시계 미동기화를 앱에서 보류시키므로
+# systemd 레벨에서 또 기다릴 필요가 없다 — 이중 게이트 중 하나가 무한 대기하면 그게 곧 절대금지
+# 1(용지 확인 전 래스터 금지)과는 별개로 "예약 인쇄가 영원히 안 나가는" 새로운 실패 모드가 된다.
+After=network-online.target
 
 [Service]
 Type=simple
