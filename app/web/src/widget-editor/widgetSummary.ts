@@ -35,8 +35,12 @@ export function summarizeWidgetProps(descriptor: WidgetDescriptor, widget: Widge
       case 'boolean':
         // boolean은 요약에 넣지 않는다(작업지시서 07 7.1-3)
         break
+      case 'asset':
+        // assetId 값 자체는 의미 없는 문자열이라 "이미지 있음"으로만 표시(2026-09-19)
+        if (typeof value === 'string') parts.push('이미지 있음')
+        break
       default:
-        // asset·모르는 kind: 요약에 표시할 값이 마땅치 않다
+        // 모르는 kind: 요약에 표시할 값이 마땅치 않다
         break
     }
   }

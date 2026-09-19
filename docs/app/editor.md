@@ -31,7 +31,7 @@ WidgetInstance { id, type: string, size: string, props: Record<string, unknown> 
 | `SizeSelector.tsx` | 위젯 설정 시트의 크기 선택(세그먼트/카드, `descriptor.sizes[].label` 표시) |
 | `WidgetSettingsSheet.tsx` | 크기 선택 + `descriptor.fields`로 **자동 생성한 폼**. `catalog=false`이거나 카탈로그에 없는 type(이전 버전 포맷의 위젯)은 "이전 버전 위젯" 카드로 보여 주고 삭제·순서 이동만 허용한다 |
 | `fields/FieldRenderer.tsx` | `field.kind`에 따라 입력기를 고르는 스위치(6절) |
-| `fields/{String,Integer,Boolean,Enum,KoreaLocation,Unsupported}Field.tsx` | kind별 입력기 |
+| `fields/{String,Integer,Boolean,Enum,KoreaLocation,Asset,Unsupported}Field.tsx` | kind별 입력기. `AssetField`는 `field.kind==='asset'`에만 반응하고 `descriptor.type`(위젯 종류)은 보지 않는다(2026-09-19 추가) |
 | `fields/LocationPickerSheet.tsx` | `koreaLocation` 필드 전용 — `GET /api/widgets/locations`(285개)를 받아 앱에서 검색(공백 무시·대소문자 무시 부분 일치)·시·도별 묶음으로 보여주고, 고르면 `{label, lat, lon}`을 저장한다 |
 | `PreviewSection.tsx` | 서버 실제 렌더(`formatsApi.previewEphemeralBlob`)로 미리보기 — 1초 디바운스. 위젯 0개거나 필수값이 빈 위젯이 있으면 호출하지 않는다. 접기 가능 섹션으로 화면에 항상 보인다 |
 | `useWidgetActions.ts` | 위젯 목록을 바꾸는 조작(추가·순서·크기·값 변경·삭제)을 한데 모은 훅. `FormatEditPage`에서 분리해 길이를 줄였다 |
@@ -80,7 +80,7 @@ WidgetInstance { id, type: string, size: string, props: Record<string, unknown> 
 | `boolean` | Toggle(`BooleanField`) | — |
 | `enum` | 세그먼트/select(`EnumField`) | `field.options[].label` 표시 |
 | `koreaLocation` | 검색 가능한 시·군·구 선택기(`KoreaLocationField` → `LocationPickerSheet`) | `widgetsApi.locations()`(285개)를 앱에서 검색 |
-| `asset` | 안내 문구만(`UnsupportedField`) | "이 앱 버전에서는 편집할 수 없습니다" — 지금은 어떤 위젯도 `asset` kind 필드를 카탈로그에 노출하지 않는다(`image` 위젯은 `catalog=false`) |
+| `asset` | 업로드·미리보기·교체(`AssetField`, 2026-09-19 추가) | `POST /api/assets`로 업로드 → `assetId`를 값으로 저장, `assetsApi.thumbnailUrl(assetId)`로 미리보기(`GET /api/assets/{id}`, 소유자만). 값 없으면 점선 플레이스홀더. 413·415는 서버 응답으로, 10MB·PNG/JPEG 제한은 클라이언트에서도 사전 검사(편의용, 판정 원본은 서버). 값이 없어도 오류 없이 통과하던 이전엔 `image` 위젯이 `catalog=false`였다 — 지금은 `catalog=true`([`server/widgets.md`](../server/widgets.md) 3.3절) |
 
 ## 7. 저장 차단 조건·422 매핑
 

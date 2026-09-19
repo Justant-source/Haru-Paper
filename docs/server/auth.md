@@ -147,6 +147,19 @@ V2 마이그레이션이 기존 테이블에 `owner_user_id CHAR(36) NULL`을 �
 
 `false`가 기본값인 이유와 `true`로 켜는 절차는 4.1절·[`deploy.md`](deploy.md) 7.2절과 같다(같은 플래그, 같은 사전 조건). 즉 지금(`HARU_OWNERSHIP_STRICT=false`) 레거시 포맷(소유자 NULL)이 하나라도 남아 있으면, 그 포맷으로 다른 사용자가 예약을 만들 수 있다는 것이 현재 운영 중인 서버의 실제 동작이다 — V4 백필 + `claim-legacy`로 소유자 없는 포맷을 없애기 전까지는 이 구멍이 열려 있다.
 
+### 7.2 위젯 `asset` 필드의 에셋 소유권 검사 (2026-09-19 추가)
+
+이미지 위젯이 앱 편집기에 노출되면서([`widgets.md`](widgets.md) 3.3절) `WidgetPropsValidator.validateAsset`이 존재 여부만 보던 것을 소유권까지 보도록 넓혔다 [확인됨·코드] — 그전에는 assetId(uuid)를 알면(짐작이 아니라, 예를 들어 공유 예시 포맷 JSON에서) 남의 이미지를 자기 포맷에 렌더할 수 있었다(서버가 `data:` URI로 그대로 내장하므로 실제로 보인다). 규칙은 4.1절 `assertOwnership`과 동일:
+
+| `ownershipStrict` | `assetOwnerId == null`(claim-legacy 전 레거시) | `assetOwnerId != requestUserId` |
+|---|---|---|
+| `false`(기본값) | 허용(경고 로그) | 항상 거부 |
+| `true` | 거부 | 항상 거부 |
+
+거부 메시지는 존재하지 않을 때와 똑같이 `"asset not found: {id}"`다 — 소유·존재 여부를 구분해 알려주지 않는다.
+
+**`POST /api/formats/import`만 예외**: 리매핑 전 1차 검증(`FormatController.importFormat`)은 이 검사를 건너뛴다(`requestUserId=null`로 호출) — 그 시점의 `assetId`는 원본 내보내기 쪽 값이고, 곧 `decodeAndSaveAsset`으로 가져오는 사람 소유의 새 에셋으로 재발급(remap)된다. 강제하면 "친구가 내보낸 포맷을 가져오기"(`forkedFrom`)가 원본 소유자가 나 자신이 아닌 한 항상 실패한다. 재발급 뒤 두 번째 검증(`FormatService.importFormat`의 `validator.validate(withForkedFrom, userId)`)은 새 에셋이 이미 `userId` 소유이므로 정상적으로 통과한다.
+
 ## 8. 기기 테이블 교체 (`device` → `devices`)
 
 옛 `device` 테이블(항상 `id=1`인 단일 행)은 **DROP**됐다 — PoC 데이터는 재사용 가치가 없다고 판단했다(작업지시서 Q25: "기존 Pi가 새 토큰으로 poll 성공"이 통과 조건이라 재가입이 전제) [확인됨·코드: `V2__users_and_ownership.sql`]. 새 `devices` 테이블은 `owner_user_id UNIQUE`(1인 1기기), `token_hash UNIQUE`. 컬럼 상세는 [`data-model.md`](data-model.md).

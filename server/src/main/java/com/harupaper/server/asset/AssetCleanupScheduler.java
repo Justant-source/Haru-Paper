@@ -5,7 +5,7 @@ import com.harupaper.server.format.Format;
 import com.harupaper.server.format.FormatDocument;
 import com.harupaper.server.format.FormatDocumentSupport;
 import com.harupaper.server.format.FormatRepository;
-import com.harupaper.server.widget.WidgetInstance;
+import com.harupaper.server.widget.WidgetRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -35,15 +35,18 @@ public class AssetCleanupScheduler {
     private final AssetRepository assetRepository;
     private final FormatRepository formatRepository;
     private final ObjectMapper objectMapper;
+    private final WidgetRegistry widgetRegistry;
     private final String filesDir;
 
     public AssetCleanupScheduler(AssetRepository assetRepository,
                                 FormatRepository formatRepository,
                                 ObjectMapper objectMapper,
+                                WidgetRegistry widgetRegistry,
                                 @Value("${haru.files-dir}") String filesDir) {
         this.assetRepository = assetRepository;
         this.formatRepository = formatRepository;
         this.objectMapper = objectMapper;
+        this.widgetRegistry = widgetRegistry;
         this.filesDir = filesDir;
     }
 
@@ -103,7 +106,8 @@ public class AssetCleanupScheduler {
     }
 
     /**
-     * Collect all assetIds referenced by formats.
+     * Collect all assetIds referenced by formats. 어떤 위젯이 asset 필드를 갖는지는
+     * WidgetRegistry에 위임한다(widget/**만 위젯 종류를 안다 — CLAUDE.md 구성요소 경계).
      */
     private Set<String> collectReferencedAssets() {
         Set<String> referencedAssets = new HashSet<>();
@@ -113,16 +117,7 @@ public class AssetCleanupScheduler {
             try {
                 // v1·v2 포맷은 자동으로 up-convert되어 widgets를 반환한다
                 FormatDocument doc = FormatDocumentSupport.readDocument(format.getBody(), objectMapper);
-                if (doc.widgets() != null) {
-                    for (WidgetInstance widget : doc.widgets()) {
-                        if ("image".equals(widget.type()) && widget.props() != null) {
-                            Object assetIdObj = widget.props().get("assetId");
-                            if (assetIdObj instanceof String assetId) {
-                                referencedAssets.add(assetId);
-                            }
-                        }
-                    }
-                }
+                referencedAssets.addAll(widgetRegistry.collectAssetIds(doc.widgets()));
             } catch (Exception e) {
                 log.warn("Failed to parse format {}: {}", format.getId(), e.getMessage());
             }

@@ -130,8 +130,10 @@ public class FormatService {
             remappedDoc.widgets()
         );
 
-        // Validate and create format
-        validator.validate(withForkedFrom);
+        // Validate and create format. 이 시점의 widgets[].props.assetId는 이미 위에서
+        // decodeAndSaveAsset(dataUri, userId)로 새로 만든, userId 소유의 에셋으로 remap된 뒤다 —
+        // 여기서는 소유권 검사를 건너뛰지 않는다(FormatController.importFormat의 1차 검증과 다름).
+        validator.validate(withForkedFrom, userId);
         String id = UUID.randomUUID().toString();
         Instant now = Instant.now();
 
@@ -159,17 +161,12 @@ public class FormatService {
         FormatDocument doc = deserializeDocument(format.getBody());
 
         Map<String, String> assets = new HashMap<>();
-        if (doc.widgets() != null) {
-            for (WidgetInstance widget : doc.widgets()) {
-                if ("image".equals(widget.type()) && widget.props() != null) {
-                    Object assetIdObj = widget.props().get("assetId");
-                    if (assetIdObj instanceof String assetId && !assets.containsKey(assetId)) {
-                        Asset asset = assetRepository.findById(assetId)
-                            .orElseThrow(() -> new NotFoundException("asset not found: " + assetId));
-                        String dataUri = assetToDataUri(asset);
-                        assets.put(assetId, dataUri);
-                    }
-                }
+        for (String assetId : widgetRegistry.collectAssetIds(doc.widgets())) {
+            if (!assets.containsKey(assetId)) {
+                Asset asset = assetRepository.findById(assetId)
+                    .orElseThrow(() -> new NotFoundException("asset not found: " + assetId));
+                String dataUri = assetToDataUri(asset);
+                assets.put(assetId, dataUri);
             }
         }
 
@@ -312,19 +309,11 @@ public class FormatService {
     private void requireEmbeddedAssets(FormatDocument document, Map<String, String> assets) {
         Map<String, String> embedded = assets != null ? assets : Map.of();
         List<com.harupaper.server.common.exception.ValidationException.FieldError> errors = new java.util.ArrayList<>();
-        if (document.widgets() == null) {
-            return;
-        }
-        for (int i = 0; i < document.widgets().size(); i++) {
-            WidgetInstance widget = document.widgets().get(i);
-            if (!"image".equals(widget.type()) || widget.props() == null) {
-                continue;
-            }
-            Object assetIdObj = widget.props().get("assetId");
-            if (assetIdObj instanceof String assetId && !embedded.containsKey(assetId)) {
+        for (WidgetRegistry.AssetReference ref : widgetRegistry.findAssetReferences(document.widgets())) {
+            if (!embedded.containsKey(ref.assetId())) {
                 errors.add(new com.harupaper.server.common.exception.ValidationException.FieldError(
-                        "widgets[" + i + "].props.assetId",
-                        "assetId must be present in assets (reissued on import)"));
+                        "widgets[" + ref.widgetIndex() + "].props." + ref.fieldKey(),
+                        ref.fieldKey() + " must be present in assets (reissued on import)"));
             }
         }
         if (!errors.isEmpty()) {
@@ -339,18 +328,25 @@ public class FormatService {
         }
 
         List<WidgetInstance> remappedWidgets = document.widgets().stream().map(widget -> {
-            if ("image".equals(widget.type()) && widget.props() != null) {
-                Object assetIdObj = widget.props().get("assetId");
+            if (widget.props() == null) {
+                return widget;
+            }
+            Map<String, Object> newProps = null;
+            for (String key : widgetRegistry.assetFieldKeys(widget.type())) {
+                Object assetIdObj = widget.props().get(key);
                 if (assetIdObj instanceof String oldAssetId) {
                     String newAssetId = assetIdMapping.get(oldAssetId);
                     if (newAssetId != null) {
-                        Map<String, Object> newProps = new HashMap<>(widget.props());
-                        newProps.put("assetId", newAssetId);
-                        return new WidgetInstance(widget.id(), widget.type(), widget.size(), newProps);
+                        if (newProps == null) {
+                            newProps = new HashMap<>(widget.props());
+                        }
+                        newProps.put(key, newAssetId);
                     }
                 }
             }
-            return widget;
+            return newProps != null
+                    ? new WidgetInstance(widget.id(), widget.type(), widget.size(), newProps)
+                    : widget;
         }).toList();
 
         return new FormatDocument(
@@ -381,7 +377,7 @@ public class FormatService {
      * M6: 포맷 생성 (소유권 설정)
      */
     public Format createFormatWithOwner(FormatDocument document, String userId) {
-        validator.validate(document);
+        validator.validate(document, userId);
 
         FormatDocument normalized = normalizeDocument(document);
         String id = UUID.randomUUID().toString();
@@ -419,7 +415,7 @@ public class FormatService {
      */
     public Format updateFormatWithOwnerCheck(String id, FormatDocument document, String userId) {
         Format existing = getFormatWithOwnerCheck(id, userId);
-        validator.validate(document);
+        validator.validate(document, userId);
 
         FormatDocument normalized = normalizeDocument(document);
         // Preserve forkedFrom from existing

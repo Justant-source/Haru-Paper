@@ -77,7 +77,7 @@ public class FormatController {
 
         String userId = principal.userId();
         FormatDocument document = formatService.getFormatValidator()
-                .validateAndParse(rawBody, false, objectMapper);
+                .validateAndParse(rawBody, false, objectMapper, userId);
         Format created = formatService.createFormatWithOwner(document, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(toDetailResponse(created));
     }
@@ -112,7 +112,7 @@ public class FormatController {
 
         String userId = principal.userId();
         FormatDocument document = formatService.getFormatValidator()
-                .validateAndParse(rawBody, false, objectMapper);
+                .validateAndParse(rawBody, false, objectMapper, userId);
         Format updated = formatService.updateFormatWithOwnerCheck(id, document, userId);
         return ResponseEntity.ok(toDetailResponse(updated));
     }
@@ -149,8 +149,12 @@ public class FormatController {
         // 먼저 올려친다(FormatDocumentSupport, 읽기 경로의 up-convert와 같은 로직).
         Map<String, Object> normalizedImportJson =
                 FormatDocumentSupport.upConvertRawImportIfNeeded(importJson, objectMapper);
+        // assetId 소유권 검사는 여기서 하지 않는다(requestUserId=null) — 이 시점의 widgets[].props.assetId는
+        // 원본 내보내기 쪽 id로, 아래에서 assets 데이터 URI로 새로 저장되며 즉시 재발급(remap)된다.
+        // 실제 소유권이 의미 있는 검증은 재발급 뒤 FormatService.importFormat의 validator.validate(withForkedFrom, userId)다.
+        // 여기서 강제하면 "친구가 내보낸 포맷을 가져오기"(forkedFrom)가 항상 실패한다(원본 에셋은 친구 소유이므로).
         FormatDocument doc = formatService.getFormatValidator()
-                .validateAndParse(normalizedImportJson, true, objectMapper);
+                .validateAndParse(normalizedImportJson, true, objectMapper, null);
         Object assetsObj = importJson.get("assets");
         Map<String, String> assets = Map.of();
         if (assetsObj instanceof Map<?, ?> rawAssets) {
@@ -255,9 +259,11 @@ public class FormatController {
             date = TimeUtils.todayInKST();
         }
 
-        // 검증만 하고 저장하지 않는다 (assets 필드도 여기선 허용하지 않는다 — 저장 안 된 편집본 미리보기)
+        // 검증만 하고 저장하지 않는다 (assets 필드도 여기선 허용하지 않는다 — 저장 안 된 편집본 미리보기).
+        // assetId는 principal 소유여야 한다 — 여기가 바로 그 검사가 필요한 지점이다: 편집기가
+        // 방금 업로드한 실제 assetId를 그대로 보내므로, 검사가 없으면 남의 assetId를 넣어 렌더해 볼 수 있다.
         FormatDocument document = formatService.getFormatValidator()
-                .validateAndParse(rawBody, false, objectMapper);
+                .validateAndParse(rawBody, false, objectMapper, principal.userId());
 
         // 요청한 사용자의 기기 프로필로 렌더한다(멀티유저, "아무 기기나 하나" 폴백 제거)
         byte[] pngBytes = renderService.renderEphemeral(document, date, principal.userId());

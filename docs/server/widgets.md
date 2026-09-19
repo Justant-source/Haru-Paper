@@ -92,7 +92,7 @@
 |---|---|---|---|---|
 | `dateHeader` | 날짜 머리글 | `widget/basic` | true | false |
 | `text` | 텍스트 | `widget/basic` | true | false |
-| `image` | 이미지 | `widget/basic` | **false**(호환용, 3.4절) | false |
+| `image` | 이미지 | `widget/basic` | true(2026-09-19부터, 3.3절) | false |
 | `morningLetter` | 고도원의 아침편지 | `widget/letter` | true | **true** |
 | `stockChart` | 미국 증시 일봉 | `widget/stock` | true | **true** |
 | `weather` | 오늘의 날씨 | `widget/weather`(+`weather/`) | true | **true** |
@@ -135,7 +135,23 @@
 
 ### 3.3 `image` — 이미지
 
-옛 v2 `image` 블록을 그대로 옮긴 것. `data:` URI 내장 방식은 동일하다. **`catalog=false`** — 앱 "위젯 추가" 목록에는 안 뜨지만(이 앱 버전은 이미지 편집 UI가 없다), 이전 버전 포맷을 읽을 때는 계속 렌더할 수 있도록 위젯 자체는 등록돼 있다.
+옛 v2 `image` 블록을 그대로 옮긴 것. `data:` URI 내장 방식은 동일하다. **`catalog=true`**(2026-09-19부터)
+— 앱 `AssetField.tsx`(`app/web/src/widget-editor/fields/AssetField.tsx`)가 `kind: 'asset'` 필드를
+업로드·미리보기·교체 UI로 편집하므로 "위젯 추가" 목록에 노출한다(그 전엔 편집 UI가 없어 `catalog=false`로
+이전 버전 포맷 렌더만 지원했다).
+
+**에셋 소유권**(2026-09-19): `assetId` 검증은 존재 여부뿐 아니라 소유권도 본다
+(`WidgetPropsValidator.validateAsset`) — `DeviceSyncController.assertOwnership`과 같은 규칙(소유자 NULL은
+`haru.ownership-strict=false`일 때만 허용, 불일치는 항상 거부, 오류 메시지는 "asset not found"로 통일해
+존재·소유 여부를 구분해 알려주지 않는다). `POST /api/formats/import`의 리매핑 전 1차 검증만 예외로 이
+검사를 건너뛴다(`requestUserId=null`) — 그 시점의 `assetId`는 원본 내보내기 쪽 값이라 강제하면
+"친구가 내보낸 포맷 가져오기"가 항상 실패한다.
+
+**위젯 종류를 모르는 asset 수집**(2026-09-19): 에셋 정리(`AssetCleanupScheduler`)·export/import
+(`FormatService`)가 예전엔 `"image".equals(widget.type())`으로 하드코딩했다(CLAUDE.md 구성요소 경계
+위반). 지금은 `WidgetRegistry.collectAssetIds`/`findAssetReferences`/`assetFieldKeys`가
+`descriptor.fields()`에서 `kind==ASSET`인 필드를 찾아 대신한다 — asset 필드를 가진 위젯이 늘어도
+이 세 메서드는 고칠 필요가 없다.
 
 | 크기 | id | 실제 크기 |
 |---|---|---|

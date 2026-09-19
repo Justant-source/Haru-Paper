@@ -30,8 +30,8 @@ import static com.harupaper.server.widget.basic.BasicWidgetSupport.stringProp;
  * 업로드한 이미지를 넣는 위젯(.temp/07-위젯그리드-작업지시서.md 5.4절). 옛 FormatDocument v2의
  * "image" 블록을 그대로 옮긴 것 — data: URI로 내장하는 방식은 동일하다.
  *
- * catalog=false: 앱 "위젯 추가" 목록에는 안 뜨지만(이 앱 버전은 편집기가 없다), 이전 버전
- * 포맷을 읽을 때는 계속 렌더할 수 있어야 하므로 위젯 자체는 등록해 둔다.
+ * catalog=true(2026-09-19부터): 앱에 asset kind 필드 편집기(`AssetField.tsx`)가 생겨 "위젯 추가"
+ * 목록에 노출한다. 그전에는(catalog=false) 편집기가 없어 이전 버전 포맷을 읽을 때만 렌더했다.
  */
 @Slf4j
 @Component
@@ -43,7 +43,7 @@ public class ImageWidget implements Widget {
             "사진이나 그림을 넣습니다",
             "image",
             false,
-            false,
+            true,
             List.of(WidgetSize.auto(4, "자동 높이 · 104mm 폭")),
             "4xauto",
             List.of(

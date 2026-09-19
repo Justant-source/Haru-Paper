@@ -38,7 +38,7 @@ class FormatValidatorTest {
     @BeforeEach
     void setUp() {
         AssetRepository assetRepository = mock(AssetRepository.class);
-        WidgetPropsValidator propsValidator = new WidgetPropsValidator(assetRepository);
+        WidgetPropsValidator propsValidator = new WidgetPropsValidator(assetRepository, false);
         WidgetRegistry registry = new WidgetRegistry(List.of(new FakeWidget()));
         validator = new FormatValidator(registry, propsValidator);
     }
@@ -65,7 +65,7 @@ class FormatValidatorTest {
     @Test
     @DisplayName("정상 문서는 통과한다")
     void validDocumentPasses() {
-        FormatDocument doc = validator.validateAndParse(validDocument(), false, mapper);
+        FormatDocument doc = validator.validateAndParse(validDocument(), false, mapper, "tester");
         assertEquals(3, doc.schemaVersion());
         assertEquals(1, doc.widgets().size());
     }
@@ -77,7 +77,7 @@ class FormatValidatorTest {
         raw.put("rows", List.of());
 
         ValidationException ex = assertThrows(ValidationException.class,
-                () -> validator.validateAndParse(raw, false, mapper));
+                () -> validator.validateAndParse(raw, false, mapper, "tester"));
 
         assertTrue(ex.getFieldErrors().stream().anyMatch(e -> e.path().equals("rows")));
     }
@@ -89,7 +89,7 @@ class FormatValidatorTest {
         raw.put("widgets", List.of());
 
         ValidationException ex = assertThrows(ValidationException.class,
-                () -> validator.validateAndParse(raw, false, mapper));
+                () -> validator.validateAndParse(raw, false, mapper, "tester"));
 
         assertTrue(ex.getFieldErrors().stream().anyMatch(e -> e.path().equals("widgets")));
     }
@@ -101,7 +101,7 @@ class FormatValidatorTest {
         raw.put("widgets", List.of(widgetJson("w1", "ghost", "2x4", Map.of("name", "x"))));
 
         ValidationException ex = assertThrows(ValidationException.class,
-                () -> validator.validateAndParse(raw, false, mapper));
+                () -> validator.validateAndParse(raw, false, mapper, "tester"));
 
         assertTrue(ex.getFieldErrors().stream().anyMatch(e -> e.path().equals("widgets[0].type")));
     }
@@ -113,7 +113,7 @@ class FormatValidatorTest {
         raw.put("widgets", List.of(widgetJson("w1", "fake", "9x9", Map.of("name", "hello"))));
 
         ValidationException ex = assertThrows(ValidationException.class,
-                () -> validator.validateAndParse(raw, false, mapper));
+                () -> validator.validateAndParse(raw, false, mapper, "tester"));
 
         assertTrue(ex.getFieldErrors().stream().anyMatch(e -> e.path().equals("widgets[0].size")));
     }
@@ -128,7 +128,7 @@ class FormatValidatorTest {
         ));
 
         ValidationException ex = assertThrows(ValidationException.class,
-                () -> validator.validateAndParse(raw, false, mapper));
+                () -> validator.validateAndParse(raw, false, mapper, "tester"));
 
         assertTrue(ex.getFieldErrors().stream().anyMatch(e -> e.path().equals("widgets[1].id")));
     }
@@ -140,7 +140,7 @@ class FormatValidatorTest {
         raw.put("widgets", List.of(widgetJson("w1", "fake", "2x4", Map.of())));
 
         ValidationException ex = assertThrows(ValidationException.class,
-                () -> validator.validateAndParse(raw, false, mapper));
+                () -> validator.validateAndParse(raw, false, mapper, "tester"));
 
         assertTrue(ex.getFieldErrors().stream().anyMatch(e -> e.path().equals("widgets[0].props.name")));
     }
@@ -152,7 +152,7 @@ class FormatValidatorTest {
         raw.put("schemaVersion", 2);
 
         ValidationException ex = assertThrows(ValidationException.class,
-                () -> validator.validateAndParse(raw, false, mapper));
+                () -> validator.validateAndParse(raw, false, mapper, "tester"));
 
         assertTrue(ex.getFieldErrors().stream().anyMatch(e -> e.path().equals("schemaVersion")));
     }

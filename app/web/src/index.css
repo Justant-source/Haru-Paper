@@ -752,6 +752,45 @@ button {
   font-style: italic;
 }
 
+/* asset kind 필드(AssetField) — 위젯 종류가 아니라 필드 kind에 반응하는 공용 편집기 */
+.asset-field-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.asset-field-placeholder:disabled { opacity: 0.6; cursor: default; }
+.asset-field-placeholder-icon { color: var(--text-secondary); }
+
+.asset-field-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.asset-field-thumb {
+  width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+}
+.asset-field-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.asset-field-remove { color: var(--danger); }
+
 /* 크기 선택기 */
 .size-selector {
   display: flex;

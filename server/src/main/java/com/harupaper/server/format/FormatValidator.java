@@ -110,11 +110,14 @@ public class FormatValidator {
      * 원본 JSON부터 구조(알 수 없는 키) 검증 + FormatDocument 변환 + 값 검증까지 한 번에 하고,
      * 위반을 전부 모아 하나의 ValidationException으로 던진다. create/update/편집본 미리보기가 쓴다.
      *
-     * @param allowAssets 가져오기(import)에서만 true
+     * @param allowAssets   가져오기(import)에서만 true
+     * @param requestUserId asset 필드 소유권 검사용 현재 사용자 id. import의 리매핑 전 1차 검증처럼
+     *                      의도적으로 건너뛸 때만 null(FormatController 참고, WidgetPropsValidator 문서화).
      */
     public FormatDocument validateAndParse(Map<String, Object> raw,
                                             boolean allowAssets,
-                                            com.fasterxml.jackson.databind.ObjectMapper mapper) {
+                                            com.fasterxml.jackson.databind.ObjectMapper mapper,
+                                            String requestUserId) {
         List<ValidationException.FieldError> errors = new ArrayList<>();
         validateRawKeys(raw, allowAssets, errors);
 
@@ -134,7 +137,7 @@ public class FormatValidator {
         }
 
         if (document != null) {
-            collectDocumentErrors(document, errors);
+            collectDocumentErrors(document, errors, requestUserId);
         }
 
         if (!errors.isEmpty()) {
@@ -143,19 +146,20 @@ public class FormatValidator {
         return document;
     }
 
-    public void validate(FormatDocument document) {
+    public void validate(FormatDocument document, String requestUserId) {
         List<ValidationException.FieldError> errors = new ArrayList<>();
         if (document == null) {
             errors.add(new ValidationException.FieldError("", "format document is required"));
             throw new ValidationException("format document is invalid", errors);
         }
-        collectDocumentErrors(document, errors);
+        collectDocumentErrors(document, errors, requestUserId);
         if (!errors.isEmpty()) {
             throw new ValidationException("format document is invalid", errors);
         }
     }
 
-    private void collectDocumentErrors(FormatDocument document, List<ValidationException.FieldError> errors) {
+    private void collectDocumentErrors(FormatDocument document, List<ValidationException.FieldError> errors,
+                                        String requestUserId) {
         if (document.schemaVersion() != 3) {
             errors.add(new ValidationException.FieldError("schemaVersion",
                 "unsupported schemaVersion: " + document.schemaVersion() + " (only 3 supported)"));
@@ -179,7 +183,7 @@ public class FormatValidator {
         } else {
             Set<String> seenIds = new HashSet<>();
             for (int i = 0; i < document.widgets().size(); i++) {
-                validateWidget(document.widgets().get(i), i, seenIds, errors);
+                validateWidget(document.widgets().get(i), i, seenIds, errors, requestUserId);
             }
         }
     }
@@ -252,7 +256,7 @@ public class FormatValidator {
     }
 
     private void validateWidget(WidgetInstance widget, int index, Set<String> seenIds,
-                                 List<ValidationException.FieldError> errors) {
+                                 List<ValidationException.FieldError> errors, String requestUserId) {
         String path = "widgets[" + index + "]";
 
         if (widget.id() == null || widget.id().isEmpty() || widget.id().length() > MAX_WIDGET_ID_LENGTH) {
@@ -280,6 +284,6 @@ public class FormatValidator {
                     + ", got '" + widget.size() + "'"));
         }
 
-        widgetPropsValidator.validate(impl, widget.props(), path + ".props", errors);
+        widgetPropsValidator.validate(impl, widget.props(), path + ".props", errors, requestUserId);
     }
 }

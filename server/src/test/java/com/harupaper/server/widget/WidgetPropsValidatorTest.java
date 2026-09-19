@@ -1,5 +1,6 @@
 package com.harupaper.server.widget;
 
+import com.harupaper.server.asset.Asset;
 import com.harupaper.server.asset.AssetRepository;
 import com.harupaper.server.common.exception.ValidationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,13 +22,16 @@ import static org.mockito.Mockito.when;
 @DisplayName("WidgetPropsValidator - kind별 props 검증(.temp/07 3.2절)")
 class WidgetPropsValidatorTest {
 
+    // asset kind가 아닌 필드 테스트는 소유권 검사와 무관하므로 고정 요청자를 쓴다.
+    private static final String REQUEST_USER_ID = "user-1";
+
     private AssetRepository assetRepository;
     private WidgetPropsValidator validator;
 
     @BeforeEach
     void setUp() {
         assetRepository = mock(AssetRepository.class);
-        validator = new WidgetPropsValidator(assetRepository);
+        validator = new WidgetPropsValidator(assetRepository, false);
     }
 
     private Widget widgetWithFields(PropField... fields) {
@@ -47,8 +52,13 @@ class WidgetPropsValidatorTest {
     }
 
     private List<ValidationException.FieldError> validate(Widget widget, Map<String, Object> props) {
+        return validateAs(validator, widget, props, REQUEST_USER_ID);
+    }
+
+    private List<ValidationException.FieldError> validateAs(WidgetPropsValidator v, Widget widget,
+                                                              Map<String, Object> props, String requestUserId) {
         List<ValidationException.FieldError> errors = new ArrayList<>();
-        validator.validate(widget, props, "widgets[0].props", errors);
+        v.validate(widget, props, "widgets[0].props", errors, requestUserId);
         return errors;
     }
 
@@ -135,14 +145,60 @@ class WidgetPropsValidatorTest {
     }
 
     @Test
-    @DisplayName("asset: AssetRepository.existsById로 존재 여부를 확인한다")
-    void assetValidation() {
-        when(assetRepository.existsById("a1")).thenReturn(true);
-        when(assetRepository.existsById("missing")).thenReturn(false);
+    @DisplayName("asset: 존재하지 않으면 거부한다")
+    void assetMissingRejected() {
+        when(assetRepository.findById("missing")).thenReturn(Optional.empty());
+        Widget widget = widgetWithFields(PropField.asset("assetId", "이미지", true, null));
+
+        assertFalse(validate(widget, Map.of("assetId", "missing")).isEmpty());
+    }
+
+    @Test
+    @DisplayName("asset: 요청자 소유면 통과한다")
+    void assetOwnedByRequesterPasses() {
+        when(assetRepository.findById("a1")).thenReturn(
+                Optional.of(Asset.builder().id("a1").ownerUserId(REQUEST_USER_ID).build()));
         Widget widget = widgetWithFields(PropField.asset("assetId", "이미지", true, null));
 
         assertTrue(validate(widget, Map.of("assetId", "a1")).isEmpty());
-        assertFalse(validate(widget, Map.of("assetId", "missing")).isEmpty());
+    }
+
+    @Test
+    @DisplayName("asset: 남의 소유면 존재하지 않는 것처럼 거부한다(IDOR 방지, 2026-09-19)")
+    void assetOwnedBySomeoneElseRejected() {
+        when(assetRepository.findById("a1")).thenReturn(
+                Optional.of(Asset.builder().id("a1").ownerUserId("other-user").build()));
+        Widget widget = widgetWithFields(PropField.asset("assetId", "이미지", true, null));
+
+        List<ValidationException.FieldError> errors = validate(widget, Map.of("assetId", "a1"));
+
+        assertFalse(errors.isEmpty());
+        // 존재 여부·소유 여부를 구분해 알려주지 않는다 — 메시지가 "not found" 하나로 통일된다.
+        assertTrue(errors.get(0).message().contains("asset not found"));
+    }
+
+    @Test
+    @DisplayName("asset: 소유자 NULL(claim-legacy 전 레거시)은 strict=false면 허용, strict=true면 거부")
+    void assetOwnerNullDependsOnStrictFlag() {
+        when(assetRepository.findById("legacy")).thenReturn(
+                Optional.of(Asset.builder().id("legacy").ownerUserId(null).build()));
+        Widget widget = widgetWithFields(PropField.asset("assetId", "이미지", true, null));
+
+        WidgetPropsValidator lenient = new WidgetPropsValidator(assetRepository, false);
+        assertTrue(validateAs(lenient, widget, Map.of("assetId", "legacy"), REQUEST_USER_ID).isEmpty());
+
+        WidgetPropsValidator strict = new WidgetPropsValidator(assetRepository, true);
+        assertFalse(validateAs(strict, widget, Map.of("assetId", "legacy"), REQUEST_USER_ID).isEmpty());
+    }
+
+    @Test
+    @DisplayName("asset: requestUserId가 null이면(import 리매핑 전) 소유권 검사를 건너뛰고 존재만 본다")
+    void assetSkipsOwnershipWhenRequestUserIdNull() {
+        when(assetRepository.findById("a1")).thenReturn(
+                Optional.of(Asset.builder().id("a1").ownerUserId("someone-else").build()));
+        Widget widget = widgetWithFields(PropField.asset("assetId", "이미지", true, null));
+
+        assertTrue(validateAs(validator, widget, Map.of("assetId", "a1"), null).isEmpty());
     }
 
     @Test

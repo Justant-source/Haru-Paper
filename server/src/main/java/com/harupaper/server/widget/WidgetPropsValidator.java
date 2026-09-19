@@ -1,11 +1,15 @@
 package com.harupaper.server.widget;
 
+import com.harupaper.server.asset.Asset;
 import com.harupaper.server.asset.AssetRepository;
 import com.harupaper.server.common.exception.ValidationException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -15,6 +19,7 @@ import java.util.stream.Collectors;
  * 타입·범위·필수 여부·알 수 없는 키를 본다. 필드 사이의 관계처럼 스키마로 표현하지 못하는 규칙은
  * 이 검증을 전부 통과한 뒤 {@link Widget#validateProps}가 추가로 본다.
  */
+@Slf4j
 @Component
 public class WidgetPropsValidator {
 
@@ -23,18 +28,24 @@ public class WidgetPropsValidator {
     private static final int KOREA_LOCATION_LABEL_MAX_LENGTH = 50;
 
     private final AssetRepository assetRepository;
+    private final boolean ownershipStrict;
 
-    public WidgetPropsValidator(AssetRepository assetRepository) {
+    public WidgetPropsValidator(AssetRepository assetRepository,
+                                 @Value("${haru.ownership-strict:false}") boolean ownershipStrict) {
         this.assetRepository = assetRepository;
+        this.ownershipStrict = ownershipStrict;
     }
 
     /**
-     * @param widget 검증 대상 위젯 구현(descriptor.fields + validateProps 둘 다 여기서 부른다)
-     * @param props  widgets[i].props의 값(Map). null이면 그 자체로 오류
-     * @param path   오류 경로 접두사(예: "widgets[2].props") — 필드별 오류는 여기에 ".key"를 붙인다
+     * @param widget      검증 대상 위젯 구현(descriptor.fields + validateProps 둘 다 여기서 부른다)
+     * @param props       widgets[i].props의 값(Map). null이면 그 자체로 오류
+     * @param path        오류 경로 접두사(예: "widgets[2].props") — 필드별 오류는 여기에 ".key"를 붙인다
+     * @param requestUserId asset 필드 소유권 검사에 쓸 현재 사용자 id. {@code null}이면 소유권 검사를
+     *                      건너뛰고 존재 여부만 본다 — import의 리매핑 전 1차 검증처럼 곧 새 에셋으로
+     *                      대체될 값을 검증할 때만 의도적으로 null을 넘긴다(FormatController 참고).
      */
     public void validate(Widget widget, Map<String, Object> props, String path,
-                          List<ValidationException.FieldError> errors) {
+                          List<ValidationException.FieldError> errors, String requestUserId) {
         if (props == null) {
             errors.add(new ValidationException.FieldError(path, "props is required"));
             return;
@@ -55,7 +66,7 @@ public class WidgetPropsValidator {
         }
 
         for (PropField field : descriptor.fields()) {
-            validateField(field, props, path, errors);
+            validateField(field, props, path, errors, requestUserId);
         }
 
         // 필드 하나하나의 타입·범위 검증이 전부 통과했을 때만 위젯 고유 규칙을 추가로 본다 —
@@ -66,7 +77,7 @@ public class WidgetPropsValidator {
     }
 
     private void validateField(PropField field, Map<String, Object> props, String basePath,
-                                List<ValidationException.FieldError> errors) {
+                                List<ValidationException.FieldError> errors, String requestUserId) {
         String fieldPath = basePath + "." + field.key();
         Object value = props.get(field.key());
         boolean isEmpty = value == null || (value instanceof String s && s.isEmpty());
@@ -90,7 +101,7 @@ public class WidgetPropsValidator {
             }
             case ENUM -> validateEnum(field, value, fieldPath, errors);
             case KOREA_LOCATION -> validateKoreaLocation(value, fieldPath, errors);
-            case ASSET -> validateAsset(field, value, fieldPath, errors);
+            case ASSET -> validateAsset(field, value, fieldPath, errors, requestUserId);
         }
     }
 
@@ -178,12 +189,41 @@ public class WidgetPropsValidator {
         }
     }
 
-    private void validateAsset(PropField field, Object value, String path, List<ValidationException.FieldError> errors) {
+    /**
+     * 존재 여부 + 소유권을 함께 본다(2026-09-19 — 이전엔 existsById만 봐서, assetId(uuid)를 알면
+     * 남의 이미지를 자기 포맷에 렌더할 수 있었다). 규칙은 DeviceSyncController.assertOwnership과
+     * 동일: 소유자 NULL이면 strict일 때만 거부(레거시 에셋, claim-legacy 전), 불일치는 항상 거부.
+     * 오류 메시지는 "존재하지 않음"과 "소유가 아님"을 구분하지 않는다 — 존재·소유 여부를 응답으로
+     * 알려주지 않으려는 것(NotFoundException과 같은 취지).
+     */
+    private void validateAsset(PropField field, Object value, String path,
+                                List<ValidationException.FieldError> errors, String requestUserId) {
         if (!(value instanceof String assetId)) {
             errors.add(new ValidationException.FieldError(path, field.key() + " must be a string"));
             return;
         }
-        if (!assetRepository.existsById(assetId)) {
+        Optional<Asset> assetOpt = assetRepository.findById(assetId);
+        if (assetOpt.isEmpty()) {
+            errors.add(new ValidationException.FieldError(path, "asset not found: " + assetId));
+            return;
+        }
+        if (requestUserId == null) {
+            // import 리매핑 전 1차 검증 등 — 소유권 검사를 의도적으로 건너뛰는 호출부(문서 참고)
+            return;
+        }
+        String ownerUserId = assetOpt.get().getOwnerUserId();
+        if (ownerUserId == null) {
+            if (ownershipStrict) {
+                log.error("ASSET_OWNER_NULL asset={} — owner_user_id가 NULL이다. " +
+                        "V4 백필/claim-legacy가 끝난 뒤라면 버그다", assetId);
+                errors.add(new ValidationException.FieldError(path, "asset not found: " + assetId));
+                return;
+            }
+            log.warn("Asset {} has no owner_user_id (claim-legacy 전 레거시) — strict=false라 허용, " +
+                    "요청자={}", assetId, requestUserId);
+            return;
+        }
+        if (!ownerUserId.equals(requestUserId)) {
             errors.add(new ValidationException.FieldError(path, "asset not found: " + assetId));
         }
     }
