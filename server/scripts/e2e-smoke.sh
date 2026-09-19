@@ -21,7 +21,8 @@
 #  8 설정(Settings) GET/PUT — 사용자별로 분리되는가
 #  9 기기 토큰 발급 → Pi poll 인증 / 페어링 코드 발급 → pair 소비 → 재사용 거부
 # 10 기기 정보(GET/PATCH /api/devices/me)
-# 11 지금 인쇄(print-now) → 이력(history)에 사용자 스코핑으로 나타나는가
+# 11 지금 인쇄(print-now) → 이력(history)에 사용자 스코핑으로 나타나는가, 이력의 렌더
+#    이미지(GET /{resultId}/render.png)도 소유자만 볼 수 있는가(2026-09-19 추가)
 # 12 관리자: 목록·정지·임시비밀번호·레거시 소유권 이전 (DB 접근 가능할 때만)
 # 13 관리자 API 접근 제어(일반 사용자 403)
 # 14 로그아웃 → 세션 종료 확인
@@ -417,6 +418,7 @@ device_token=$(echo "$resp" | jq -r '.token // empty')
 print_body="{\"formatId\":\"$format_id\",\"paperConfirmed\":true}"
 resp=$(req "$jarA" POST "/api/print-now" -d "$print_body")
 command_id=$(echo "$resp" | jq -r '.commandId // empty')
+render_id=$(echo "$resp" | jq -r '.renderId // empty')
 if [ -n "$command_id" ]; then
   ok "A가 지금 인쇄 명령 생성 (commandId=$command_id, 렌더 포함이라 몇 초 걸릴 수 있음)"
 else
@@ -431,7 +433,7 @@ if [ -n "$command_id" ] && [ -n "$device_token" ]; then
   result_id="e2e-result-$RUN_ID"
   code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/api/device/results" \
     -H "Authorization: Bearer $device_token" -H "Content-Type: application/json" \
-    -d "{\"results\":[{\"resultId\":\"$result_id\",\"commandId\":\"$command_id\",\"formatId\":\"$format_id\",\"status\":\"printed\",\"executedAt\":\"$now_iso\"}]}")
+    -d "{\"results\":[{\"resultId\":\"$result_id\",\"commandId\":\"$command_id\",\"formatId\":\"$format_id\",\"renderId\":\"$render_id\",\"status\":\"printed\",\"executedAt\":\"$now_iso\"}]}")
   assert_status "Pi가 인쇄 결과 업로드" 200 "$code"
 
   resp=$(req "$jarA" GET "/api/history?limit=10")
@@ -440,6 +442,11 @@ if [ -n "$command_id" ] && [ -n "$device_token" ]; then
   else
     bad "이력에 결과가 안 보인다: $resp"
   fi
+  if echo "$resp" | jq -e "any(.[]; .resultId == \"$result_id\" and .renderAvailable == true)" >/dev/null 2>&1; then
+    ok "이력 항목의 renderAvailable=true"
+  else
+    bad "renderAvailable이 true가 아니다: $resp"
+  fi
 
   resp=$(req "$jarB" GET "/api/history?limit=10")
   if ! echo "$resp" | jq -e "any(.[]; .resultId == \"$result_id\")" >/dev/null 2>&1; then
@@ -447,6 +454,20 @@ if [ -n "$command_id" ] && [ -n "$device_token" ]; then
   else
     bad "B가 A의 이력을 보게 된다 — 이력 소유권 분리 실패"
   fi
+
+  # GET /api/history/{resultId}/render.png — 그날 실제로 나간 렌더(2026-09-19 추가)
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -b "$jarA" "$BASE_URL/api/history/$result_id/render.png")
+  assert_status "A가 자기 이력의 렌더 이미지를 받는다" 200 "$code"
+
+  content_type=$(curl -sS -o /dev/null -w '%{content_type}' -b "$jarA" "$BASE_URL/api/history/$result_id/render.png")
+  if [[ "$content_type" == image/png* ]]; then
+    ok "렌더 이미지 Content-Type이 image/png ($content_type)"
+  else
+    bad "렌더 이미지 Content-Type이 이상함: $content_type"
+  fi
+
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -b "$jarB" "$BASE_URL/api/history/$result_id/render.png")
+  assert_status "B는 A의 이력 렌더 이미지를 못 본다" 404 "$code"
 
   code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/api/device/results" \
     -H "Authorization: Bearer $device_token" -H "Content-Type: application/json" \

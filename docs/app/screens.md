@@ -202,8 +202,9 @@
 **목적**: 예약 실행·지금 인쇄 결과를 확인한다. Pi가 오프라인이었다면 복구 후 한꺼번에 올라온다.
 
 **표시 요소**
-- 결과 목록(최신순): 상태 라벨(색), 포맷 이름, 예약 시각(`scheduledAt`) / 실행 시각(`executedAt`), 구분(`source`: `schedule` = 예약 / `command` = 지금 인쇄), `detail`(있으면 펼쳐 보기)
+- 결과 목록(최신순): **결과 렌더 썸네일**(72×72, `renderAvailable`일 때만 — [확인됨·코드, 2026-09-19]), 상태 라벨(색), 포맷 이름, 예약 시각(`scheduledAt`) / 실행 시각(`executedAt`), 구분(`source`: `schedule` = 예약 / `command` = 지금 인쇄), `detail`(있으면 펼쳐 보기)
 - 필터 [기본값]: 전체 / 인쇄됨 / 문제 있음(printed·dry_run 외)
+- **썸네일 탭 → 확대 시트**[확인됨·코드]: 기존 `BottomSheet` 재사용, 그 실행 시점 렌더 전체 이미지(`GET /api/history/{resultId}/render.png`) — 포맷 상세의 미리보기와 달리 **지금 다시 렌더하지 않는다**. 썸네일 3상태: 렌더 있음(탭 가능) / `renderId` 없음("인쇄물 없음", `dry_run`·`missed`·`skipped_*`는 애초에 렌더가 없다) / `renderId`는 있지만 보관 기간(7일) 지나 삭제됨("보관 기간이 지나 삭제됨") — 뒤 두 상태는 `<div>`로 탭 불가
 
 **상태 라벨** (`status` 7종, init_plan 6.5)
 | status | 한국어 라벨 | 의미 | 색 [기본값] |
@@ -219,10 +220,13 @@
 **사용자 동작**
 | 동작 | API |
 |---|---|
-| 목록 로드·새로고침 | `GET /api/history` (당겨서 새로고침 [기본값]) |
+| 목록 로드·새로고침 | `GET /api/history`. **2026-09-19부터 react-query**(`queryKey: ['history']`)로 전환 — 이 화면만 유일하게 수동 `useState`+`useEffect`였다 |
+| 썸네일 탭 → 확대 | `GET /api/history/{resultId}/render.png` |
 
 **빈 상태**: "아직 실행 기록이 없습니다."
-**오류 상태**: 로드 실패 시 공통 연결 오류 배너
+**오류 상태**: 로드 실패 시 공통 연결 오류 배너. 썸네일 이미지 로드 실패(`onError`)는 "보관 기간이 지나 삭제됨"으로 대체(정리 스케줄러가 목록 조회와 이미지 요청 사이에 돌 수 있어 `renderAvailable`만으로는 완전히 막지 못한다)
+
+**범위 밖(부채로 기록)**: `limit`/`before` 페이지네이션 미구현 — 이력이 많으면 썸네일 요청이 한꺼번에 나간다(`loading="lazy"`로 완화). `HistoryController`의 `formatName` 조회가 결과당 `findById`인 N+1도 그대로다.
 
 ---
 

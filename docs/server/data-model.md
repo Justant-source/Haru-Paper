@@ -103,6 +103,12 @@
 - 인덱스: `idx_renders_lookup (format_id, target_date, profile_key, rendered_at)`
 - 같은 `(format_id, target_date, profile_key)`에 여러 행이 있을 수 있다. **가장 최근 `rendered_at`이 유효**
 - 정리 규칙은 [`rendering.md`](rendering.md) 5절
+- **접근 경로 3가지**(2026-09-19 기준): ① `GET /api/formats/{id}/preview.png` — **지금 다시 렌더**(오늘
+  데이터), 행·파일을 새로 만들 수 있다 ② `GET /api/device/renders/{id}.png`·`.pbm` — Pi 전용 Bearer,
+  `DeviceSyncController.assertOwnership`으로 기기 소유자와 대조 ③ `GET /api/history/{resultId}/render.png`
+  (신설) — 세션 인증, `Result.ownerUserId` → `Render.ownerUserId` 2단계 검사(`RenderOwnership`,
+  ②와 같은 규칙을 공유). ②·③ 모두 렌더를 **다시 만들지 않고** 저장된 파일을 그대로 낸다 —
+  ①과의 차이가 "그날 실제로 나간 것"과 "지금 다시 그린 것"을 가른다
 
 ### `commands`
 

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { historyApi } from '../api/history'
 import { Badge, type BadgeTone } from '../components/Badge'
+import { BottomSheet } from '../components/BottomSheet'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
@@ -29,27 +31,18 @@ function statusTone(status: ResultStatus): BadgeTone {
 
 export function HistoryPage() {
   const { t } = useI18n()
-  const [entries, setEntries] = useState<HistoryEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<unknown>(null)
   const [filter, setFilter] = useState<'all' | 'printed' | 'problem'>('all')
 
-  const loadHistory = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const res = await historyApi.list()
-      setEntries(res)
-    } catch (e) {
-      setError(e)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadHistory()
-  }, [])
+  const {
+    data: entries = [],
+    isLoading: loading,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery({
+    queryKey: ['history'],
+    queryFn: () => historyApi.list(),
+  })
 
   const filteredEntries = entries.filter((entry) => {
     if (filter === 'all') return true
@@ -63,13 +56,13 @@ export function HistoryPage() {
       <PageHeader
         title={t('history')}
         action={
-          <Button variant="secondary" onClick={loadHistory} disabled={loading}>
-            {loading ? t('refreshing') : t('refresh')}
+          <Button variant="secondary" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? t('refreshing') : t('refresh')}
           </Button>
         }
       />
 
-      <ErrorBanner error={error} onRetry={loadHistory} />
+      <ErrorBanner error={error} onRetry={() => refetch()} />
 
       {loading && entries.length === 0 ? (
         <p>{t('loading')}</p>
@@ -118,6 +111,7 @@ export function HistoryPage() {
 
 function HistoryEntryCard({ entry }: { entry: HistoryEntry }) {
   const { t } = useI18n()
+  const [sheetOpen, setSheetOpen] = useState(false)
   const status = entry.status
   const statusLabel = STATUS_LABELS_KO[status] ?? status
   const sourceLabel = entry.source === 'schedule' ? t('sourceSchedule') : t('sourceCommand')
@@ -125,6 +119,7 @@ function HistoryEntryCard({ entry }: { entry: HistoryEntry }) {
   return (
     <Card>
       <div className="entry-header">
+        <HistoryThumb entry={entry} onExpand={() => setSheetOpen(true)} />
         <div className="entry-info">
           <div className="entry-title">
             <Badge tone={statusTone(status)}>{statusLabel}</Badge>
@@ -146,6 +141,54 @@ function HistoryEntryCard({ entry }: { entry: HistoryEntry }) {
           <div className="detail-content">{entry.detail}</div>
         </details>
       )}
+
+      <BottomSheet
+        open={sheetOpen}
+        title={entry.formatName ?? '인쇄 결과'}
+        onClose={() => setSheetOpen(false)}
+      >
+        <div className="history-render-sheet">
+          <div className="paper-frame">
+            <img src={historyApi.renderUrl(entry.resultId)} alt="" />
+          </div>
+          <div className="entry-time">
+            실행 {entry.executedAt ? formatDateTimeKo(entry.executedAt) : '-'}
+          </div>
+        </div>
+      </BottomSheet>
     </Card>
+  )
+}
+
+/** 렌더 유무 3상태(있음 / renderId 자체가 없음 / 있었는데 정리됨)를 구분해 보여준다. */
+function HistoryThumb({ entry, onExpand }: { entry: HistoryEntry; onExpand: () => void }) {
+  const [failed, setFailed] = useState(false)
+
+  if (!entry.renderId) {
+    return (
+      <div className="history-thumb history-thumb-empty">
+        <span>인쇄물 없음</span>
+      </div>
+    )
+  }
+
+  if (!entry.renderAvailable || failed) {
+    return (
+      <div className="history-thumb history-thumb-empty">
+        <span>보관 기간이 지나 삭제됨</span>
+      </div>
+    )
+  }
+
+  return (
+    <button type="button" className="history-thumb-btn" onClick={onExpand} aria-label="인쇄 결과 확대 보기">
+      <img
+        src={historyApi.renderUrl(entry.resultId)}
+        alt=""
+        className="history-thumb"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    </button>
   )
 }

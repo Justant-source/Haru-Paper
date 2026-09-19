@@ -23,6 +23,9 @@ export interface HistoryEntry {
   scheduledAt: string | null
   executedAt: string
   source: ResultSource
+  // renderId가 있어도 7일 지나면 RenderCleanupScheduler가 지운다 — 이게 true일 때만
+  // historyApi.renderUrl(resultId)를 걸어도 깨지지 않는다(2026-09-19 추가).
+  renderAvailable: boolean
 }
 
 export const STATUS_LABELS_KO: Record<ResultStatus, string> = {

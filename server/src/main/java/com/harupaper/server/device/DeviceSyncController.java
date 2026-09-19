@@ -3,6 +3,7 @@ package com.harupaper.server.device;
 import com.harupaper.server.common.exception.NotFoundException;
 import com.harupaper.server.common.exception.ValidationException;
 import com.harupaper.server.render.Render;
+import com.harupaper.server.render.RenderOwnership;
 import com.harupaper.server.render.RenderRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -184,20 +185,10 @@ public class DeviceSyncController {
         if (device == null) {
             throw new NotFoundException("Render not found: " + renderId);
         }
-        String renderOwnerId = render.getOwnerUserId();
-        if (renderOwnerId == null) {
-            if (ownershipStrict) {
-                log.error("RENDER_OWNER_NULL render={} device={} — owner_user_id가 NULL이다. " +
-                        "V4 백필/claim-legacy가 끝난 뒤라면 버그다", renderId, device.getId());
-                throw new NotFoundException("Render not found: " + renderId);
-            }
-            log.warn("Render {} has no owner_user_id (V4 백필 전 레거시) — " +
-                    "strict=false라 허용, device={}", renderId, device.getId());
-            return;
-        }
-        if (!renderOwnerId.equals(device.getOwnerUserId())) {
-            throw new NotFoundException("Render not found: " + renderId);
-        }
+        // 규칙 본문은 RenderOwnership으로 옮겼다(2026-09-19) — HistoryController(이력 렌더 이미지)도
+        // 같은 규칙을 쓴다.
+        RenderOwnership.assertAccessible(render, renderId, device.getOwnerUserId(), ownershipStrict,
+                "device=" + device.getId());
     }
 
     /**

@@ -24,7 +24,7 @@
 | `AssetController` | `POST /api/assets`, `GET /api/assets/{assetId}` | 세션 |
 | `ScheduleController` | `/api/schedules`, `/api/schedules/{id}` | 세션 |
 | `PrintNowController` | `POST /api/print-now` | 세션 |
-| `HistoryController` | `GET /api/history` | 세션 |
+| `HistoryController` | `GET /api/history`, `GET /api/history/{resultId}/render.png`(2026-09-19 신설) | 세션 |
 | `WidgetController` | `GET /api/widgets`(위젯 카탈로그: grid + descriptors, 2026-09-18 신설) | 세션 |
 | `KoreaLocationController` | `GET /api/widgets/locations`(대한민국 시·군·구 285개, 2026-09-18 신설) | 세션 |
 | `DeviceController`(단수, 앱+무인증 혼재) | `GET /api/device`(세션), `PUT /api/device/paper-state`(세션), `POST /api/device/pair`(**없음** — 코드가 인증) | 혼재 |
@@ -144,6 +144,19 @@ Pi가 한 번도 poll하지 않았으면 `devices.printer_profile`이 없다. �
 - `GET /api/history?limit=50&before=<executedAt ISO>` [기본값]
 - `executedAt` 내림차순. 포맷이 아직 있으면 `formatName`을 붙여 준다
 - 각 항목에 `source`: `occurrenceKey`가 있으면 `"schedule"`, `commandId`가 있으면 `"command"`(규약)
+- 각 항목에 `renderAvailable`(boolean, 2026-09-19 추가): `renderId`가 있고 그 `Render` 행이 아직 남아
+  있으면 `true` — `RenderCleanupScheduler`가 7일 지난 `scheduled` 렌더를 지우므로, `renderId`만 보고
+  `GET .../render.png`를 걸면 404가 날 수 있다. 목록 조회 시 `RenderRepository.findAllById`로 한
+  번에 계산한다(N+1 방지)
+- `GET /api/history/{resultId}/render.png` [확인됨·코드, 2026-09-19 추가] — 그 실행 시점에 저장된
+  렌더 파일 그대로(포맷 상세의 `preview.png`처럼 **지금 다시 렌더하지 않는다**). 세션 인증, 소유권은
+  2단계: ① `Result.ownerUserId`가 현재 사용자와 다르거나 없으면 404(존재 노출 안 함) ② `Render`
+  자체의 소유권(`RenderOwnership`, `DeviceSyncController`의 렌더 다운로드와 같은 규칙 — 소유자 NULL은
+  `haru.ownership-strict=false`일 때만 허용, 불일치는 항상 거부). `renderId`가 없거나(`dry_run`·
+  `missed`·`skipped_*`) 렌더 행·파일이 없으면 404. 응답: `ETag`(렌더 sha256), `Cache-Control: private,
+  max-age=31536000`(개인 인쇄물, 공유 캐시 금지). `GET /api/device/renders/{renderId}.png`(Pi 전용
+  Bearer)와는 다른 경로다 — `DeviceTokenAuthFilter`가 `/api/device/renders/`로 시작하는 모든 GET을
+  가로채므로 세션 인증 변형을 같은 경로에 얹을 수 없다
 
 ### 기기
 
