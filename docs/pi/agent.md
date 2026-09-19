@@ -225,8 +225,8 @@ systemd의 `StateDirectory=haru-paper`로 만들고 서비스 사용자 소유�
 
 Pi 실물에서 확인된 것은 이것과 다른 사실이다: `haru-paper-agent`가 실제로 폴링에 성공하고(`POST /api/device/poll` 200) 재부팅 후에도 자동 복구된다([setup.md](setup.md) 9절) — 이는 M5 조건이지 위 a~d를 대신하지 않는다.
 
-**배포 상태(2026-09-17)**: 이 절이 설명하는 용지 게이트 fail-closed·재시도·명령 실행기·결과 업로드·시계 게이트·되돌아보기·순환 삭제 구현(`623a8dc`·`8b7194b`·`51a6a8d`)은 **아직 Pi에 배포되지 않았다** — Pi는 이 커밋들 이전 코드로 구동 중일 수 있다([확인 불가, 미검증], [setup.md](setup.md) "배포" 참고). 배포 전까지 위 a~d의 실물 검증도 당연히 시작할 수 없다.
+**배포 상태**: 이 절이 설명하는 용지 게이트 fail-closed·재시도·명령 실행기·결과 업로드·시계 게이트·되돌아보기·순환 삭제 구현(`623a8dc`·`8b7194b`·`51a6a8d`)은 **2026-09-18에 배포 완료됐다**([setup.md](setup.md) 5.4절, [확인됨·실물]) — 2026-09-17 작성 당시엔 미배포였다는 이 절의 원래 서술은 지금은 지난 이야기다.
 
-이어서 **실제 프린터**(`printer/m832` + `transport/bt`, M5에서 작성 완료)로 앱의 "지금 인쇄"(용지 확인 체크) **실물 1회** — 이 부분은 아직 검증되지 않았다. M5에서 실제로 이뤄진 실물 인쇄 1회([setup.md](setup.md) 9절)는 `M832Printer`+`BtTransport`를 직접 호출한 것이라, 여기서 말하는 **에이전트 실행기 → 앱 명령 → 서버 결과 업로드까지 이어지는 경로는 여전히 (a)~(d)와 마찬가지로 [미검증]**이다.
+이어서 **실제 프린터**(`printer/m832` + `transport/bt`, M5에서 작성 완료)로 앱의 "지금 인쇄"(용지 확인 체크) **실물 1회** — M5에서 실제로 이뤄진 실물 인쇄 1회([setup.md](setup.md) 9절)는 `M832Printer`+`BtTransport`를 직접 호출한 것이라 이 경로를 대신하지 못했지만, **2026-09-19에 앱 "지금 인쇄" → 서버 → Pi 에이전트 실행기(`agent.executor`) → 프린터 전송 → 서버 결과 업로드로 이어지는 전체 경로를 처음부터 끝까지 실물로 확인했다** [확인됨·실물]. 포맷은 "아침 브리핑"(`weather`·`stockChart`·`morningLetter` 위젯), `HARU_PAPER_POLICY=manual_flag`에서 사용자가 "용지 장착됨"을 확인 후 켠 상태로 진행. 로그: `Received command` → `Executing command` → `프린터 전송 시작: 442080 바이트` → `프린터 전송 완료` → `Executed command ...: printed` → `Finalized command ...: printed` → `Upload results: accepted=1`, 서버 `commands.status=done`·`results.status=printed`로 일치, **사용자가 종이 출력을 육안으로 확인**. 이로써 3절의 (a)~(d) 중 (c)(결과 업로드)에 해당하는 실물 증거가 처음 확보됐다 — 단 (a)(b)(d)(연결 끊김·중복 실행 방지)는 이번 시험 범위 밖이라 여전히 [미검증]이다.
 
 M4 전제: M1 통과(드라이버), M2의 device API 동작(서버, 완료). 서버가 준비되기 전에는 동기화 채널을 목(mock) 구현으로 대신해 스케줄러·실행기를 먼저 만들 수 있다.
