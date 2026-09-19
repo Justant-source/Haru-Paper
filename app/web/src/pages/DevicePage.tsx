@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { deviceApi } from '../api/device'
 import { devicesApi } from '../api/devices'
 import { timeAgoKo, formatDateTimeKo } from '../lib/date'
+import { paperPolicyDescription } from '../lib/printReadiness'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
@@ -14,6 +16,9 @@ import { useI18n } from '../i18n'
 
 export function DevicePage() {
   const { t } = useI18n()
+  const [searchParams] = useSearchParams()
+  const focusPaper = searchParams.get('focus') === 'paper'
+  const paperCardRef = useRef<HTMLDivElement>(null)
   const [paperToggleError, setPaperToggleError] = useState<string | null>(null)
   const [paperTogglePending, setPaperTogglePending] = useState(false)
   const [tokenCopied, setTokenCopied] = useState(false)
@@ -58,6 +63,14 @@ export function DevicePage() {
       setPairingCodeCountdown(Math.max(0, Math.floor((expiresAt - now) / 1000)))
     },
   })
+
+  // ?focus=paper로 들어오면(PrintBlockedBanner의 "기기 화면에서 자세히 보기") 용지 정책
+  // 카드로 스크롤하고 잠깐 강조한다.
+  useEffect(() => {
+    if (focusPaper && device && paperCardRef.current) {
+      paperCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [focusPaper, device])
 
   // 페어링 코드 카운트다운
   useEffect(() => {
@@ -135,19 +148,6 @@ export function DevicePage() {
     }
   }
 
-  const getPolicyDescription = (policy: string | null) => {
-    switch (policy) {
-      case 'unverified':
-        return '프린터 용지 감지가 아직 확인되지 않음. 예약 인쇄는 모의 실행만 기록하고, 지금 인쇄만 사람 확인 후 전송'
-      case 'status_query':
-        return 'Pi가 인쇄 직전 프린터에 상태를 물어 용지 확인'
-      case 'manual_flag':
-        return '서버의 수동 "용지 장착됨" 상태가 켜져 있을 때만 무인 인쇄'
-      default:
-        return '정책 없음'
-    }
-  }
-
   const isPaperStateDisabled = device?.paperPolicy !== 'manual_flag'
   const currentPaperLoaded = device?.paperState?.loaded ?? false
 
@@ -210,10 +210,10 @@ export function DevicePage() {
               )}
             </Card>
 
-            <Card>
+            <Card ref={paperCardRef} className={focusPaper ? 'device-card-focus' : ''}>
               <h2 className="sheet-title">용지 정책</h2>
               <p>{device!.paperPolicy || '정책 없음'}</p>
-              <p>{getPolicyDescription(device!.paperPolicy)}</p>
+              <p>{paperPolicyDescription(device!.paperPolicy)}</p>
               <div className="row">
                 <div>
                   <div>용지 장착됨</div>

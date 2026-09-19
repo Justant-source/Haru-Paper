@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { deviceApi } from '../api/device'
 import { formatsApi } from '../api/formats'
 import { printNowApi } from '../api/printNow'
 import { Button } from '../components/Button'
@@ -9,10 +8,11 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
 import type { FormatSummary } from '../types/format'
-import type { DeviceResponse, PaperPolicy } from '../types/device'
 import { formatDateTimeKo, timeAgoKo } from '../lib/date'
 import { useI18n } from '../i18n'
 import { track } from '../lib/analytics'
+import { useDeviceStatus } from '../hooks/useDeviceStatus'
+import { paperPolicyDescription } from '../lib/printReadiness'
 
 export function PrintNowPage() {
   const { t } = useI18n()
@@ -21,22 +21,26 @@ export function PrintNowPage() {
   const initialFormatId = searchParams.get('formatId') || undefined
 
   const [formats, setFormats] = useState<FormatSummary[]>([])
-  const [device, setDevice] = useState<DeviceResponse | null>(null)
   const [selectedFormatId, setSelectedFormatId] = useState<string>('')
   const [paperConfirmed, setPaperConfirmed] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [formatsLoading, setFormatsLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [sending, setSending] = useState(false)
   const [sendSuccess, setSendSuccess] = useState(false)
 
+  // 기기 상태는 홈·예약과 캐시를 공유하는 공용 훅으로(lib/printReadiness.ts 참고).
+  // 포맷 목록과 로딩 소스가 둘로 갈리므로, 페이지 진입 첫 화면은 둘 다 끝난 뒤에 그린다
+  // (기존처럼 Promise.all로 한 번에 기다리던 것과 같은 체감 — 따로 다루면 기기 패널이
+  // 늦게 팝인하며 깜빡인다).
+  const { data: device, isLoading: deviceLoading, error: deviceError } = useDeviceStatus()
+
   useEffect(() => {
-    const loadData = async () => {
+    const loadFormats = async () => {
       try {
         setError(null)
-        const [formatsRes, deviceRes] = await Promise.all([formatsApi.list(), deviceApi.get()])
+        const formatsRes = await formatsApi.list()
 
         setFormats(formatsRes)
-        setDevice(deviceRes)
 
         if (initialFormatId && formatsRes.some((f) => f.id === initialFormatId)) {
           setSelectedFormatId(initialFormatId)
@@ -46,12 +50,15 @@ export function PrintNowPage() {
       } catch (e) {
         setError(e)
       } finally {
-        setLoading(false)
+        setFormatsLoading(false)
       }
     }
 
-    loadData()
+    loadFormats()
   }, [initialFormatId])
+
+  const loading = formatsLoading || deviceLoading
+  const displayError = error ?? deviceError
 
   const handlePrintNow = async () => {
     if (!selectedFormatId) return
@@ -86,8 +93,8 @@ export function PrintNowPage() {
     return (
       <div className="page page-with-header">
         <PageHeader title={t('tabPrintNow')} />
-        <ErrorBanner error={error} onRetry={() => window.location.reload()} />
-        {!error && (
+        <ErrorBanner error={displayError} onRetry={() => window.location.reload()} />
+        {!displayError && (
           <EmptyState
             message={t('needFormatFirst')}
             actionLabel="포맷 만들기"
@@ -147,7 +154,7 @@ export function PrintNowPage() {
       <PageHeader title={t('tabPrintNow')} />
 
       <div className="stack">
-        <ErrorBanner error={error} onRetry={() => window.location.reload()} />
+        <ErrorBanner error={displayError} onRetry={() => window.location.reload()} />
 
         {device && (
         <Card>
@@ -165,7 +172,7 @@ export function PrintNowPage() {
           </div>
           <div className="status-row">
             <span className="label">용지 정책:</span>
-            <span className="value">{getPaperPolicyLabel(paperPolicy)}</span>
+            <span className="value">{paperPolicyDescription(paperPolicy)}</span>
           </div>
         </Card>
       )}
@@ -231,19 +238,4 @@ export function PrintNowPage() {
       </div>
     </div>
   )
-}
-
-function getPaperPolicyLabel(policy: PaperPolicy): string {
-  switch (policy) {
-    case 'unverified':
-      return '프린터 용지 감지가 아직 확인되지 않음. 예약 인쇄는 dry_run 기록만 하고, 지금 인쇄만 사람 확인 후 전송'
-    case 'status_query':
-      return 'Pi가 인쇄 직전 프린터에 상태를 물어 용지 확인'
-    case 'manual_flag':
-      return '서버의 수동 "용지 장착됨" 상태가 켜져 있을 때만 무인 인쇄'
-    case null:
-      return '미확인'
-    default:
-      return policy
-  }
 }

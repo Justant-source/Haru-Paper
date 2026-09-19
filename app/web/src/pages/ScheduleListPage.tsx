@@ -10,6 +10,7 @@ import { formatDateKo, formatDateTimeKo, nowKstTimeString, todayKstDateString } 
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
+import { PrintBlockedBanner } from '../components/PrintBlockedBanner'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { BottomSheet } from '../components/BottomSheet'
@@ -295,6 +296,7 @@ export function ScheduleListPage() {
           onRetry={lastToggle ? () => toggleMutation.mutate(lastToggle) : undefined}
         />
       )}
+      <PrintBlockedBanner />
     </>
   )
 

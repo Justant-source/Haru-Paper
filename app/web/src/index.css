@@ -251,6 +251,25 @@ textarea:focus-visible {
   min-height: var(--tap);
 }
 
+/* PrintBlockedBanner의 "기기 화면에서 자세히 보기"(?focus=paper)로 스크롤된 카드 강조 */
+.device-card-focus {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+}
+
+/* 시트 안 인쇄 막힘 항목 카드: 상단 .banner는 가로 배지형이라 세로로 쌓이게 오버라이드 */
+.print-blocked-issue {
+  display: block;
+  margin-bottom: 0;
+}
+.print-blocked-issue p { margin: 4px 0 0; }
+.print-blocked-steps {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+.print-blocked-steps li { margin-bottom: 4px; }
+
 .empty-state {
   text-align: center;
   color: var(--text-secondary);

@@ -36,12 +36,13 @@ export interface PaperState {
 }
 
 export interface DeviceResponse {
-  deviceId: string
+  deviceId: string | null
   online: boolean
   lastPollAt: string | null
   agentVersion: string | null
   printerProfile: PrinterProfile | null
   printerStatus: PrinterStatus | null
   paperPolicy: PaperPolicy
-  paperState: PaperState
+  // Pi가 한 번도 페어링되지 않았으면 서버가 null을 준다(DeviceController.getDevice, 미페어링 분기).
+  paperState: PaperState | null
 }

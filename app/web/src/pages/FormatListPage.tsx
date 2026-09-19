@@ -7,6 +7,7 @@ import { formatDateTimeKo } from '../lib/date'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
+import { PrintBlockedBanner } from '../components/PrintBlockedBanner'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { Badge } from '../components/Badge'
@@ -125,6 +126,7 @@ export function FormatListPage() {
       />
 
       <ErrorBanner error={error} onRetry={() => refetch()} />
+      <PrintBlockedBanner />
 
       {isLoading ? (
         <p>{t('loading')}</p>
